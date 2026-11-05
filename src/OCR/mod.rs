@@ -575,7 +575,7 @@ pub fn extract_hardcoded_subtitles(
         .ok()
         .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<f64>().ok())
         .unwrap_or(600.0);
-    let total_frames = (total_duration_sec * config.fps as f64).round() as usize;
+
 
     // Tính kích thước frame crop ROI
     let crop_w = (((src_w as f32 * (config.roi.x_max - config.roi.x_min)).round() as usize) / 2) * 2;
@@ -613,7 +613,7 @@ pub fn extract_hardcoded_subtitles(
 
     let dt = 1.0 / (config.fps as f64);
     let mut frame_idx = 0usize;
-    let start_instant = std::time::Instant::now();
+
 
     let mut segments: Vec<SubtitleSegment> = Vec::new();
 
@@ -636,105 +636,56 @@ pub fn extract_hardcoded_subtitles(
     }
 
     let mut current_session: Option<CueSession> = None;
-    let mut empty_streak = 0usize;
-    let mut prev_had_candidates = false;
-    // ✅ Biến mới: đếm số frame liên tiếp OCR fail dù có candidate (safety valve)
+
     let mut ocr_fail_streak = 0usize;
 
-    crate::shared::tui_events::emit_log(format!("   {} Đang quét và nhận diện chữ từ khung hình video...", "[OCR]".name_utils().violed()));
 
     while stdout.read_exact(&mut current_frame).is_ok() {
         let timestamp = frame_idx as f64 * dt;
         frame_idx += 1;
 
-        // Cập nhật Progress Bar lên giao diện TUI mỗi 16 frames (khoảng mỗi giây)
-        if frame_idx % 16 == 0 || frame_idx == 1 {
-            let elapsed_sec = start_instant.elapsed().as_secs();
-            let dur_str = format!("{:02}:{:02}", elapsed_sec / 60, elapsed_sec % 60);
-            let status_msg = format!("Đã bắt {} câu phụ đề", segments.len());
-            crate::shared::tui_events::emit_task_progress(
-                "OCR Hardsub Video",
-                frame_idx.min(total_frames),
-                total_frames.max(frame_idx),
-                "frames",
-                dur_str,
-                status_msg,
-            );
-        }
-
-        // Kiểm tra nhanh sự hiện diện của điểm ảnh chữ phụ đề ở vùng trung tâm (thăm dò siêu nhanh <0.02ms)
-        let has_subtitle_candidates = {
-            let mut count = 0usize;
-            let y_start = crop_h / 4;
-            let y_end = crop_h.saturating_sub(4);
-            let x_start = crop_w / 6;
-            let x_end = (crop_w * 5) / 6;
-            for y in (y_start..y_end).step_by(4) {
-                let y_stride = y * crop_w;
-                for x in (x_start..x_end).step_by(6) {
-                    let idx = (y_stride + x) * 3;
-                    let r = current_frame[idx];
-                    let g = current_frame[idx + 1];
-                    let b = current_frame[idx + 2];
-                    if r > 140 && g > 140 && b > 140 { // ✅ Hạ từ 145 xuống 130
-                        count += 1;
-                        if count >= 3 { // ✅ Hạ từ 4 xuống 3
-                            break;
-                        }
-                    }
-                }
-                if count >= 3 {
-                    break;
-                }
-            }
-            count >= 3
-        };
-
-        // Tính toán mức độ biến thiên pixel (MSE) giữa 2 frame liên tiếp
-        let _is_scene_change = if !has_prev {
-            true
-        } else {
+        // 1. Tính toán mức độ biến thiên (MSE) để bỏ qua các frame tĩnh (tăng tốc độ)
+        let mut is_scene_change = true;
+        if has_prev {
             let mut diff_sum: u64 = 0;
-            let step = 12usize;
-            let mut sample_count = 0usize;
+            let step = 24; // Lấy mẫu thưa để tính nhanh
+            let mut sample_count = 0;
             for i in (0..frame_bytes).step_by(step) {
                 let d = (current_frame[i] as i32 - prev_frame[i] as i32).abs() as u64;
                 diff_sum += d;
                 sample_count += 1;
             }
             let avg_diff = diff_sum as f32 / (sample_count as f32 * 255.0);
-            avg_diff > config.diff_threshold
-        };
+            // Nếu frame gần như không đổi, không cần chạy lại AI
+            is_scene_change = avg_diff > 0.015;
+        }
+        prev_frame.copy_from_slice(&current_frame);
 
-        let should_ocr = has_subtitle_candidates;
+        // 2. Quyết định xem có nên chạy OCR không
+        // Chạy OCR nếu: Frame có biến thiên HOẶC đang có sub hiển thị (để bắt chính xác lúc sub tắt)
+        let should_ocr = is_scene_change || current_session.is_some();
 
         if should_ocr {
-            // Nhận diện OCR trực tiếp trên khung hình với Pure-Rust CLAHE + Soft Contrast Tuning
-            let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h, config.accuracy_mode, &det_engine).unwrap_or_default();
+            let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h, true, &det_engine).unwrap_or_default();
             let recognized = rec.text;
 
             if recognized.is_empty() {
-                // ✅ Candidate hiện diện nhưng OCR không đọc được → KHÔNG đóng session,
-                //    chỉ cần gia hạn last_seen_sec (sub có thể đang fade-in hoặc mờ nhẹ).
+                // AI không đọc được chữ
+                ocr_fail_streak += 1;
                 if let Some(session) = current_session.as_mut() {
+                    // Nếu đang có session, gia hạn thêm chút thời gian chờ
                     session.last_seen_sec = timestamp;
                 }
-                ocr_fail_streak += 1;
-                // Safety valve: OCR fail 12 frame liên tiếp (~1.5s ở 8fps) → đóng session
-                    if ocr_fail_streak >= 6 { // ✅ Giảm từ 12 xuống 6 (0.5 giây)
+                // Nếu fail quá 8 frame (~0.6s), đóng session
+                if ocr_fail_streak >= 8 {
                     if let Some(session) = current_session.take() {
-                        let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
-                        if end_sec > session.start_sec + 0.5 {
+                        let end_sec = session.last_seen_sec + dt * 0.5;
+                        if end_sec > session.start_sec + 0.3 {
                             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                                 if !best_text.is_empty() {
                                     let cue_idx = segments.len() + 1;
-                                    let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
-                                    let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
-                                    segments.push(SubtitleSegment {
-                                        start_sec: session.start_sec,
-                                        end_sec,
-                                        text: best_text,
-                                    });
+                                    let _ = save_rgb_as_bmp(&frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)), &session.sample_clahe, session.sample_w, session.sample_h);
+                                    segments.push(SubtitleSegment { start_sec: session.start_sec, end_sec, text: best_text });
                                 }
                             }
                         }
@@ -742,22 +693,17 @@ pub fn extract_hardcoded_subtitles(
                     ocr_fail_streak = 0;
                 }
             } else {
-                empty_streak = 0;
+                // AI đọc được chữ
+                
                 ocr_fail_streak = 0;
                 match current_session.as_mut() {
                     Some(session) => {
-                        // Lấy biến thể có tần suất cao nhất hiện tại để đối chiếu độ tương đồng
-                        let dominant_text = session
-                            .candidates
-                            .iter()
-                            .max_by_key(|(_, count)| *count)
-                            .map(|(k, _)| k.as_str())
-                            .unwrap_or("");
+                        let dominant_text = session.candidates.iter().max_by_key(|(_, count)| *count).map(|(k, _)| k.as_str()).unwrap_or("");
                         let sim = text_similarity(dominant_text, &recognized);
                         let threshold = dynamic_similarity_threshold(dominant_text, &recognized);
 
                         if sim >= threshold {
-                            // Cùng một câu phụ đề đang hiển thị: tích lũy phiếu bầu và kéo dài thời gian
+                            // Cùng một câu sub: kéo dài thời gian
                             session.last_seen_sec = timestamp;
                             let count = session.candidates.entry(recognized.clone()).or_insert(0);
                             *count += 1;
@@ -768,54 +714,40 @@ pub fn extract_hardcoded_subtitles(
                                 session.sample_h = rec.height;
                             }
                         } else {
-                            // Câu mới xuất hiện: đóng session cũ và mở session mới
-                            let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
+                            // Sub mới xuất hiện: đóng session cũ, mở session mới
+                            let end_sec = session.last_seen_sec + dt * 0.5;
                             let last_seg_end = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
-                            let old_end = end_sec.max(last_seg_end);
-                            let new_start = timestamp.max(old_end + 0.01);
+                            let new_start = timestamp.max(end_sec.max(last_seg_end) + 0.01);
+
                             let old_session = current_session.replace(CueSession {
                                 start_sec: new_start,
                                 last_seen_sec: timestamp,
-                                candidates: {
-                                    let mut map = std::collections::HashMap::new();
-                                    map.insert(recognized, 1);
-                                    map
-                                },
+                                candidates: { let mut m = std::collections::HashMap::new(); m.insert(recognized, 1); m },
                                 sample_raw: rec.raw_patch,
                                 sample_clahe: rec.clahe_patch,
                                 sample_w: rec.width,
                                 sample_h: rec.height,
                             }).unwrap();
 
-                            if end_sec > old_session.start_sec + 0.35 {
+                            if end_sec > old_session.start_sec + 0.3 {
                                 if let Some((best_text, _)) = old_session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                                     if !best_text.is_empty() {
                                         let cue_idx = segments.len() + 1;
-                                        let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
-                                        let _ = save_rgb_as_bmp(&cue_bmp, &old_session.sample_clahe, old_session.sample_w, old_session.sample_h);
-
-                                        segments.push(SubtitleSegment {
-                                            start_sec: old_session.start_sec,
-                                            end_sec,
-                                            text: best_text,
-                                        });
+                                        let _ = save_rgb_as_bmp(&frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)), &old_session.sample_clahe, old_session.sample_w, old_session.sample_h);
+                                        segments.push(SubtitleSegment { start_sec: old_session.start_sec, end_sec, text: best_text });
                                     }
                                 }
                             }
                         }
                     }
                     None => {
+                        // Bắt đầu session mới hoàn toàn
                         let min_start = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
-                        // ✅ Dùng trực tiếp timestamp hiện tại lùi 1 frame
-                        let base_start = (timestamp - dt).max(0.0).max(min_start);
+                        let base_start = timestamp.max(min_start);
                         current_session = Some(CueSession {
                             start_sec: base_start,
                             last_seen_sec: timestamp,
-                            candidates: {
-                                let mut map = std::collections::HashMap::new();
-                                map.insert(recognized, 1);
-                                map
-                            },
+                            candidates: { let mut m = std::collections::HashMap::new(); m.insert(recognized, 1); m },
                             sample_raw: rec.raw_patch,
                             sample_clahe: rec.clahe_patch,
                             sample_w: rec.width,
@@ -824,32 +756,8 @@ pub fn extract_hardcoded_subtitles(
                     }
                 }
             }
-        } else if let Some(_session) = current_session.as_mut() {
-            empty_streak += 1;
-            if empty_streak >= 2 {
-                if let Some(session) = current_session.take() {
-                    let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
-                    if end_sec > session.start_sec + 0.5 {
-                        if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
-                            if !best_text.is_empty() {
-                                let cue_idx = segments.len() + 1;
-                                let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
-                                let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
-                                segments.push(SubtitleSegment {
-                                    start_sec: session.start_sec,
-                                    end_sec,
-                                    text: best_text,
-                                });
-                            }
-                        }
-                    }
-                }
-                
-            }
-            
         }
 
-        prev_frame.copy_from_slice(&current_frame);
         has_prev = true;
     }
 
