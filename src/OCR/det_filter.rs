@@ -33,9 +33,13 @@ pub fn extract_patch_with_det(
         return Ok(None);
     }
 
-    // ✅ CHIẾN THUẬT MỚI: Chỉ lấy các box nằm ở nửa dưới màn hình (vùng sub)
-    // và gom các box nằm trên cùng một dòng ngang (chênh lệch tâm Y < 20px).
-    let mut valid_boxes = Vec::new();
+    // ✅ Vì ROI đã được crop từ mod.rs, toàn bộ ảnh này là vùng chứa sub.
+    // Ta gom TẤT CẢ các box có kích thước hợp lệ lại thành 1 hộp lớn.
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+    let mut has_box = false;
 
     for result in &results {
         let points: Vec<(f64, f64)> = result.bounding_box.exterior().points()
@@ -51,39 +55,17 @@ pub fn extract_patch_with_det(
 
         let w = b_max_x - b_min_x;
         let h = b_max_y - b_min_y;
-        let center_y = (b_min_y + b_max_y) / 2.0;
 
-        // Lọc box rác và bỏ qua box nằm ở nửa trên màn hình (UI)
-        if w < 15.0 || h < 5.0 || center_y < (height as f64 * 0.70) {
+        // Chỉ lọc các box quá nhỏ (rác)
+        if w < 15.0 || h < 5.0 {
             continue;
         }
 
-        valid_boxes.push((b_min_x, b_min_y, b_max_x, b_max_y, center_y));
-    }
-
-    if valid_boxes.is_empty() {
-        return Ok(None);
-    }
-
-    // Gom các box nằm trên cùng một dòng
-    let mut min_x = f64::MAX;
-    let mut min_y = f64::MAX;
-    let mut max_x = f64::MIN;
-    let mut max_y = f64::MIN;
-    let mut has_box = false;
-
-    // Lấy box đầu tiên làm mốc
-    let base_center_y = valid_boxes[0].4;
-
-    for (bx_min, by_min, bx_max, by_max, cy) in valid_boxes {
-        // Chỉ gom những box có cùng độ cao tương đương (cùng dòng sub)
-        if (cy - base_center_y).abs() < 20.0 {
-            has_box = true;
-            min_x = min_x.min(bx_min);
-            min_y = min_y.min(by_min);
-            max_x = max_x.max(bx_max);
-            max_y = max_y.max(by_max);
-        }
+        has_box = true;
+        min_x = min_x.min(b_min_x);
+        min_y = min_y.min(b_min_y);
+        max_x = max_x.max(b_max_x);
+        max_y = max_y.max(b_max_y);
     }
 
     if !has_box {
