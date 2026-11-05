@@ -43,7 +43,7 @@ pub fn extract_and_filter_patch(
     let mut clahe = imgproc::create_clahe(4.0, Size::new(8, 8))?;
     clahe.apply(&gray, &mut enhanced)?;
 
-    // 3. HSV mask (bắt chữ có màu / viền đậm, kể cả vàng, đỏ trên nền sáng)
+    // 3. HSV mask
     let mut hsv = Mat::default();
     imgproc::cvt_color(
         &img_large,
@@ -60,13 +60,13 @@ pub fn extract_and_filter_patch(
 
     let mut mask_s = Mat::default();
     let mut mask_v = Mat::default();
-    imgproc::threshold(s_ch, &mut mask_s, 60.0, 255.0, imgproc::THRESH_BINARY)?;
-    imgproc::threshold(v_ch, &mut mask_v, 190.0, 255.0, imgproc::THRESH_BINARY)?;
+    imgproc::threshold(&s_ch, &mut mask_s, 30.0, 255.0, imgproc::THRESH_BINARY)?;
+    imgproc::threshold(&v_ch, &mut mask_v, 160.0, 255.0, imgproc::THRESH_BINARY)?;
 
     let mut color_mask = Mat::default();
     core::bitwise_or(&mask_s, &mask_v, &mut color_mask, &core::no_array())?;
 
-    // 4. Otsu threshold trên ảnh CLAHE (thích ứng độ tương phản, bắt chữ trắng trên nền tối)
+    // 4. Otsu threshold trên ảnh CLAHE
     let mut otsu_mask = Mat::default();
     imgproc::threshold(
         &enhanced,
@@ -76,11 +76,11 @@ pub fn extract_and_filter_patch(
         imgproc::THRESH_BINARY | imgproc::THRESH_OTSU,
     )?;
 
-    // 5. Hợp nhất 2 mask (chữ sáng HOẶC chữ màu)
+    // 5. Hợp nhất mask
     let mut text_mask = Mat::default();
     core::bitwise_or(&otsu_mask, &color_mask, &mut text_mask, &core::no_array())?;
 
-    // 6. Morphology đóng lỗ + dilate ngang thành dòng
+    // 6. Morphology đóng lỗ
     let kernel = imgproc::get_structuring_element(
         imgproc::MORPH_RECT,
         Size::new(3, 3),
@@ -98,9 +98,11 @@ pub fn extract_and_filter_patch(
         Scalar::all(f64::MAX),
     )?;
 
+    // 7. ✅ DILATE MẠNH: 31x3, 3 iterations → bridge gap lên tới ±45px mỗi phía
+    // (Trước đây 25x3 × 1 iter = ±12px → không bridge được khoảng cách giữa các ký tự)
     let horizontal_kernel = imgproc::get_structuring_element(
         imgproc::MORPH_RECT,
-        Size::new(25, 3),
+        Size::new(31, 3),
         Point::new(-1, -1),
     )?;
     let mut text_lines = Mat::default();
@@ -109,12 +111,12 @@ pub fn extract_and_filter_patch(
         &mut text_lines,
         &horizontal_kernel,
         Point::new(-1, -1),
-        1,
+        3,   // ← 3 iterations
         core::BORDER_CONSTANT,
         Scalar::all(f64::MAX),
     )?;
 
-    // 7. Bounding box
+    // 8. Contour → bounding box (filter NỚI RỘNG hơn)
     let mut contours = Vector::<Vector<Point>>::new();
     imgproc::find_contours(
         &text_lines,
@@ -132,10 +134,12 @@ pub fn extract_and_filter_patch(
 
     for cnt in contours.iter() {
         let rect = imgproc::bounding_rect(&cnt)?;
-        if rect.width > 30
+        // Filter nới: height < 500 (thay vì 200), aspect >= 0.3 (thay vì 0.5), area >= 40 (thay vì 80)
+        if rect.width >= 15
             && rect.height >= 8
-            && rect.height < 200
-            && (rect.width as f64 / rect.height as f64) > 1.0
+            && rect.height < 500
+            && (rect.width as f64 / rect.height as f64) >= 0.3
+            && (rect.width * rect.height) >= 40
         {
             found = true;
             min_x = min_x.min(rect.x);
@@ -149,9 +153,9 @@ pub fn extract_and_filter_patch(
         return Ok(None);
     }
 
-    // 8. Padding
-    let pad_x = 16;
-    let pad_y = 10;
+    // 9. Padding rộng hơn (24x14 thay vì 16x10)
+    let pad_x = 24;
+    let pad_y = 14;
     min_x = (min_x - pad_x).max(0);
     min_y = (min_y - pad_y).max(0);
     max_x = (max_x + pad_x).min((width * 2) as i32);
@@ -163,7 +167,7 @@ pub fn extract_and_filter_patch(
         return Ok(None);
     }
 
-    // 9. Resize về chuẩn OCR (h=48)
+    // 10. Resize về chuẩn OCR
     let target_h = 48usize;
     let aspect = box_w as f32 / box_h as f32;
     let mut target_w = (target_h as f32 * aspect).round() as usize;
@@ -172,7 +176,6 @@ pub fn extract_and_filter_patch(
 
     let rect = Rect::new(min_x, min_y, box_w, box_h);
 
-    // Raw patch (debug)
     let raw_roi = img_large.roi(rect)?;
     let mut raw_resized = Mat::default();
     imgproc::resize(
@@ -185,7 +188,6 @@ pub fn extract_and_filter_patch(
     )?;
     let raw_bytes = raw_resized.data_bytes()?.to_vec();
 
-    // CLAHE grayscale → RGB (input cho AI)
     let enhanced_roi = enhanced.roi(rect)?;
     let mut enhanced_resized = Mat::default();
     imgproc::resize(

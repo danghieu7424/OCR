@@ -12,7 +12,7 @@ pub mod shared {
         }
     }
 
-    pub mod terminal_color {
+        pub mod terminal_color {
         pub struct NameWrapper(pub String);
         impl NameWrapper {
             pub fn violed(self) -> String { self.0 }
@@ -34,6 +34,20 @@ pub mod shared {
             fn name_utils(&self) -> NameWrapper {
                 NameWrapper(self.clone())
             }
+        }
+
+        // ✅ THÊM TRAIT NÀY để đủ cho import `TermColorExt`
+        pub trait TermColorExt {
+            fn violed(&self) -> String;
+        }
+        impl TermColorExt for str {
+            fn violed(&self) -> String { self.to_string() }
+        }
+        impl TermColorExt for &str {
+            fn violed(&self) -> String { (*self).to_string() }
+        }
+        impl TermColorExt for String {
+            fn violed(&self) -> String { self.clone() }
         }
     }
 

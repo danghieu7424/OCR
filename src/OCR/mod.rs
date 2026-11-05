@@ -640,18 +640,18 @@ pub fn extract_hardcoded_subtitles(
                     let r = current_frame[idx];
                     let g = current_frame[idx + 1];
                     let b = current_frame[idx + 2];
-                    if r > 170 && g > 170 && b > 170 {
+                    if r > 145 && g > 145 && b > 145 {
                         count += 1;
-                        if count >= 6 {
+                        if count >= 4 {
                             break;
                         }
                     }
                 }
-                if count >= 6 {
+                if count >= 4 {
                     break;
                 }
             }
-            count >= 6
+            count >= 4
         };
 
         // Tính toán mức độ biến thiên pixel (MSE) giữa 2 frame liên tiếp
@@ -670,7 +670,7 @@ pub fn extract_hardcoded_subtitles(
             avg_diff > config.diff_threshold
         };
 
-        let should_ocr = has_subtitle_candidates && (is_scene_change || current_session.is_none());
+        let should_ocr = has_subtitle_candidates;
 
         if should_ocr {
             // Nhận diện OCR trực tiếp trên khung hình với Pure-Rust CLAHE + Soft Contrast Tuning
@@ -688,10 +688,8 @@ pub fn extract_hardcoded_subtitles(
                             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                                 if !best_text.is_empty() {
                                     let cue_idx = segments.len() + 1;
-                                    let raw_bmp = frames_debug_dir.join(format!("cue_{:03}_raw.bmp", cue_idx));
-                                    let clahe_bmp = frames_debug_dir.join(format!("cue_{:03}_clahe.bmp", cue_idx));
-                                    let _ = save_rgb_as_bmp(&raw_bmp, &session.sample_raw, session.sample_w, session.sample_h);
-                                    let _ = save_rgb_as_bmp(&clahe_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
+                                    let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
+                                    let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
 
                                     segments.push(SubtitleSegment {
                                         start_sec: session.start_sec,
@@ -730,7 +728,7 @@ pub fn extract_hardcoded_subtitles(
                             }
                         } else {
                             // Câu mới xuất hiện: đóng session cũ và mở session mới
-                            let end_sec = session.last_seen_sec + dt;
+                            let end_sec = session.last_seen_sec;
                             let old_session = current_session.replace(CueSession {
                                 start_sec: timestamp,
                                 last_seen_sec: timestamp,
@@ -749,10 +747,8 @@ pub fn extract_hardcoded_subtitles(
                                 if let Some((best_text, _)) = old_session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                                     if !best_text.is_empty() {
                                         let cue_idx = segments.len() + 1;
-                                        let raw_bmp = frames_debug_dir.join(format!("cue_{:03}_raw.bmp", cue_idx));
-                                        let clahe_bmp = frames_debug_dir.join(format!("cue_{:03}_clahe.bmp", cue_idx));
-                                        let _ = save_rgb_as_bmp(&raw_bmp, &old_session.sample_raw, old_session.sample_w, old_session.sample_h);
-                                        let _ = save_rgb_as_bmp(&clahe_bmp, &old_session.sample_clahe, old_session.sample_w, old_session.sample_h);
+                                        let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
+                                        let _ = save_rgb_as_bmp(&cue_bmp, &old_session.sample_clahe, old_session.sample_w, old_session.sample_h);
 
                                         segments.push(SubtitleSegment {
                                             start_sec: old_session.start_sec,
@@ -789,15 +785,13 @@ pub fn extract_hardcoded_subtitles(
                 empty_streak += 1;
                 if empty_streak >= 2 {
                     if let Some(session) = current_session.take() {
-                        let end_sec = session.last_seen_sec + dt;
+                        let end_sec = session.last_seen_sec;
                         if end_sec > session.start_sec + 0.35 {
                             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                                 if !best_text.is_empty() {
                                     let cue_idx = segments.len() + 1;
-                                    let raw_bmp = frames_debug_dir.join(format!("cue_{:03}_raw.bmp", cue_idx));
-                                    let clahe_bmp = frames_debug_dir.join(format!("cue_{:03}_clahe.bmp", cue_idx));
-                                    let _ = save_rgb_as_bmp(&raw_bmp, &session.sample_raw, session.sample_w, session.sample_h);
-                                    let _ = save_rgb_as_bmp(&clahe_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
+                                    let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
+                                    let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
 
                                     segments.push(SubtitleSegment {
                                         start_sec: session.start_sec,
@@ -820,15 +814,13 @@ pub fn extract_hardcoded_subtitles(
 
     // Chốt session cuối cùng khi hết video
     if let Some(session) = current_session.take() {
-        let end_sec = session.last_seen_sec + dt;
+        let end_sec = session.last_seen_sec;
         if end_sec > session.start_sec + 0.35 {
             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                 if !best_text.is_empty() {
                     let cue_idx = segments.len() + 1;
-                    let raw_bmp = frames_debug_dir.join(format!("cue_{:03}_raw.bmp", cue_idx));
-                    let clahe_bmp = frames_debug_dir.join(format!("cue_{:03}_clahe.bmp", cue_idx));
-                    let _ = save_rgb_as_bmp(&raw_bmp, &session.sample_raw, session.sample_w, session.sample_h);
-                    let _ = save_rgb_as_bmp(&clahe_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
+                    let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
+                    let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
 
                     segments.push(SubtitleSegment {
                         start_sec: session.start_sec,
@@ -862,7 +854,7 @@ pub fn extract_hardcoded_subtitles(
 
             // Nếu câu sau gần như giống hệt câu trước (độ tương đồng > 65%) và khoảng cách thời gian ngắn (< 1.2s):
             // -> Sáp nhập thành 1 câu duy nhất, kéo dài timestamp và giữ lại câu có độ dài đầy đủ hơn
-            if sim > 0.65 && gap < 1.2 {
+            if sim > 0.85 && gap < 0.8 {
                 last.end_sec = seg.end_sec;
                 if seg.text.chars().count() > last.text.chars().count() {
                     last.text = seg.text;
