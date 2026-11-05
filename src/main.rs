@@ -99,11 +99,17 @@ fn main() -> anyhow::Result<()> {
 
     let output_vtt_path = PathBuf::from("output_subtitles.vtt");
     let model_dir = PathBuf::from("models");
-    let config = OcrExtractorConfig::default();
+    let mut config = OcrExtractorConfig::default();
+    // Industrial-grade defaults: 8fps provides 125ms resolution
+    // which is below human perception threshold (~100-150ms)
+    config.fps = 8;
+    config.accuracy_mode = true;
     println!(
-        "   [INFO] Mode: {} | FPS: {}",
+        "   [INFO] Mode: {} | FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%]",
         if config.accuracy_mode { "ACCURACY" } else { "NORMAL" },
-        config.fps
+        config.fps,
+        config.roi.y_min * 100.0, config.roi.y_max * 100.0,
+        config.roi.x_min * 100.0, config.roi.x_max * 100.0,
     );
 
     let result = extract_hardcoded_subtitles(&video_path, &output_vtt_path, &model_dir, &config)?;

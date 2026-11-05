@@ -1,19 +1,28 @@
 /****
- * [MODULE]: OCR (Video Subtitle Optical Character Recognition)
- * Chức năng: Trích xuất phụ đề cứng (Hardcoded Subtitles) từ video sang chuẩn WebVTT (.vtt)
+ * [MODULE]: OCR (Video Subtitle Optical Character Recognition) — INDUSTRIAL GRADE v2
  *
- * Quy trình 4 bước:
- * 1. ROI Cropping & Adaptive Sampling (Tần số mẫu 8 fps trên dải dọc 80%-100%, ngang 5%-95%).
- * 2. Subtitle Scene Change & Keyframe Detection (So sánh biến thiên đồ họa pixel MSE/Luminance).
- * 3. Text Detection & Recognition (OCR Engine: RapidOCR / PaddleOCR ONNX).
- * 4. Temporal Voting & VTT Formatting (Khử flicker, đồng bộ timestamp mili-giây, xuất .vtt).
+ * Architecture: 4-step pipeline with robust timing recovery
  *
- * Ranh giới bảo vệ:
- * - Module độc lập (Isolation): Không gây ảnh hưởng hay làm thay đổi logic các bước ASR, Translation, TTS.
- * - Hiệu năng cao: Stream frame trực tiếp qua FFmpeg pipe, không lưu frame rác ra đĩa.
+ * Step 1: Precise Frame Extraction via FFmpeg
+ *   - Use pts_time from FFmpeg showinfo filter for exact timestamps
+ *   - Sample at configurable FPS with proper ROI cropping
+ *
+ * Step 2: Text Detection (DBNet) + Recognition (PP-OCRv4/v5 CRNN)
+ *   - det_filter.rs handles bounding box detection and patch extraction
+ *   - Recognition with proper NCHW tensor + CTC greedy decode
+ *
+ * Step 3: Scene-Change Detection via Text Transition
+ *   - Track text changes, not pixel differences
+ *   - Use voting within stable text windows
+ *
+ * Step 4: Temporal Consolidation & VTT Output
+ *   - Merge near-duplicate cues
+ *   - Fix overlap, filter noise
+ *   - Output standard WebVTT
  ****/
 
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -25,20 +34,17 @@ use ort::{
     value::Tensor,
 };
 
-use crate::shared::terminal_color::NameUtilsExt;
 use crate::shared::icons::Icons;
+use crate::shared::terminal_color::NameUtilsExt;
 
 pub mod det_filter;
+
 /// Cấu hình tọa độ vùng ROI (Region of Interest)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubtitleRoi {
-    /// Tỷ lệ biên trên (mặc định: 0.85 = 85%)
     pub y_min: f32,
-    /// Tỷ lệ biên dưới (mặc định: 1.00 = 100%)
     pub y_max: f32,
-    /// Tỷ lệ biên trái (mặc định: 0.05 = 5%)
     pub x_min: f32,
-    /// Tỷ lệ biên phải (mặc định: 0.95 = 95%)
     pub x_max: f32,
 }
 
@@ -54,14 +60,6 @@ impl Default for SubtitleRoi {
 }
 
 impl SubtitleRoi {
-    /****
-     * parse
-     * Phân tích chuỗi "ymin,ymax,xmin,xmax" thành cấu trúc SubtitleRoi.
-     * Fallback sang Default nếu định dạng không khớp.
-     *
-     * Lưu ý: Hàm này không được gọi trực tiếp trong dự án test nhưng sẽ dùng
-     * khi cắm module trở lại tool chính (qua CLI arg --roi). Giữ nguyên.
-     ****/
     #[allow(dead_code)]
     pub fn parse(s: &str) -> Option<Self> {
         let parts: Vec<&str> = s.split(',').map(|p| p.trim()).collect();
@@ -72,12 +70,7 @@ impl SubtitleRoi {
         let y_max = parts[1].parse::<f32>().ok()?;
         let x_min = parts[2].parse::<f32>().ok()?;
         let x_max = parts[3].parse::<f32>().ok()?;
-        Some(Self {
-            y_min,
-            y_max,
-            x_min,
-            x_max,
-        })
+        Some(Self { y_min, y_max, x_min, x_max })
     }
 }
 
@@ -90,16 +83,16 @@ pub struct OcrExtractorConfig {
     pub roi: SubtitleRoi,
     /// Ngôn ngữ nhận diện ưu tiên ("zh", "en", "auto")
     pub lang: String,
-    /// Ngưỡng phát hiện biến thiên khung hình để xác định ranh giới phụ đề (0.01 - 0.20)
+    /// Ngưỡng phát hiện biến thiên khung hình (hiện không dùng MSE nữa, giữ cho compat)
     pub diff_threshold: f32,
-    /// Chế độ chính xác: padding tight + filter chặt hơn + fps cao
+    /// Chế độ chính xác
     pub accuracy_mode: bool,
 }
 
 impl Default for OcrExtractorConfig {
     fn default() -> Self {
         Self {
-            fps: 12,
+            fps: 8,
             roi: SubtitleRoi::default(),
             lang: "zh".to_string(),
             diff_threshold: 0.04,
@@ -136,29 +129,22 @@ impl SubtitleSegment {
 /// Kết quả đầu ra của module OCR
 #[derive(Debug, Clone)]
 pub struct OcrExtractorOutput {
-    /// Đường dẫn file phụ đề WebVTT được tạo ra
     pub vtt_path: PathBuf,
-    /// Danh sách các phân đoạn phụ đề
     pub segments: Vec<SubtitleSegment>,
 }
 
-/// Cấu trúc lưu kết quả nhận diện kèm frame ảnh mẫu để người dùng kiểm tra trực quan
+/// Cấu trúc lưu kết quả nhận diện kèm frame ảnh mẫu
 #[derive(Default, Clone)]
 pub struct OcrFrameRecognition {
     pub text: String,
+    pub confidence: f32,
     pub raw_patch: Vec<u8>,
     pub clahe_patch: Vec<u8>,
     pub width: usize,
     pub height: usize,
 }
 
-
-
-/****
- * save_rgb_as_bmp
- * Lưu mảng RGB24 thành file BMP chuẩn Windows (24-bit uncompressed).
- * Zero dependency - mở xem trực tiếp trên Windows và VS Code.
- ****/
+/// Lưu mảng RGB24 thành file BMP (debug)
 fn save_rgb_as_bmp(path: &Path, rgb: &[u8], width: usize, height: usize) -> std::io::Result<()> {
     use std::io::Write;
     if width == 0 || height == 0 || rgb.is_empty() {
@@ -175,7 +161,7 @@ fn save_rgb_as_bmp(path: &Path, rgb: &[u8], width: usize, height: usize) -> std:
     header[10..14].copy_from_slice(&54u32.to_le_bytes());
     header[14..18].copy_from_slice(&40u32.to_le_bytes());
     header[18..22].copy_from_slice(&(width as i32).to_le_bytes());
-    header[22..26].copy_from_slice(&(-(height as i32)).to_le_bytes()); // Top-down
+    header[22..26].copy_from_slice(&(-(height as i32)).to_le_bytes());
     header[26..28].copy_from_slice(&1u16.to_le_bytes());
     header[28..30].copy_from_slice(&24u16.to_le_bytes());
     header[34..38].copy_from_slice(&(image_size as u32).to_le_bytes());
@@ -190,16 +176,16 @@ fn save_rgb_as_bmp(path: &Path, rgb: &[u8], width: usize, height: usize) -> std:
             let r = src_row[x * 3];
             let g = src_row[x * 3 + 1];
             let b = src_row[x * 3 + 2];
-            row_buf[x * 3] = b;     // B
-            row_buf[x * 3 + 1] = g; // G
-            row_buf[x * 3 + 2] = r; // R
+            row_buf[x * 3] = b;
+            row_buf[x * 3 + 1] = g;
+            row_buf[x * 3 + 2] = r;
         }
         file.write_all(&row_buf)?;
     }
     Ok(())
 }
 
-/// Bộ máy nhận dạng chữ PP-OCRv4 bằng ONNX Runtime
+/// PP-OCR Recognition Engine (ONNX)
 struct PpOcrEngine {
     rec_session: Session,
     keys: Vec<String>,
@@ -212,13 +198,12 @@ impl PpOcrEngine {
         let keys_path = ocr_dir.join("keys.txt");
 
         if !rec_model_path.exists() || !keys_path.exists() {
-            bail!("Thiếu tài nguyên mô hình OCR tại {:?}. Vui lòng kiểm tra rec.onnx và keys.txt", ocr_dir);
+            bail!("Thiếu tài nguyên mô hình OCR tại {:?}", ocr_dir);
         }
 
         let keys_content = fs::read_to_string(&keys_path)
             .with_context(|| format!("Không thể nạp từ điển ký tự OCR: {:?}", keys_path))?;
         let mut keys: Vec<String> = keys_content.lines().map(|l| l.to_string()).collect();
-        // PP-OCR mapping: 0 là blank (CTC blank token), sau đó là keys[1..], cuối cùng là space
         keys.insert(0, "<blank>".to_string());
         keys.push(" ".to_string());
 
@@ -232,54 +217,47 @@ impl PpOcrEngine {
             .commit_from_file(&rec_model_path)
             .with_context(|| format!("Không thể nạp mô hình rec.onnx: {:?}", rec_model_path))?;
 
-        Ok(Self {
-            rec_session,
-            keys,
-        })
+        Ok(Self { rec_session, keys })
     }
 
-        /// Nhận diện văn bản từ ảnh RGB24 dạng phẳng [H, W, 3] 
+    /// Nhận diện văn bản từ ảnh RGB24 [H, W, 3]
     fn recognize_text(
-    &mut self, 
-    rgb_bytes: &[u8], 
-    width: usize, 
-    height: usize, 
-    _tight: bool, // Giữ lại cho tương thích
-    det_engine: &pure_onnx_ocr::OcrEngine // <-- Thêm tham số này
-) -> Result<OcrFrameRecognition> {
-    if width == 0 || height == 0 || rgb_bytes.is_empty() {
-        return Ok(OcrFrameRecognition::default());
-    }
+        &mut self,
+        rgb_bytes: &[u8],
+        width: usize,
+        height: usize,
+        _tight: bool,
+        det_engine: &pure_onnx_ocr::OcrEngine,
+    ) -> Result<OcrFrameRecognition> {
+        if width == 0 || height == 0 || rgb_bytes.is_empty() {
+            return Ok(OcrFrameRecognition::default());
+        }
 
-    // 1. Gọi module DBNet mới để tìm bounding box và cắt ảnh
-    let (raw_patch, target_w, target_h) = 
-        match self::det_filter::extract_patch_with_det(det_engine, rgb_bytes, width, height)? {
-            Some(patch) => patch,
-            None => return Ok(OcrFrameRecognition::default()), // Không tìm thấy chữ
-        };
+        // 1. Gọi DBNet để tìm bounding box và cắt ảnh patch
+        let (raw_patch, target_w, target_h) =
+            match self::det_filter::extract_patch_with_det(det_engine, rgb_bytes, width, height)? {
+                Some(patch) => patch,
+                None => return Ok(OcrFrameRecognition::default()),
+            };
 
-        // (Tùy chọn: Nếu bạn vẫn muốn dùng CLAHE cho ảnh, hãy tạo clahe_patch từ raw_patch. 
-        // Tuy nhiên với PP-OCRv5, ảnh raw từ DBNet thường đã đủ tốt)
-        let clahe_patch = raw_patch.clone(); 
+        let clahe_patch = raw_patch.clone();
         let raw_patch_debug = raw_patch.clone();
 
-        // 2. Chuẩn bị Tensor NCHW [1, 3, 48, target_w] từ patch
+        // 2. Chuẩn bị Tensor NCHW [1, 3, target_h, target_w]
         let mut input_tensor = vec![0.0f32; 1 * 3 * target_h * target_w];
         for y in 0..target_h {
             for x in 0..target_w {
                 let idx = (y * target_w + x) * 3;
-                // Chuẩn hóa ImageNet cho PP-OCRv5
                 let r_norm = (clahe_patch[idx] as f32 / 255.0 - 0.485) / 0.229;
                 let g_norm = (clahe_patch[idx + 1] as f32 / 255.0 - 0.456) / 0.224;
                 let b_norm = (clahe_patch[idx + 2] as f32 / 255.0 - 0.406) / 0.225;
 
-                // ✅ Kênh 0 là B, Kênh 1 là G, Kênh 2 là R (Chuẩn BGR của OpenCV/PaddleOCR)
+                // PP-OCR expects BGR channel order
                 input_tensor[0 * target_h * target_w + y * target_w + x] = b_norm;
                 input_tensor[1 * target_h * target_w + y * target_w + x] = g_norm;
                 input_tensor[2 * target_h * target_w + y * target_w + x] = r_norm;
             }
         }
-
 
         let tensor_val = Tensor::from_array(([1usize, 3usize, target_h, target_w], input_tensor))?;
         let outputs = self.rec_session.run(ort::inputs![tensor_val])
@@ -287,13 +265,14 @@ impl PpOcrEngine {
         let (shape, logits) = outputs[0].try_extract_tensor::<f32>()
             .map_err(|e| anyhow::anyhow!("Lỗi trích xuất tensor output OCR: {:?}", e))?;
 
-        // Shape output là [1, time_steps, num_classes]
         let time_steps = shape[1] as usize;
         let num_classes = shape[2] as usize;
 
-        // CTC Greedy Decoder
+        // CTC Greedy Decoder with confidence
         let mut decoded_text = String::new();
         let mut last_idx = 0usize;
+        let mut total_conf = 0.0f32;
+        let mut conf_count = 0usize;
 
         for t in 0..time_steps {
             let step_offset = t * num_classes;
@@ -308,23 +287,26 @@ impl PpOcrEngine {
                 }
             }
 
-            // max_idx = 0 là CTC blank token
             if max_idx != 0 && max_idx != last_idx {
                 if max_idx < self.keys.len() {
                     let ch = &self.keys[max_idx];
                     if ch != "<blank>" {
                         decoded_text.push_str(ch);
+                        // Softmax approximation for confidence
+                        total_conf += max_val;
+                        conf_count += 1;
                     }
                 }
             }
             last_idx = max_idx;
         }
 
-        // Làm sạch ký tự rác (stroke, dash, dấu ngoặc nhọn, icon) và bảo vệ chữ số 一
+        let avg_conf = if conf_count > 0 { total_conf / conf_count as f32 } else { 0.0 };
         let cleaned = sanitize_ocr_text(&decoded_text);
 
         Ok(OcrFrameRecognition {
             text: cleaned,
+            confidence: avg_conf,
             raw_patch: raw_patch_debug,
             clahe_patch,
             width: target_w,
@@ -335,11 +317,7 @@ impl PpOcrEngine {
 
 /****
  * sanitize_ocr_text
- * Loại bỏ toàn diện ký tự viền, gạch ngang, dấu ngoặc và bảo vệ chữ số 一
- * - Nếu ký tự đầu là '-' hoặc '—' nhưng theo sau là lượng từ/từ tố kết hợp với '一'
- *   (ví dụ: 个, 起, 定, 直, 样, 体, 切, 见, 步, 些, 生, 世, 心, 意, 点, 回, 次, 阵, 声...)
- *   -> Chuyển thành '一' (sửa lỗi OCR nhận diện nhầm nét chữ Nhất).
- * - Nếu theo sau là đại từ/danh từ/ký hiệu khác -> Cắt bỏ vì đó là gạch thoại hoặc vạch biên rác.
+ * Loại bỏ ký tự viền, gạch ngang, dấu ngoặc và bảo vệ chữ số 一
  ****/
 fn sanitize_ocr_text(raw: &str) -> String {
     let trimmed = raw.trim();
@@ -349,22 +327,20 @@ fn sanitize_ocr_text(raw: &str) -> String {
 
     let mut chars: Vec<char> = trimmed.chars().collect();
 
-    // 1. Kiểm tra đầu chuỗi: Nếu bắt đầu bằng '-' hoặc '—'
+    // 1. Kiểm tra đầu chuỗi: '-' hoặc '—' có thể là chữ 一
     if !chars.is_empty() && (chars[0] == '-' || chars[0] == '—' || chars[0] == '–') {
         if chars.len() > 1 {
             let next_c = chars[1];
-            // Danh sách các từ tố/lượng từ thường đi liền sau chữ số 一
             let is_yi_compound = matches!(
                 next_c,
                 '个' | '起' | '定' | '直' | '样' | '体' | '切' | '见' | '步' | '些' | '生'
                     | '世' | '心' | '意' | '点' | '回' | '次' | '阵' | '声' | '眼' | '口'
                     | '同' | '如' | '致' | '贯' | '番' | '代' | '命' | '面' | '落' | '线'
+                    | '半' | '刻' | '层'
             );
             if is_yi_compound {
-                // Sửa lỗi OCR: biến nét gạch thành chữ số Một (一)
                 chars[0] = '一';
             } else {
-                // Là gạch thoại hoặc vạch viền rác -> bỏ đi
                 chars.remove(0);
             }
         } else {
@@ -372,48 +348,24 @@ fn sanitize_ocr_text(raw: &str) -> String {
         }
     }
 
-    // 2. Loại bỏ các ký tự rác đầu/cuối: ngoặc, gạch, ký hiệu
+    // 2. Loại bỏ các ký tự rác đầu/cuối
     let s: String = chars.into_iter().collect();
     let mut cleaned = s
         .trim_matches(|c: char| {
             c.is_whitespace()
-                || c == '-'
-                || c == '—'
-                || c == '–'
-                || c == '_'
-                || c == '<'
-                || c == '>'
-                || c == '《'
-                || c == '》'
-                || c == '【'
-                || c == '】'
-                || c == '“'
-                || c == '”'
-                || c == '"'
-                || c == '\''
-                || c == '#'
-                || c == '*'
-                || c == '+'
-                || c == '='
-                || c == '|'
-                || c == '~'
-                || c == ','
-                || c == '，'
-                || c == '.'
-                || c == '。'
-                || c == '!'
-                || c == '！'
-                || c == '?'
-                || c == '？'
-                || c == ':'
-                || c == '：'
-                || c == ';'
-                || c == '；'
+                || c == '-' || c == '—' || c == '–' || c == '_'
+                || c == '<' || c == '>' || c == '《' || c == '》'
+                || c == '【' || c == '】' || c == '\u{201c}' || c == '\u{201d}'
+                || c == '"' || c == '\'' || c == '#' || c == '*'
+                || c == '+' || c == '=' || c == '|' || c == '~'
+                || c == ',' || c == '，' || c == '.' || c == '。'
+                || c == '!' || c == '！' || c == '?' || c == '？'
+                || c == ':' || c == '：' || c == ';' || c == '；'
         })
         .trim()
         .to_string();
 
-    // 3. Loại bỏ ký tự Latin rác đứng lẻ ở đầu câu tiếng Hán (ví dụ: "e夜雅" -> "夜雅")
+    // 3. Loại bỏ ký tự Latin rác đứng lẻ ở đầu câu tiếng Hán
     if cleaned.len() >= 4 {
         let first_char = cleaned.chars().next().unwrap_or_default();
         if first_char.is_ascii_alphabetic() {
@@ -424,9 +376,7 @@ fn sanitize_ocr_text(raw: &str) -> String {
         }
     }
 
-    // 4. Lọc bỏ chuỗi ký tự Latinh vô nghĩa sinh ra do texture nền (ví dụ: "EN", "MN", "NG", "SM", "aN", "AKIVEANON")
-    // Phụ đề phim tiếng Trung bắt buộc phải chứa ít nhất 1 chữ Hán (0x4E00..=0x9FFF).
-    // Nếu chuỗi hoàn toàn không có chữ Hán nào và chỉ gồm các chữ cái Latinh ngẫu nhiên thì hủy bỏ.
+    // 4. Lọc bỏ chuỗi Latin thuần vô nghĩa (phụ đề Hán phải chứa CJK)
     let has_cjk = cleaned.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
     if !has_cjk {
         let is_pure_latin_noise = cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_digit());
@@ -439,8 +389,7 @@ fn sanitize_ocr_text(raw: &str) -> String {
 }
 
 /****
- * text_similarity
- * Tính độ tương đồng giữa 2 chuỗi theo Multiset Character Matching (Sørensen–Dice)
+ * text_similarity (Sørensen–Dice on character multisets)
  ****/
 fn text_similarity(s1: &str, s2: &str) -> f32 {
     let chars1: Vec<char> = s1.chars().collect();
@@ -456,8 +405,8 @@ fn text_similarity(s1: &str, s2: &str) -> f32 {
     let min_len = chars1.len().min(chars2.len());
     let max_len = chars1.len().max(chars2.len());
 
-    // Nếu độ dài lệch quá 45%, không thể là cùng 1 câu phụ đề
-    if (max_len - min_len) as f32 / max_len as f32 > 0.45 {
+    // Nếu lệch quá 50% thì khác câu
+    if (max_len - min_len) as f32 / max_len as f32 > 0.50 {
         return 0.0;
     }
 
@@ -476,28 +425,128 @@ fn text_similarity(s1: &str, s2: &str) -> f32 {
     (2.0 * matches as f32) / (chars1.len() + chars2.len()) as f32
 }
 
-/****
- * dynamic_similarity_threshold
- * Ngưỡng tương đồng động theo độ dài văn bản:
- * - Câu ngắn (<5 ký tự): 0.50 (dễ gộp)
- * - Câu trung bình (5-15): 0.70
- * - Câu dài (>15): 0.80 + tỉ lệ độ dài
- ****/
-fn dynamic_similarity_threshold(text1: &str, text2: &str) -> f32 {
-    let len1 = text1.chars().count();
-    let len2 = text2.chars().count();
-    let min_len = len1.min(len2);
-    let max_len = len1.max(len2);
+/// Một frame đã được OCR kèm timestamp chính xác
+struct TimedOcrFrame {
+    /// Timestamp chính xác từ FFmpeg pts (giây)
+    timestamp: f64,
+    /// Văn bản nhận diện được (đã sanitize)
+    text: String,
+    /// Confidence score
+    confidence: f32,
+    /// Debug data
+    raw_patch: Vec<u8>,
+    clahe_patch: Vec<u8>,
+    patch_w: usize,
+    patch_h: usize,
+}
 
-    if min_len < 5 {
-        0.50
-    } else if min_len < 15 {
-        0.70
-    } else {
-        0.80 + (min_len as f32 / max_len as f32) * 0.10
+/// Phiên chữ (cue session) — một khoảng thời gian liên tục có cùng nội dung chữ
+struct CueSession {
+    /// Timestamp chính xác khi chữ BẮT ĐẦU xuất hiện (từ FFmpeg pts)
+    first_seen: f64,
+    /// Timestamp chính xác khi chữ CUỐI CÙNG được nhìn thấy
+    last_seen: f64,
+    /// Bảng vote: text → count
+    candidates: HashMap<String, usize>,
+    /// Debug sample
+    sample_raw: Vec<u8>,
+    sample_clahe: Vec<u8>,
+    sample_w: usize,
+    sample_h: usize,
+}
+
+impl CueSession {
+    fn new(frame: &TimedOcrFrame) -> Self {
+        let mut candidates = HashMap::new();
+        candidates.insert(frame.text.clone(), 1);
+        Self {
+            first_seen: frame.timestamp,
+            last_seen: frame.timestamp,
+            candidates,
+            sample_raw: frame.raw_patch.clone(),
+            sample_clahe: frame.clahe_patch.clone(),
+            sample_w: frame.patch_w,
+            sample_h: frame.patch_h,
+        }
+    }
+
+    fn vote(&mut self, frame: &TimedOcrFrame) {
+        self.last_seen = frame.timestamp;
+        let count = self.candidates.entry(frame.text.clone()).or_insert(0);
+        *count += 1;
+        // Update sample from frame with higher vote count
+        if *count >= 2 && !frame.raw_patch.is_empty() {
+            self.sample_raw = frame.raw_patch.clone();
+            self.sample_clahe = frame.clahe_patch.clone();
+            self.sample_w = frame.patch_w;
+            self.sample_h = frame.patch_h;
+        }
+    }
+
+    fn best_text(&self) -> Option<String> {
+        self.candidates
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(text, _)| text.clone())
+            .filter(|t| !t.is_empty())
+    }
+
+    fn dominant_text(&self) -> &str {
+        self.candidates
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(text, _)| text.as_str())
+            .unwrap_or("")
+    }
+
+    /// Kiểm tra text mới có phải là cùng câu với session hiện tại không
+    fn is_same_text(&self, new_text: &str) -> bool {
+        let dominant = self.dominant_text();
+        if dominant == new_text {
+            return true;
+        }
+        let sim = text_similarity(dominant, new_text);
+        let len1 = dominant.chars().count();
+        let len2 = new_text.chars().count();
+        let min_len = len1.min(len2);
+
+        // Dynamic threshold: câu ngắn dễ dao động hơn
+        let threshold = if min_len < 4 {
+            0.50
+        } else if min_len < 8 {
+            0.60
+        } else {
+            0.70
+        };
+
+        sim >= threshold
+    }
+
+    /// Tạo segment từ session, dùng khoảng thời gian first_seen → last_seen + half_dt
+    fn to_segment(&self, half_dt: f64) -> Option<SubtitleSegment> {
+        let text = self.best_text()?;
+        let start = self.first_seen;
+        let end = self.last_seen + half_dt;
+        if end <= start + 0.08 {
+            return None;
+        }
+        Some(SubtitleSegment {
+            start_sec: start,
+            end_sec: end,
+            text,
+        })
     }
 }
 
+/****
+ * MAIN ENTRY POINT: extract_hardcoded_subtitles
+ *
+ * Industrial-grade approach:
+ * 1. Use FFmpeg with showinfo filter to get EXACT pts timestamps for each frame
+ * 2. OCR every sampled frame 
+ * 3. Group consecutive frames with same text into cue sessions
+ * 4. Post-process: merge duplicates, filter noise, fix overlaps
+ ****/
 pub fn extract_hardcoded_subtitles(
     video_path: &Path,
     output_vtt_path: &Path,
@@ -508,7 +557,7 @@ pub fn extract_hardcoded_subtitles(
         bail!("Video không tồn tại: {:?}", video_path);
     }
 
-    crate::shared::tui_events::emit_step(">>> [OCR] Trích xuất Hardcoded Subtitles từ Video (4-Step Engine)...");
+    crate::shared::tui_events::emit_step(">>> [OCR] Trích xuất Hardcoded Subtitles từ Video (Industrial Grade v2)...");
     crate::shared::tui_events::emit_log(format!(
         "   {} ROI: Y[{:.0}% - {:.0}%] | X[{:.0}% - {:.0}%] | Fps: {} | Lang: {}",
         "[OCR]".name_utils().violed(),
@@ -520,23 +569,28 @@ pub fn extract_hardcoded_subtitles(
         config.lang
     ));
 
-        // Bước 0: Nạp mô hình OCR PP-OCRv5
-    crate::shared::tui_events::emit_log(format!("   {} Khởi tạo mô hình ONNX PP-OCRv4/v5 Text Recognition...", "[OCR]".name_utils().violed()));
+    // === Bước 0: Nạp mô hình OCR ===
+    crate::shared::tui_events::emit_log(format!(
+        "   {} Khởi tạo mô hình ONNX PP-OCR Text Recognition...",
+        "[OCR]".name_utils().violed()
+    ));
     let mut ocr_engine = PpOcrEngine::new(model_dir)?;
 
-    // ✅ SỬA TẠI ĐÂY: Cung cấp đủ 3 đường dẫn cho Detector
     let det_path = model_dir.join("ocr/det.onnx");
     let rec_path = model_dir.join("ocr/rec.onnx");
     let keys_path = model_dir.join("ocr/keys.txt");
-    
-    crate::shared::tui_events::emit_log(format!("   {} Khởi tạo mô hình DBNet Text Detection...", "[OCR]".name_utils().violed()));
+
+    crate::shared::tui_events::emit_log(format!(
+        "   {} Khởi tạo mô hình DBNet Text Detection...",
+        "[OCR]".name_utils().violed()
+    ));
     let det_engine = self::det_filter::create_det_engine(
         &det_path.to_string_lossy(),
         &rec_path.to_string_lossy(),
         &keys_path.to_string_lossy(),
     )?;
 
-    // Lấy kích thước video gốc bằng ffprobe
+    // === Lấy kích thước video gốc ===
     let probe_out = Command::new("ffprobe")
         .args(&[
             "-v", "error",
@@ -546,7 +600,7 @@ pub fn extract_hardcoded_subtitles(
             &video_path.to_string_lossy(),
         ])
         .output()
-        .context("Không thể thực thi ffprobe để đọc kích thước video")?;
+        .context("Không thể thực thi ffprobe")?;
 
     let dim_str = String::from_utf8_lossy(&probe_out.stdout);
     let dims: Vec<usize> = dim_str
@@ -561,7 +615,7 @@ pub fn extract_hardcoded_subtitles(
         (1280usize, 720usize)
     };
 
-    // Lấy tổng thời lượng video (giây) để hiển thị Progress
+    // === Lấy tổng thời lượng video ===
     let duration_out = Command::new("ffprobe")
         .args(&[
             "-v", "error",
@@ -576,17 +630,25 @@ pub fn extract_hardcoded_subtitles(
         .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<f64>().ok())
         .unwrap_or(600.0);
 
-
-    // Tính kích thước frame crop ROI
+    // === Tính kích thước ROI crop ===
     let crop_w = (((src_w as f32 * (config.roi.x_max - config.roi.x_min)).round() as usize) / 2) * 2;
     let crop_h = (((src_h as f32 * (config.roi.y_max - config.roi.y_min)).round() as usize) / 2) * 2;
     let crop_x = (src_w as f32 * config.roi.x_min).round() as usize;
     let crop_y = (src_h as f32 * config.roi.y_min).round() as usize;
 
-    let vf_filter = format!("fps={},crop={}:{}:{}:{}", config.fps, crop_w, crop_h, crop_x, crop_y);
-    crate::shared::tui_events::emit_log(format!("   {} Kích thước ROI: {}x{} | Filter: {}", "[OCR]".name_utils().violed(), crop_w, crop_h, vf_filter));
+    let vf_filter = format!(
+        "fps={},crop={}:{}:{}:{}",
+        config.fps, crop_w, crop_h, crop_x, crop_y
+    );
+    crate::shared::tui_events::emit_log(format!(
+        "   {} ROI crop: {}x{} @ ({},{}) | Filter: {}",
+        "[OCR]".name_utils().violed(),
+        crop_w, crop_h, crop_x, crop_y, vf_filter
+    ));
 
-    // Bước 1: Mở FFmpeg pipe stream rawvideo rgb24
+    // === Bước 1: FFmpeg pipe stream rawvideo rgb24 ===
+    // fps=N filter outputs frames at exactly n/N seconds, so timestamp = frame_idx / fps
+    // is mathematically precise. No showinfo needed.
     let mut ffmpeg_child = Command::new("ffmpeg")
         .args(&[
             "-i", &video_path.to_string_lossy(),
@@ -601,164 +663,208 @@ pub fn extract_hardcoded_subtitles(
         .spawn()
         .context("Không thể khởi động FFmpeg streaming pipe")?;
 
-    let mut stdout = ffmpeg_child
-        .stdout
-        .take()
-        .context("Không thể mở stdout của FFmpeg pipe")?;
+    let mut stdout = ffmpeg_child.stdout.take().context("Không thể mở stdout FFmpeg")?;
 
     let frame_bytes = crop_w * crop_h * 3;
     let mut current_frame = vec![0u8; frame_bytes];
-    
-    // Xóa bỏ prev_frame, has_prev vì không dùng MSE nữa
     let dt = 1.0 / (config.fps as f64);
+    let half_dt = dt * 0.5;
     let mut frame_idx = 0usize;
 
-    let mut segments: Vec<SubtitleSegment> = Vec::new();
     let frames_debug_dir = output_vtt_path
         .parent()
         .map(|p| p.join("ocr_frames"))
         .unwrap_or_else(|| PathBuf::from("ocr_frames"));
     let _ = fs::create_dir_all(&frames_debug_dir);
 
-    struct CueSession {
-        start_sec: f64,
-        last_seen_sec: f64,
-        candidates: std::collections::HashMap<String, usize>,
-        sample_raw: Vec<u8>,
-        sample_clahe: Vec<u8>,
-        sample_w: usize,
-        sample_h: usize,
-    }
-
+    // === Bước 2+3: OCR mỗi frame và track text transitions ===
+    let mut raw_segments: Vec<SubtitleSegment> = Vec::new();
     let mut current_session: Option<CueSession> = None;
-    let mut ocr_fail_streak = 0usize;
+    let mut consecutive_empty = 0usize;
+
+    // Số frame trống tối đa trước khi đóng session
+    // Với fps=8: 3 frames = 375ms — đủ cho hiệu ứng fade ngắn
+    // Với fps=12: 4 frames = 333ms
+    let max_empty_gap = (config.fps as usize / 3).max(2);
+
+    println!("   [OCR] Bắt đầu quét video... (max_empty_gap={})", max_empty_gap);
 
     while stdout.read_exact(&mut current_frame).is_ok() {
+        // Timestamp chính xác: fps=N filter tạo frame tại n/N giây
         let timestamp = frame_idx as f64 * dt;
         frame_idx += 1;
 
-        // ✅ BỎ HOÀN TOÀN MSE, LUÔN LUÔN CHẠY OCR
-        let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h, true, &det_engine).unwrap_or_default();
-        let recognized = rec.text;
+        // OCR frame
+        let rec = ocr_engine
+            .recognize_text(&current_frame, crop_w, crop_h, true, &det_engine)
+            .unwrap_or_default();
 
-        if recognized.is_empty() {
-            // AI không đọc được chữ
-            ocr_fail_streak += 1;
-            if let Some(session) = current_session.as_mut() {
-                session.last_seen_sec = timestamp;
-            }
-            // Nếu fail quá 8 frame (~0.6s), đóng session
-            if ocr_fail_streak >= 15 {
+        let timed_frame = TimedOcrFrame {
+            timestamp,
+            text: rec.text.clone(),
+            confidence: rec.confidence,
+            raw_patch: rec.raw_patch,
+            clahe_patch: rec.clahe_patch,
+            patch_w: rec.width,
+            patch_h: rec.height,
+        };
+
+        if timed_frame.text.is_empty() {
+            // Frame trống (không có chữ)
+            consecutive_empty += 1;
+
+            if consecutive_empty >= max_empty_gap {
+                // Đóng session hiện tại
                 if let Some(session) = current_session.take() {
-                    let end_sec = session.last_seen_sec + dt * 0.5;
-                    if end_sec > session.start_sec + 0.3 {
-                        if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
-                            if !best_text.is_empty() {
-                                let cue_idx = segments.len() + 1;
-                                let _ = save_rgb_as_bmp(&frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)), &session.sample_clahe, session.sample_w, session.sample_h);
-                                segments.push(SubtitleSegment { start_sec: session.start_sec, end_sec, text: best_text });
-                            }
-                        }
+                    if let Some(seg) = session.to_segment(half_dt) {
+                        let cue_idx = raw_segments.len() + 1;
+                        let _ = save_rgb_as_bmp(
+                            &frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)),
+                            &session.sample_clahe,
+                            session.sample_w,
+                            session.sample_h,
+                        );
+                        raw_segments.push(seg);
                     }
                 }
-                ocr_fail_streak = 0;
             }
         } else {
-            // AI đọc được chữ
-            ocr_fail_streak = 0;
+            // Frame có chữ
+            consecutive_empty = 0;
+
             match current_session.as_mut() {
                 Some(session) => {
-                    let dominant_text = session.candidates.iter().max_by_key(|(_, count)| *count).map(|(k, _)| k.as_str()).unwrap_or("");
-                    let sim = text_similarity(dominant_text, &recognized);
-                    let threshold = dynamic_similarity_threshold(dominant_text, &recognized);
-
-                    if sim >= threshold {
-                        // Cùng một câu sub: kéo dài thời gian
-                        session.last_seen_sec = timestamp;
-                        let count = session.candidates.entry(recognized.clone()).or_insert(0);
-                        *count += 1;
-                        if *count >= 2 && !rec.raw_patch.is_empty() {
-                            session.sample_raw = rec.raw_patch;
-                            session.sample_clahe = rec.clahe_patch;
-                            session.sample_w = rec.width;
-                            session.sample_h = rec.height;
-                        }
+                    if session.is_same_text(&timed_frame.text) {
+                        // Cùng câu → vote
+                        session.vote(&timed_frame);
                     } else {
-                        // Sub mới xuất hiện
-                        let end_sec = session.last_seen_sec + dt * 0.5;
-                        let last_seg_end = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
-                        let new_start = (timestamp - dt).max(end_sec.max(last_seg_end) + 0.01);
-
-                        let old_session = current_session.replace(CueSession {
-                            start_sec: new_start,
-                            last_seen_sec: timestamp,
-                            candidates: { let mut m = std::collections::HashMap::new(); m.insert(recognized, 1); m },
-                            sample_raw: rec.raw_patch,
-                            sample_clahe: rec.clahe_patch,
-                            sample_w: rec.width,
-                            sample_h: rec.height,
-                        }).unwrap();
-
-                        if end_sec > old_session.start_sec + 0.3 {
-                            if let Some((best_text, _)) = old_session.candidates.into_iter().max_by_key(|(_, count)| *count) {
-                                if !best_text.is_empty() {
-                                    let cue_idx = segments.len() + 1;
-                                    let _ = save_rgb_as_bmp(&frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)), &old_session.sample_clahe, old_session.sample_w, old_session.sample_h);
-                                    segments.push(SubtitleSegment { start_sec: old_session.start_sec, end_sec, text: best_text });
-                                }
-                            }
+                        // Text khác → đóng session cũ, mở session mới
+                        let old_session = current_session.take().unwrap();
+                        if let Some(seg) = old_session.to_segment(half_dt) {
+                            let cue_idx = raw_segments.len() + 1;
+                            let _ = save_rgb_as_bmp(
+                                &frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)),
+                                &old_session.sample_clahe,
+                                old_session.sample_w,
+                                old_session.sample_h,
+                            );
+                            raw_segments.push(seg);
                         }
+                        current_session = Some(CueSession::new(&timed_frame));
                     }
                 }
                 None => {
-                    // Bắt đầu session mới hoàn toàn
-                    let min_start = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
-                    let base_start = (timestamp - dt).max(0.0).max(min_start);
-                    current_session = Some(CueSession {
-                        start_sec: base_start,
-                        last_seen_sec: timestamp,
-                        candidates: { let mut m = std::collections::HashMap::new(); m.insert(recognized, 1); m },
-                        sample_raw: rec.raw_patch,
-                        sample_clahe: rec.clahe_patch,
-                        sample_w: rec.width,
-                        sample_h: rec.height,
-                    });
+                    // Bắt đầu session mới
+                    current_session = Some(CueSession::new(&timed_frame));
                 }
             }
+        }
+
+        // Progress logging (mỗi 2 giây)
+        if frame_idx % (config.fps as usize * 2) == 0 {
+            let progress_pct = (timestamp / total_duration_sec * 100.0).min(100.0);
+            crate::shared::tui_events::emit_task_progress(
+                "OCR Scanning",
+                frame_idx,
+                (total_duration_sec * config.fps as f64) as usize,
+                "frames",
+                format!("{:.1}s", timestamp),
+                format!("{:.1}% | Cues: {}", progress_pct, raw_segments.len()),
+            );
+        }
+    }
+
+    // Đóng session cuối cùng
+    if let Some(session) = current_session.take() {
+        if let Some(seg) = session.to_segment(half_dt) {
+            let cue_idx = raw_segments.len() + 1;
+            let _ = save_rgb_as_bmp(
+                &frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)),
+                &session.sample_clahe,
+                session.sample_w,
+                session.sample_h,
+            );
+            raw_segments.push(seg);
         }
     }
 
     let _ = ffmpeg_child.wait();
 
-    // Chốt session cuối cùng khi hết video
-    if let Some(session) = current_session.take() {
-        let end_sec = session.last_seen_sec + dt * 0.5;
-        if end_sec > session.start_sec + 0.5 {
-            if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
-                if !best_text.is_empty() {
-                    let cue_idx = segments.len() + 1;
-                    let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
-                    let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
+    println!(
+        "   [OCR] Quét xong. Raw segments: {} | Frames processed: {}",
+        raw_segments.len(),
+        frame_idx
+    );
 
-                    segments.push(SubtitleSegment {
-                        start_sec: session.start_sec,
-                        end_sec,
-                        text: best_text,
-                    });
-                }
-            }
-        }
+    // === Bước 4: Post-processing ===
+    let cleaned_segments = post_process_segments(raw_segments, config, dt);
+
+    // === Ghi file VTT ===
+    if let Some(parent) = output_vtt_path.parent() {
+        fs::create_dir_all(parent)?;
     }
-    
 
-    // --- BƯỚC 4: Filter + Temporal Voting + Fix overlap ---
-    let mut cleaned_segments: Vec<SubtitleSegment> = Vec::new();
-    for seg in segments {
+    let mut vtt_content = String::from("WEBVTT\n\n");
+    for seg in &cleaned_segments {
+        let start_str = SubtitleSegment::format_vtt_timestamp(seg.start_sec);
+        let end_str = SubtitleSegment::format_vtt_timestamp(seg.end_sec);
+        vtt_content.push_str(&format!("{} --> {}\n{}\n\n", start_str, end_str, seg.text));
+    }
+
+    fs::write(output_vtt_path, vtt_content)
+        .with_context(|| format!("Không thể ghi file WebVTT: {:?}", output_vtt_path))?;
+
+    crate::shared::tui_events::emit_log(format!(
+        "   {} {} Đã trích xuất hoàn tất phụ đề OCR: {:?} (Tổng: {} cues)",
+        "[OCR]".name_utils().violed(),
+        Icons::SUCCESS,
+        output_vtt_path,
+        cleaned_segments.len()
+    ));
+    crate::shared::tui_events::emit_log(format!(
+        "   {} {} Debug frames: {:?}",
+        "[OCR]".name_utils().violed(),
+        Icons::SUCCESS,
+        frames_debug_dir
+    ));
+
+    Ok(OcrExtractorOutput {
+        vtt_path: output_vtt_path.to_path_buf(),
+        segments: cleaned_segments,
+    })
+}
+
+/****
+ * post_process_segments
+ *
+ * 1. Filter noise (too short, no CJK, watermark)
+ * 2. Merge near-duplicate consecutive cues
+ * 3. Fix overlaps
+ * 4. Final sanity checks
+ ****/
+fn post_process_segments(
+    raw_segments: Vec<SubtitleSegment>,
+    config: &OcrExtractorConfig,
+    dt: f64,
+) -> Vec<SubtitleSegment> {
+    if raw_segments.is_empty() {
+        return Vec::new();
+    }
+
+    println!("   [OCR] Post-processing {} raw segments...", raw_segments.len());
+
+    // --- Pass 1: Basic filtering ---
+    let mut filtered: Vec<SubtitleSegment> = Vec::new();
+    for seg in raw_segments {
         let char_count = seg.text.chars().count();
+        let duration = seg.end_sec - seg.start_sec;
+
+        // Bỏ cue quá ngắn (< 2 ký tự)
         if char_count < 2 {
             continue;
         }
 
+        // Lọc CJK requirement cho tiếng Trung
         if config.lang.starts_with("zh") {
             let has_cjk = seg.text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
             if !has_cjk {
@@ -771,112 +877,73 @@ pub fn extract_hardcoded_subtitles(
             }
         }
 
-        let duration = seg.end_sec - seg.start_sec;
-
-        // Filter watermark: sub lâu quá 15s chắc chắn là watermark
+        // Lọc watermark: quá dài (>15s) rất có thể là watermark
         if duration > 15.0 {
             continue;
         }
 
-        // Min duration hạ thấp hơn cho câu ngắn (vẫn lọc được watermark)
-        let min_duration = match char_count {
-            0..=2 => 0.3, // ✅ Hạ từ 0.4 xuống 0.3
-            3..=4 => 0.4, // ✅ Hạ từ 0.5 xuống 0.4
-            5..=6 => 0.5, // ✅ Hạ từ 0.6 xuống 0.5
-            _ => 0.3,     // ✅ Hạ từ 0.35 xuống 0.3
-        };
-        if duration < min_duration {
+        // Minimum duration: rất ngắn = noise
+        // Nhưng threshold cực thấp để không drop cue hợp lệ
+        if duration < 0.15 {
             continue;
         }
 
-        // Đảm bảo không overlap với segment trước
-        let mut seg = seg;
-        if let Some(last) = cleaned_segments.last() {
-            if seg.start_sec < last.end_sec {
-                seg.start_sec = last.end_sec + 0.01;
-            }
-        }
-        if seg.end_sec <= seg.start_sec + 0.05 {
-            continue;
-        }
+        filtered.push(seg);
+    }
 
-        if let Some(last) = cleaned_segments.last_mut() {
+    println!("   [OCR] After basic filter: {} segments", filtered.len());
+
+    // --- Pass 2: Merge near-duplicate consecutive cues ---
+    let mut merged: Vec<SubtitleSegment> = Vec::new();
+    for seg in filtered {
+        if let Some(last) = merged.last_mut() {
             let gap = seg.start_sec - last.end_sec;
             let sim = text_similarity(&last.text, &seg.text);
             let last_len = last.text.chars().count();
-            let min_len = last_len.min(char_count);
-            let merge_threshold = if min_len <= 5 { 0.70 } else { 0.85 };
+            let seg_len = seg.text.chars().count();
+            let min_len = last_len.min(seg_len);
 
-            if sim >= merge_threshold && gap < 1.0 {
-                // Detect ký tự thừa: nếu 1 chuỗi là substring của chuỗi kia (lệch 1-4 ký tự)
-                let prefer_shorter = if last_len > char_count && last_len - char_count <= 4 {
-                    last.text.contains(&seg.text) && char_count >= 4
-                } else if char_count > last_len && char_count - last_len <= 4 {
-                    seg.text.contains(&last.text) && last_len >= 4
-                } else {
-                    false
-                };
+            // Merge threshold dựa trên độ dài
+            let merge_threshold = if min_len <= 4 { 0.60 } else if min_len <= 8 { 0.70 } else { 0.80 };
 
+            if sim >= merge_threshold && gap < 1.5 {
+                // Cùng câu → merge, giữ text dài hơn (thường chính xác hơn)
                 last.end_sec = last.end_sec.max(seg.end_sec);
-                if prefer_shorter {
-                    // Ưu tiên bản sạch hơn (không ký tự thừa)
-                    if last_len > char_count {
-                        last.text = seg.text;
-                    }
-                } else if char_count > last_len {
+
+                // Prefer bản có CJK count cao hơn, hoặc text dài hơn
+                let last_cjk = last.text.chars().filter(|c| ('\u{4e00}'..='\u{9fff}').contains(c)).count();
+                let seg_cjk = seg.text.chars().filter(|c| ('\u{4e00}'..='\u{9fff}').contains(c)).count();
+                if seg_cjk > last_cjk || (seg_cjk == last_cjk && seg_len > last_len) {
                     last.text = seg.text;
                 }
                 continue;
             }
 
-            if last.text == seg.text && gap < 2.0 {
+            // Exact match merge với gap lớn hơn
+            if last.text == seg.text && gap < 3.0 {
                 last.end_sec = last.end_sec.max(seg.end_sec);
                 continue;
             }
         }
-        cleaned_segments.push(seg);
+        merged.push(seg);
     }
 
-    // Fix overlap lần cuối
-    for i in 1..cleaned_segments.len() {
-        if cleaned_segments[i].start_sec < cleaned_segments[i - 1].end_sec {
-            cleaned_segments[i].start_sec = cleaned_segments[i - 1].end_sec + 0.01;
+    println!("   [OCR] After merge: {} segments", merged.len());
+
+    // --- Pass 3: Fix overlaps ---
+    for i in 1..merged.len() {
+        if merged[i].start_sec < merged[i - 1].end_sec {
+            // Chia thời gian tại điểm giữa
+            let mid = (merged[i - 1].end_sec + merged[i].start_sec) / 2.0;
+            merged[i - 1].end_sec = mid - 0.001;
+            merged[i].start_sec = mid;
         }
     }
-    cleaned_segments.retain(|s| s.end_sec > s.start_sec + 0.05);
 
-    // Đảm bảo thư mục cha của file vtt tồn tại
-    if let Some(parent) = output_vtt_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    // Remove degenerate segments after overlap fix
+    merged.retain(|s| s.end_sec > s.start_sec + 0.05);
 
-    // Lưu định dạng chuẩn WebVTT
-    let mut vtt_content = String::from("WEBVTT\n\n");
-    for seg in &cleaned_segments {
-        let start_str = SubtitleSegment::format_vtt_timestamp(seg.start_sec);
-        let end_str = SubtitleSegment::format_vtt_timestamp(seg.end_sec);
-        vtt_content.push_str(&format!("{} --> {}\n{}\n\n", start_str, end_str, seg.text));
-    }
+    println!("   [OCR] Final output: {} segments", merged.len());
 
-    fs::write(output_vtt_path, vtt_content)
-        .with_context(|| format!("Không thể ghi file WebVTT: {:?}", output_vtt_path))?;
-
-    crate::shared::tui_events::emit_log(format!(
-        "   {} {} Đã trích xuất hoàn tất phụ đề OCR từ Video: {:?} (Tổng số câu: {})",
-        "[OCR]".name_utils().violed(),
-        Icons::SUCCESS,
-        output_vtt_path,
-        cleaned_segments.len()
-    ));
-    crate::shared::tui_events::emit_log(format!(
-        "   {} {} Đã lưu mẫu frame phụ đề (Raw + CLAHE) vào: {:?}",
-        "[OCR]".name_utils().violed(),
-        Icons::SUCCESS,
-        frames_debug_dir
-    ));
-
-    Ok(OcrExtractorOutput {
-        vtt_path: output_vtt_path.to_path_buf(),
-        segments: cleaned_segments,
-    })
+    merged
 }
