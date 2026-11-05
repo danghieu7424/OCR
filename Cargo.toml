@@ -8,5 +8,6 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ort = "=2.0.0-rc.11"
+pure_onnx_ocr = "0.3.1"
 opencv = { version = "0.101.1", features = ["imgproc", "clang-runtime"] }
 cli_gui_form = { path = "./cli_gui_form" }
