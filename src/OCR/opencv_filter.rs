@@ -190,8 +190,8 @@ pub fn extract_and_filter_patch(
         return Ok(None);
     }
 
-    // 10. Resize về chuẩn OCR (PP-OCRv5 mobile yêu cầu height=32)
-    let target_h = 32usize; 
+    // 10. Resize về chuẩn OCR (PP-OCRv5 server yêu cầu height=48)
+    let target_h = 48usize; 
     let aspect = box_w as f32 / box_h as f32;
     let mut target_w = (target_h as f32 * aspect).round() as usize;
     target_w = target_w.clamp(64, 960);
