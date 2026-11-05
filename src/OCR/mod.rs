@@ -45,7 +45,7 @@ pub struct SubtitleRoi {
 impl Default for SubtitleRoi {
     fn default() -> Self {
         Self {
-            y_min: 0.85,
+            y_min: 0.75,
             y_max: 1.00,
             x_min: 0.05,
             x_max: 0.95,
@@ -637,8 +637,6 @@ pub fn extract_hardcoded_subtitles(
 
     let mut current_session: Option<CueSession> = None;
     let mut empty_streak = 0usize;
-    // ✅ Biến mới: track timestamp frame đầu tiên thấy candidate (kể cả khi OCR fail)
-    let mut candidate_first_sec: Option<f64> = None;
     let mut prev_had_candidates = false;
     // ✅ Biến mới: đếm số frame liên tiếp OCR fail dù có candidate (safety valve)
     let mut ocr_fail_streak = 0usize;
@@ -678,7 +676,7 @@ pub fn extract_hardcoded_subtitles(
                     let r = current_frame[idx];
                     let g = current_frame[idx + 1];
                     let b = current_frame[idx + 2];
-                    if r > 120 && g > 120 && b > 120 { // ✅ Hạ từ 145 xuống 130
+                    if r > 140 && g > 140 && b > 140 { // ✅ Hạ từ 145 xuống 130
                         count += 1;
                         if count >= 3 { // ✅ Hạ từ 4 xuống 3
                             break;
@@ -691,15 +689,6 @@ pub fn extract_hardcoded_subtitles(
             }
             count >= 3
         };
-
-        // ✅ Track frame đầu tiên có candidate (dùng để lùi start_sec khi OCR fail frame đầu)
-        if has_subtitle_candidates && !prev_had_candidates {
-            candidate_first_sec = Some(timestamp);
-        } else if !has_subtitle_candidates {
-            candidate_first_sec = None; // ✅ Phải reset về None khi mất candidate
-        }
-        prev_had_candidates = has_subtitle_candidates;
-
 
         // Tính toán mức độ biến thiên pixel (MSE) giữa 2 frame liên tiếp
         let _is_scene_change = if !has_prev {
@@ -732,7 +721,7 @@ pub fn extract_hardcoded_subtitles(
                 }
                 ocr_fail_streak += 1;
                 // Safety valve: OCR fail 12 frame liên tiếp (~1.5s ở 8fps) → đóng session
-                if ocr_fail_streak >= 12 { // ✅ Tăng từ 8 lên 12 frame (chịu khó đợi sub hiện rõ)
+                    if ocr_fail_streak >= 6 { // ✅ Giảm từ 12 xuống 6 (0.5 giây)
                     if let Some(session) = current_session.take() {
                         let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
                         if end_sec > session.start_sec + 0.5 {
@@ -750,7 +739,6 @@ pub fn extract_hardcoded_subtitles(
                             }
                         }
                     }
-                    
                     ocr_fail_streak = 0;
                 }
             } else {
@@ -818,8 +806,8 @@ pub fn extract_hardcoded_subtitles(
                     }
                     None => {
                         let min_start = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
-                        // ✅ Lùi lại nửa frame để sub bắt đầu sớm hơn một chút
-                        let base_start = (candidate_first_sec.unwrap_or(timestamp) - dt * 0.5).max(0.0).max(min_start);
+                        // ✅ Dùng trực tiếp timestamp hiện tại lùi 1 frame
+                        let base_start = (timestamp - dt).max(0.0).max(min_start);
                         current_session = Some(CueSession {
                             start_sec: base_start,
                             last_seen_sec: timestamp,
