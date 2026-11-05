@@ -58,7 +58,11 @@ impl SubtitleRoi {
      * parse
      * Phân tích chuỗi "ymin,ymax,xmin,xmax" thành cấu trúc SubtitleRoi.
      * Fallback sang Default nếu định dạng không khớp.
+     *
+     * Lưu ý: Hàm này không được gọi trực tiếp trong dự án test nhưng sẽ dùng
+     * khi cắm module trở lại tool chính (qua CLI arg --roi). Giữ nguyên.
      ****/
+    #[allow(dead_code)]
     pub fn parse(s: &str) -> Option<Self> {
         let parts: Vec<&str> = s.split(',').map(|p| p.trim()).collect();
         if parts.len() != 4 {
@@ -515,14 +519,21 @@ pub fn extract_hardcoded_subtitles(
         config.lang
     ));
 
-    // Bước 0: Nạp mô hình OCR PP-OCRv5
+        // Bước 0: Nạp mô hình OCR PP-OCRv5
     crate::shared::tui_events::emit_log(format!("   {} Khởi tạo mô hình ONNX PP-OCRv4/v5 Text Recognition...", "[OCR]".name_utils().violed()));
     let mut ocr_engine = PpOcrEngine::new(model_dir)?;
 
-    // ✅ THÊM MỚI: Khởi tạo DBNet Detector
+    // ✅ SỬA TẠI ĐÂY: Cung cấp đủ 3 đường dẫn cho Detector
     let det_path = model_dir.join("ocr/det.onnx");
+    let rec_path = model_dir.join("ocr/rec.onnx");
+    let keys_path = model_dir.join("ocr/keys.txt");
+    
     crate::shared::tui_events::emit_log(format!("   {} Khởi tạo mô hình DBNet Text Detection...", "[OCR]".name_utils().violed()));
-    let det_engine = self::det_filter::create_det_engine(&det_path.to_string_lossy())?;
+    let det_engine = self::det_filter::create_det_engine(
+        &det_path.to_string_lossy(),
+        &rec_path.to_string_lossy(),
+        &keys_path.to_string_lossy(),
+    )?;
 
     // Lấy kích thước video gốc bằng ffprobe
     let probe_out = Command::new("ffprobe")
@@ -666,9 +677,9 @@ pub fn extract_hardcoded_subtitles(
                     let r = current_frame[idx];
                     let g = current_frame[idx + 1];
                     let b = current_frame[idx + 2];
-                    if r > 145 && g > 145 && b > 145 {
+                    if r > 130 && g > 130 && b > 130 { // ✅ Hạ từ 145 xuống 130
                         count += 1;
-                        if count >= 4 {
+                        if count >= 3 { // ✅ Hạ từ 4 xuống 3
                             break;
                         }
                     }
@@ -684,13 +695,13 @@ pub fn extract_hardcoded_subtitles(
         if has_subtitle_candidates && !prev_had_candidates {
             candidate_first_sec = Some(timestamp);
         } else if !has_subtitle_candidates {
-            candidate_first_sec = None;
+            candidate_first_sec = None; // ✅ Phải reset về None khi mất candidate
         }
         prev_had_candidates = has_subtitle_candidates;
 
 
         // Tính toán mức độ biến thiên pixel (MSE) giữa 2 frame liên tiếp
-        let is_scene_change = if !has_prev {
+        let _is_scene_change = if !has_prev {
             true
         } else {
             let mut diff_sum: u64 = 0;
@@ -719,8 +730,8 @@ pub fn extract_hardcoded_subtitles(
                     session.last_seen_sec = timestamp;
                 }
                 ocr_fail_streak += 1;
-                // Safety valve: OCR fail 8 frame liên tiếp (~1s ở 8fps) → đóng session
-                if ocr_fail_streak >= 8 {
+                // Safety valve: OCR fail 12 frame liên tiếp (~1.5s ở 8fps) → đóng session
+                if ocr_fail_streak >= 12 { // ✅ Tăng từ 8 lên 12 frame (chịu khó đợi sub hiện rõ)
                     if let Some(session) = current_session.take() {
                         let end_sec = session.last_seen_sec;
                         if end_sec > session.start_sec + 0.5 {
@@ -738,7 +749,7 @@ pub fn extract_hardcoded_subtitles(
                             }
                         }
                     }
-                    candidate_first_sec = None;
+                    
                     ocr_fail_streak = 0;
                 }
             } else {
@@ -823,7 +834,7 @@ pub fn extract_hardcoded_subtitles(
                     }
                 }
             }
-        } else if let Some(session) = current_session.as_mut() {
+        } else if let Some(_session) = current_session.as_mut() {
             empty_streak += 1;
             if empty_streak >= 2 {
                 if let Some(session) = current_session.take() {
@@ -843,7 +854,7 @@ pub fn extract_hardcoded_subtitles(
                         }
                     }
                 }
-                candidate_first_sec = None;
+                
             }
             
         }
@@ -873,7 +884,7 @@ pub fn extract_hardcoded_subtitles(
             }
         }
     }
-    candidate_first_sec = None;
+    
 
     // --- BƯỚC 4: Filter + Temporal Voting + Fix overlap ---
     let mut cleaned_segments: Vec<SubtitleSegment> = Vec::new();
@@ -904,10 +915,10 @@ pub fn extract_hardcoded_subtitles(
 
         // Min duration hạ thấp hơn cho câu ngắn (vẫn lọc được watermark)
         let min_duration = match char_count {
-            0..=2 => 0.4,
-            3..=4 => 0.5,
-            5..=6 => 0.6,
-            _ => 0.35,
+            0..=2 => 0.3, // ✅ Hạ từ 0.4 xuống 0.3
+            3..=4 => 0.4, // ✅ Hạ từ 0.5 xuống 0.4
+            5..=6 => 0.5, // ✅ Hạ từ 0.6 xuống 0.5
+            _ => 0.3,     // ✅ Hạ từ 0.35 xuống 0.3
         };
         if duration < min_duration {
             continue;

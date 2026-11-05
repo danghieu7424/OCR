@@ -1,7 +1,7 @@
 // src/main.rs
-mod OCR;
+mod ocr;
 
-use OCR::{extract_hardcoded_subtitles, OcrExtractorConfig};
+use ocr::{extract_hardcoded_subtitles, OcrExtractorConfig};
 use std::path::PathBuf;
 
 pub mod shared {
