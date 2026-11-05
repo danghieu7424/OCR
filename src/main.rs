@@ -125,7 +125,7 @@ fn main() -> anyhow::Result<()> {
     // Duyệt qua từng video và tiến hành trích xuất phụ đề
     for (idx, video_path) in video_paths.iter().enumerate() {
         println!("--------------------------------------------------");
-        println!(">>> [{}/{}] Đang xử lý: {:?}", idx + 1, total_videos, video_path);
+        println!(">>>  [{}/{}] Đang xử lý: {:?}", idx + 1, total_videos, video_path);
 
         let video_stem = video_path
             .file_stem()
