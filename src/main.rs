@@ -100,9 +100,7 @@ fn main() -> anyhow::Result<()> {
     let output_vtt_path = PathBuf::from("output_subtitles.vtt");
     let model_dir = PathBuf::from("models");
     let mut config = OcrExtractorConfig::default();
-    // Industrial-grade defaults: 8fps provides 125ms resolution
-    // which is below human perception threshold (~100-150ms)
-    config.fps = 8;
+    config.fps = 10;
     config.accuracy_mode = true;
     println!(
         "   [INFO] Mode: {} | FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%]",

@@ -36,11 +36,16 @@ pub fn extract_patch_with_det(
     // Bước 1: Thu thập tất cả các box có kích thước hợp lệ
     let mut valid_boxes = Vec::new();
     for result in &results {
-        let points: Vec<(f64, f64)> = result.bounding_box.exterior().points()
+        let points: Vec<(f64, f64)> = result
+            .bounding_box
+            .exterior()
+            .points()
             .map(|p| (p.x(), p.y()))
             .collect();
 
-        if points.is_empty() { continue; }
+        if points.is_empty() {
+            continue;
+        }
 
         let b_min_x = points.iter().map(|p| p.0).fold(f64::MAX, f64::min);
         let b_min_y = points.iter().map(|p| p.1).fold(f64::MAX, f64::min);
@@ -49,14 +54,14 @@ pub fn extract_patch_with_det(
 
         let w = b_max_x - b_min_x;
         let h = b_max_y - b_min_y;
-        
-        // Lọc bỏ các box rác, chữ quá nhỏ hoặc watermark (tỉ lệ vuông)
-        if w < 15.0 || h < 8.0 || (w / h) < 1.0 {
+
+        // Lọc bỏ các box rác, chữ quá nhỏ hoặc watermark
+        if w < 12.0 || h < 8.0 {
             continue;
         }
-        
+
         let center_y = (b_min_y + b_max_y) / 2.0;
-        valid_boxes.push((b_min_x, b_min_y, b_max_x, b_max_y, center_y, w * h));
+        valid_boxes.push((b_min_x, b_min_y, b_max_x, b_max_y, center_y, h, w * h));
     }
 
     if valid_boxes.is_empty() {
@@ -64,17 +69,22 @@ pub fn extract_patch_with_det(
     }
 
     // Bước 2: Tìm box có diện tích lớn nhất làm mốc (Anchor)
-    let anchor = valid_boxes.iter().max_by(|a, b| a.5.partial_cmp(&b.5).unwrap()).unwrap();
+    let anchor = valid_boxes
+        .iter()
+        .max_by(|a, b| a.6.partial_cmp(&b.6).unwrap())
+        .unwrap();
     let anchor_cy = anchor.4;
+    let anchor_h = anchor.5;
 
-    // Bước 3: Gom tất cả các box nằm trên cùng dòng với Anchor (chênh lệch tâm Y < 25px)
+    // Bước 3: Gom tất cả các box nằm trên cùng dòng với Anchor (chênh lệch tâm Y < 60% chiều cao chữ)
+    let y_threshold = (anchor_h * 0.65).max(20.0);
     let mut group_min_x = f64::MAX;
     let mut group_min_y = f64::MAX;
     let mut group_max_x = f64::MIN;
     let mut group_max_y = f64::MIN;
 
-    for &(b_min_x, b_min_y, b_max_x, b_max_y, cy, _) in &valid_boxes {
-        if (cy - anchor_cy).abs() < 25.0 {
+    for &(b_min_x, b_min_y, b_max_x, b_max_y, cy, _, _) in &valid_boxes {
+        if (cy - anchor_cy).abs() < y_threshold {
             group_min_x = group_min_x.min(b_min_x);
             group_min_y = group_min_y.min(b_min_y);
             group_max_x = group_max_x.max(b_max_x);
@@ -82,8 +92,8 @@ pub fn extract_patch_with_det(
         }
     }
 
-    // Bước 4: Cắt ảnh với Padding
-    let pad_x = 10.0;
+    // Bước 4: Cắt ảnh với Padding an toàn để không xén nét chữ đầu/cuối
+    let pad_x = 12.0;
     let pad_y = 6.0;
 
     let crop_x = (group_min_x - pad_x).max(0.0) as u32;
@@ -103,7 +113,7 @@ pub fn extract_patch_with_det(
     let target_h = 48u32;
     let aspect = w as f32 / h as f32;
     let mut target_w = (target_h as f32 * aspect).round() as u32;
-    target_w = target_w.clamp(64, 960);
+    target_w = target_w.clamp(64, 1280);
     target_w = ((target_w + 7) / 8) * 8;
 
     let resized = roi.resize_exact(target_w, target_h, FilterType::Triangle);
