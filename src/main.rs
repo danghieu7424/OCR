@@ -97,7 +97,16 @@ fn main() -> anyhow::Result<()> {
 
     println!("   [INFO] Video test: {:?}", video_path);
 
-    let output_vtt_path = PathBuf::from("output_subtitles.vtt");
+    let video_stem = video_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("subtitles");
+
+    let output_dir = PathBuf::from("output");
+    if !output_dir.exists() {
+        std::fs::create_dir_all(&output_dir)?;
+    }
+    let output_vtt_path = output_dir.join(format!("{}.zh.vtt", video_stem));
     let model_dir = PathBuf::from("models");
     let mut config = OcrExtractorConfig::default();
     config.fps = 10;

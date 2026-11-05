@@ -646,7 +646,8 @@ pub fn extract_hardcoded_subtitles(
             .map(|(t, _)| t)
             .unwrap_or_default();
 
-        if best_text.chars().count() < 2 {
+        let char_count = best_text.chars().count();
+        if char_count == 0 {
             continue;
         }
 
@@ -656,6 +657,19 @@ pub fn extract_hardcoded_subtitles(
         // Bù trừ ranh giới thời gian nửa chu kỳ khung hình (half_dt)
         let start_sec = (t_start - half_dt).max(0.0);
         let end_sec = t_end + half_dt;
+        let duration = end_sec - start_sec;
+
+        // Lọc nhiễu hiệu ứng hình ảnh (VFX noise):
+        // Câu 1 chữ Hán đơn lẻ (ví dụ: 爹, 姐, 他, 嗯) phải hiển thị >= 350ms để mắt người kịp đọc.
+        // Các đốm sáng hiệu ứng kiếm khí/kỹ xảo nhấp nháy < 350ms sẽ được loại bỏ hoàn toàn.
+        if char_count == 1 {
+            let is_cjk = best_text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
+            if !is_cjk || duration < 0.35 {
+                continue;
+            }
+        } else if duration < 0.15 {
+            continue;
+        }
 
         // Đảm bảo không overlap với phân đoạn trước
         let start_sec = if let Some(last) = initial_segments.last() {
