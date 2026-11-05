@@ -1,2 +1,4 @@
 target/
 video_input/
+
+Cargo.lock
