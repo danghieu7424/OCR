@@ -100,6 +100,11 @@ fn main() -> anyhow::Result<()> {
     let output_vtt_path = PathBuf::from("output_subtitles.vtt");
     let model_dir = PathBuf::from("models");
     let config = OcrExtractorConfig::default();
+    println!(
+        "   [INFO] Mode: {} | FPS: {}",
+        if config.accuracy_mode { "ACCURACY" } else { "NORMAL" },
+        config.fps
+    );
 
     let result = extract_hardcoded_subtitles(&video_path, &output_vtt_path, &model_dir, &config)?;
 

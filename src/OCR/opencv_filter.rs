@@ -10,6 +10,7 @@ pub fn extract_and_filter_patch(
     rgb_bytes: &[u8],
     width: usize,
     height: usize,
+    tight: bool,
 ) -> Result<Option<(Vec<u8>, Vec<u8>, usize, usize)>> {
     if width < 16 || height < 12 || rgb_bytes.len() < width * height * 3 {
         return Ok(None);
@@ -38,7 +39,6 @@ pub fn extract_and_filter_patch(
         0,
         core::AlgorithmHint::ALGO_HINT_DEFAULT,
     )?;
-
     let mut enhanced = Mat::default();
     let mut clahe = imgproc::create_clahe(4.0, Size::new(8, 8))?;
     clahe.apply(&gray, &mut enhanced)?;
@@ -52,7 +52,6 @@ pub fn extract_and_filter_patch(
         0,
         core::AlgorithmHint::ALGO_HINT_DEFAULT,
     )?;
-
     let mut hsv_ch = Vector::<Mat>::new();
     core::split(&hsv, &mut hsv_ch)?;
     let s_ch = hsv_ch.get(1)?;
@@ -66,7 +65,7 @@ pub fn extract_and_filter_patch(
     let mut color_mask = Mat::default();
     core::bitwise_or(&mask_s, &mask_v, &mut color_mask, &core::no_array())?;
 
-    // 4. Otsu threshold trên ảnh CLAHE
+    // 4. Otsu
     let mut otsu_mask = Mat::default();
     imgproc::threshold(
         &enhanced,
@@ -76,11 +75,11 @@ pub fn extract_and_filter_patch(
         imgproc::THRESH_BINARY | imgproc::THRESH_OTSU,
     )?;
 
-    // 5. Hợp nhất mask
+    // 5. Hợp nhất
     let mut text_mask = Mat::default();
     core::bitwise_or(&otsu_mask, &color_mask, &mut text_mask, &core::no_array())?;
 
-    // 6. Morphology đóng lỗ
+    // 6. Morphology close
     let kernel = imgproc::get_structuring_element(
         imgproc::MORPH_RECT,
         Size::new(3, 3),
@@ -98,8 +97,7 @@ pub fn extract_and_filter_patch(
         Scalar::all(f64::MAX),
     )?;
 
-    // 7. ✅ DILATE MẠNH: 31x3, 3 iterations → bridge gap lên tới ±45px mỗi phía
-    // (Trước đây 25x3 × 1 iter = ±12px → không bridge được khoảng cách giữa các ký tự)
+    // 7. Dilate ngang mạnh
     let horizontal_kernel = imgproc::get_structuring_element(
         imgproc::MORPH_RECT,
         Size::new(31, 3),
@@ -111,12 +109,12 @@ pub fn extract_and_filter_patch(
         &mut text_lines,
         &horizontal_kernel,
         Point::new(-1, -1),
-        3,   // ← 3 iterations
+        3,
         core::BORDER_CONSTANT,
         Scalar::all(f64::MAX),
     )?;
 
-    // ✅ THÊM LẠI: tìm contour trên text_lines (bị thiếu khi paste lần trước)
+    // 8. Find contours
     let mut contours = Vector::<Vector<Point>>::new();
     imgproc::find_contours(
         &text_lines,
@@ -126,7 +124,6 @@ pub fn extract_and_filter_patch(
         Point::new(0, 0),
     )?;
 
-    // 8. Thu thập tất cả contour pass filter
     let mut rects: Vec<Rect> = Vec::new();
     for cnt in contours.iter() {
         let rect = imgproc::bounding_rect(&cnt)?;
@@ -139,14 +136,12 @@ pub fn extract_and_filter_patch(
             rects.push(rect);
         }
     }
-
     if rects.is_empty() {
         return Ok(None);
     }
 
-    // ✅ Group theo hàng dọc (cùng text line) để tách sub chính khỏi watermark góc
+    // Group theo hàng dọc → chọn group width lớn nhất (sub chính)
     rects.sort_by_key(|r| r.y + r.height / 2);
-
     let mut groups: Vec<Vec<Rect>> = Vec::new();
     for r in rects {
         let center_y = r.y + r.height / 2;
@@ -163,8 +158,6 @@ pub fn extract_and_filter_patch(
             groups.push(vec![r]);
         }
     }
-
-    // Chọn group có tổng chiều rộng lớn nhất (sub chính dài hơn watermark)
     let best_group = groups
         .iter()
         .max_by_key(|g| g.iter().map(|r| r.width as i64).sum::<i64>())
@@ -180,14 +173,12 @@ pub fn extract_and_filter_patch(
         max_x = max_x.max(r.x + r.width);
         max_y = max_y.max(r.y + r.height);
     }
-
     if max_x <= min_x || max_y <= min_y {
         return Ok(None);
     }
 
-    // 9. Padding rộng hơn (24x14 thay vì 16x10)
-    let pad_x = 12;
-    let pad_y = 8;
+    // 9. Padding: TIGHT (6,4) cho accuracy mode, (12,8) cho normal
+    let (pad_x, pad_y) = if tight { (6i32, 4i32) } else { (12i32, 8i32) };
     min_x = (min_x - pad_x).max(0);
     min_y = (min_y - pad_y).max(0);
     max_x = (max_x + pad_x).min((width * 2) as i32);
@@ -230,7 +221,6 @@ pub fn extract_and_filter_patch(
         0.0,
         imgproc::INTER_LINEAR,
     )?;
-
     let mut clahe_rgb = Mat::default();
     imgproc::cvt_color(
         &enhanced_resized,

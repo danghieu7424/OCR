@@ -25,7 +25,7 @@ use ort::{
     value::Tensor,
 };
 
-use crate::shared::terminal_color::{NameUtilsExt, TermColorExt};
+use crate::shared::terminal_color::NameUtilsExt;
 use crate::shared::icons::Icons;
 
 pub mod opencv_filter;
@@ -88,15 +88,18 @@ pub struct OcrExtractorConfig {
     pub lang: String,
     /// Ngưỡng phát hiện biến thiên khung hình để xác định ranh giới phụ đề (0.01 - 0.20)
     pub diff_threshold: f32,
+    /// Chế độ chính xác: padding tight + filter chặt hơn + fps cao
+    pub accuracy_mode: bool,
 }
 
 impl Default for OcrExtractorConfig {
     fn default() -> Self {
         Self {
-            fps: 8,
+            fps: 12,
             roi: SubtitleRoi::default(),
             lang: "zh".to_string(),
             diff_threshold: 0.04,
+            accuracy_mode: true,
         }
     }
 }
@@ -232,14 +235,14 @@ impl PpOcrEngine {
     }
 
         /// Nhận diện văn bản từ ảnh RGB24 dạng phẳng [H, W, 3] 
-    fn recognize_text(&mut self, rgb_bytes: &[u8], width: usize, height: usize) -> Result<OcrFrameRecognition> {
+    fn recognize_text(&mut self, rgb_bytes: &[u8], width: usize, height: usize, tight: bool) -> Result<OcrFrameRecognition> {
         if width == 0 || height == 0 || rgb_bytes.is_empty() {
             return Ok(OcrFrameRecognition::default());
         }
 
         // 1. Gọi module OpenCV để lọc nhiễu, tìm bounding box, cắt và resize patch
         let (raw_patch, clahe_patch, target_w, target_h) = 
-            match self::opencv_filter::extract_and_filter_patch(rgb_bytes, width, height)? {
+            match self::opencv_filter::extract_and_filter_patch(rgb_bytes, width, height, tight)? {
                 Some(patch) => patch,
                 None => return Ok(OcrFrameRecognition::default()), // Không tìm thấy chữ
             };
@@ -688,7 +691,7 @@ pub fn extract_hardcoded_subtitles(
 
         if should_ocr {
             // Nhận diện OCR trực tiếp trên khung hình với Pure-Rust CLAHE + Soft Contrast Tuning
-            let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h).unwrap_or_default();
+            let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h, config.accuracy_mode).unwrap_or_default();
             let recognized = rec.text;
 
             if recognized.is_empty() {
@@ -717,6 +720,7 @@ pub fn extract_hardcoded_subtitles(
                             }
                         }
                     }
+                    candidate_first_sec = None;
                     ocr_fail_streak = 0;
                 }
             } else {
@@ -748,8 +752,11 @@ pub fn extract_hardcoded_subtitles(
                         } else {
                             // Câu mới xuất hiện: đóng session cũ và mở session mới
                             let end_sec = session.last_seen_sec;
+                            let last_seg_end = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
+                            let old_end = end_sec.max(last_seg_end);
+                            let new_start = timestamp.max(old_end + 0.01);
                             let old_session = current_session.replace(CueSession {
-                                start_sec: timestamp,
+                                start_sec: new_start,
                                 last_seen_sec: timestamp,
                                 candidates: {
                                     let mut map = std::collections::HashMap::new();
@@ -780,8 +787,10 @@ pub fn extract_hardcoded_subtitles(
                         }
                     }
                     None => {
+                        let min_start = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
+                        let base_start = candidate_first_sec.unwrap_or(timestamp).max(min_start);
                         current_session = Some(CueSession {
-                            start_sec: candidate_first_sec.unwrap_or(timestamp),
+                            start_sec: base_start,
                             last_seen_sec: timestamp,
                             candidates: {
                                 let mut map = std::collections::HashMap::new();
@@ -816,6 +825,7 @@ pub fn extract_hardcoded_subtitles(
                         }
                     }
                 }
+                candidate_first_sec = None;
             }
             
         }
@@ -845,8 +855,9 @@ pub fn extract_hardcoded_subtitles(
             }
         }
     }
+    candidate_first_sec = None;
 
-        // --- BƯỚC 4: Filter rác + Temporal Voting & Deduplication ---
+    // --- BƯỚC 4: Filter + Temporal Voting + Fix overlap ---
     let mut cleaned_segments: Vec<SubtitleSegment> = Vec::new();
     for seg in segments {
         let char_count = seg.text.chars().count();
@@ -854,7 +865,6 @@ pub fn extract_hardcoded_subtitles(
             continue;
         }
 
-        // Filter CJK + watermark (Latin nhiều hơn Hán = watermark)
         if config.lang.starts_with("zh") {
             let has_cjk = seg.text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
             if !has_cjk {
@@ -862,35 +872,68 @@ pub fn extract_hardcoded_subtitles(
             }
             let latin_count = seg.text.chars().filter(|c| c.is_ascii_alphabetic()).count();
             let cjk_count = seg.text.chars().filter(|c| ('\u{4e00}'..='\u{9fff}').contains(c)).count();
-            // Latin > Hán và Hán < 3 → rác watermark (vd "AR公PT", "OAN司")
             if latin_count > cjk_count && cjk_count < 3 {
                 continue;
             }
         }
 
-        // Filter rác: sub quá ngắn + text ngắn
         let duration = seg.end_sec - seg.start_sec;
-        let min_duration = if char_count <= 4 { 0.8 } else { 0.4 };
+
+        // Filter watermark: sub lâu quá 15s chắc chắn là watermark
+        if duration > 15.0 {
+            continue;
+        }
+
+        // Min duration động: text càng ngắn càng cần thời gian dài
+        let min_duration = match char_count {
+            0..=4 => 1.2,
+            5..=6 => 0.8,
+            _ => 0.4,
+        };
         if duration < min_duration {
+            continue;
+        }
+
+        // Đảm bảo không overlap với segment trước
+        let mut seg = seg;
+        if let Some(last) = cleaned_segments.last() {
+            if seg.start_sec < last.end_sec {
+                seg.start_sec = last.end_sec + 0.01;
+            }
+        }
+        if seg.end_sec <= seg.start_sec + 0.05 {
             continue;
         }
 
         if let Some(last) = cleaned_segments.last_mut() {
             let gap = seg.start_sec - last.end_sec;
             let sim = text_similarity(&last.text, &seg.text);
-            let min_len = last.text.chars().count().min(char_count);
+            let last_len = last.text.chars().count();
+            let min_len = last_len.min(char_count);
+            let merge_threshold = if min_len <= 5 { 0.70 } else { 0.85 };
 
-            // Gộp mạnh hơn cho câu ngắn (ngưỡng 0.65) — vd "当我天倦杀我后" vs "当我倦杀后"
-            let merge_threshold = if min_len <= 5 { 0.65 } else { 0.85 };
             if sim >= merge_threshold && gap < 1.0 {
+                // Detect ký tự thừa: nếu 1 chuỗi là substring của chuỗi kia (lệch 1-4 ký tự)
+                let prefer_shorter = if last_len > char_count && last_len - char_count <= 4 {
+                    last.text.contains(&seg.text) && char_count >= 4
+                } else if char_count > last_len && char_count - last_len <= 4 {
+                    seg.text.contains(&last.text) && last_len >= 4
+                } else {
+                    false
+                };
+
                 last.end_sec = last.end_sec.max(seg.end_sec);
-                if char_count > last.text.chars().count() {
+                if prefer_shorter {
+                    // Ưu tiên bản sạch hơn (không ký tự thừa)
+                    if last_len > char_count {
+                        last.text = seg.text;
+                    }
+                } else if char_count > last_len {
                     last.text = seg.text;
                 }
                 continue;
             }
 
-            // Trùng hệt
             if last.text == seg.text && gap < 2.0 {
                 last.end_sec = last.end_sec.max(seg.end_sec);
                 continue;
@@ -898,6 +941,14 @@ pub fn extract_hardcoded_subtitles(
         }
         cleaned_segments.push(seg);
     }
+
+    // Fix overlap lần cuối
+    for i in 1..cleaned_segments.len() {
+        if cleaned_segments[i].start_sec < cleaned_segments[i - 1].end_sec {
+            cleaned_segments[i].start_sec = cleaned_segments[i - 1].end_sec + 0.01;
+        }
+    }
+    cleaned_segments.retain(|s| s.end_sec > s.start_sec + 0.05);
 
     // Đảm bảo thư mục cha của file vtt tồn tại
     if let Some(parent) = output_vtt_path.parent() {
