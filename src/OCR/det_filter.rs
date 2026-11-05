@@ -62,9 +62,9 @@ pub fn extract_patch_with_det(
         let max_x = points.iter().map(|p| p.0).fold(f64::MIN, f64::max);
         let max_y = points.iter().map(|p| p.1).fold(f64::MIN, f64::max);
 
-        // ✅ THÊM PADDING (Mở rộng hộp ra 4px mỗi phía để không cắt xén nét chữ)
-        let pad_x = 6.0;
-        let pad_y = 4.0;
+        // ✅ THÊM PADDING (Mở rộng hộp ra 8px mỗi phía để không cắt xén nét chữ)
+        let pad_x = 10.0;
+        let pad_y = 8.0;
 
         let crop_x = (min_x - pad_x).max(0.0) as u32;
         let crop_y = (min_y - pad_y).max(0.0) as u32;
