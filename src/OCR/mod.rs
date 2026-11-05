@@ -16,7 +16,7 @@ use ort::{
 };
 
 use crate::shared::terminal_color::TermColorExt;
-use cli_gui_form::Icons;
+// use cli_gui_form::Icons;
 
 pub mod opencv_filter;
 
@@ -382,18 +382,18 @@ pub fn extract_hardcoded_subtitles(
             match active_cue.as_mut() {
                 Some(cue) => {
                     let sim = text_similarity(&cue.text, &recognized);
-                    if sim >= 0.55 {
-                        cue.end_sec = timestamp;
-                        if recognized.chars().count() > cue.text.chars().count() {
-                            cue.text = recognized;
-                            if !rec.raw_patch.is_empty() {
-                                cue.raw_patch = rec.raw_patch;
-                                cue.clahe_patch = rec.clahe_patch;
-                                cue.w = rec.width;
-                                cue.h = rec.height;
+                        if sim >= 0.40 {  // Hạ từ 0.55 xuống 0.40 để gom câu tốt hơn
+                            cue.end_sec = timestamp;
+                            if recognized.chars().count() > cue.text.chars().count() {
+                                cue.text = recognized;
+                                if !rec.raw_patch.is_empty() {
+                                    cue.raw_patch = rec.raw_patch;
+                                    cue.clahe_patch = rec.clahe_patch;
+                                    cue.w = rec.width;
+                                    cue.h = rec.height;
+                                }
                             }
-                        }
-                    } else {
+                        } else {
                         // Lưu cue cũ, mở cue mới
                         let finished_cue = active_cue.take().unwrap();
                         if finished_cue.end_sec - finished_cue.start_sec >= 0.4 {
