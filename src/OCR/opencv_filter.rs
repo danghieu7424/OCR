@@ -116,7 +116,7 @@ pub fn extract_and_filter_patch(
         Scalar::all(f64::MAX),
     )?;
 
-    // 8. Contour → bounding box (filter NỚI RỘNG hơn)
+    // ✅ THÊM LẠI: tìm contour trên text_lines (bị thiếu khi paste lần trước)
     let mut contours = Vector::<Vector<Point>>::new();
     imgproc::find_contours(
         &text_lines,
@@ -126,36 +126,68 @@ pub fn extract_and_filter_patch(
         Point::new(0, 0),
     )?;
 
-    let mut min_x = (width * 2) as i32;
-    let mut min_y = (height * 2) as i32;
-    let mut max_x = 0i32;
-    let mut max_y = 0i32;
-    let mut found = false;
-
+    // 8. Thu thập tất cả contour pass filter
+    let mut rects: Vec<Rect> = Vec::new();
     for cnt in contours.iter() {
         let rect = imgproc::bounding_rect(&cnt)?;
-        // Filter nới: height < 500 (thay vì 200), aspect >= 0.3 (thay vì 0.5), area >= 40 (thay vì 80)
         if rect.width >= 15
-            && rect.height >= 8
+            && rect.height >= 4
             && rect.height < 500
             && (rect.width as f64 / rect.height as f64) >= 0.3
-            && (rect.width * rect.height) >= 40
+            && (rect.width * rect.height) >= 25
         {
-            found = true;
-            min_x = min_x.min(rect.x);
-            min_y = min_y.min(rect.y);
-            max_x = max_x.max(rect.x + rect.width);
-            max_y = max_y.max(rect.y + rect.height);
+            rects.push(rect);
         }
     }
 
-    if !found || max_x <= min_x || max_y <= min_y {
+    if rects.is_empty() {
+        return Ok(None);
+    }
+
+    // ✅ Group theo hàng dọc (cùng text line) để tách sub chính khỏi watermark góc
+    rects.sort_by_key(|r| r.y + r.height / 2);
+
+    let mut groups: Vec<Vec<Rect>> = Vec::new();
+    for r in rects {
+        let center_y = r.y + r.height / 2;
+        let mut matched = false;
+        for g in groups.iter_mut() {
+            let g_center = g[0].y + g[0].height / 2;
+            if (center_y - g_center).abs() < 20 {
+                g.push(r);
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            groups.push(vec![r]);
+        }
+    }
+
+    // Chọn group có tổng chiều rộng lớn nhất (sub chính dài hơn watermark)
+    let best_group = groups
+        .iter()
+        .max_by_key(|g| g.iter().map(|r| r.width as i64).sum::<i64>())
+        .unwrap();
+
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = 0i32;
+    let mut max_y = 0i32;
+    for r in best_group {
+        min_x = min_x.min(r.x);
+        min_y = min_y.min(r.y);
+        max_x = max_x.max(r.x + r.width);
+        max_y = max_y.max(r.y + r.height);
+    }
+
+    if max_x <= min_x || max_y <= min_y {
         return Ok(None);
     }
 
     // 9. Padding rộng hơn (24x14 thay vì 16x10)
-    let pad_x = 24;
-    let pad_y = 14;
+    let pad_x = 12;
+    let pad_y = 8;
     min_x = (min_x - pad_x).max(0);
     min_y = (min_y - pad_y).max(0);
     max_x = (max_x + pad_x).min((width * 2) as i32);

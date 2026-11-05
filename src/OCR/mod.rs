@@ -604,6 +604,11 @@ pub fn extract_hardcoded_subtitles(
 
     let mut current_session: Option<CueSession> = None;
     let mut empty_streak = 0usize;
+    // ✅ Biến mới: track timestamp frame đầu tiên thấy candidate (kể cả khi OCR fail)
+    let mut candidate_first_sec: Option<f64> = None;
+    let mut prev_had_candidates = false;
+    // ✅ Biến mới: đếm số frame liên tiếp OCR fail dù có candidate (safety valve)
+    let mut ocr_fail_streak = 0usize;
 
     crate::shared::tui_events::emit_log(format!("   {} Đang quét và nhận diện chữ từ khung hình video...", "[OCR]".name_utils().violed()));
 
@@ -654,6 +659,15 @@ pub fn extract_hardcoded_subtitles(
             count >= 4
         };
 
+        // ✅ Track frame đầu tiên có candidate (dùng để lùi start_sec khi OCR fail frame đầu)
+        if has_subtitle_candidates && !prev_had_candidates {
+            candidate_first_sec = Some(timestamp);
+        } else if !has_subtitle_candidates {
+            candidate_first_sec = None;
+        }
+        prev_had_candidates = has_subtitle_candidates;
+
+
         // Tính toán mức độ biến thiên pixel (MSE) giữa 2 frame liên tiếp
         let is_scene_change = if !has_prev {
             true
@@ -678,19 +692,22 @@ pub fn extract_hardcoded_subtitles(
             let recognized = rec.text;
 
             if recognized.is_empty() {
-                empty_streak += 1;
-                // Chỉ chốt kết thúc câu khi vắng chữ liên tiếp ít nhất 2 frame (~0.25s) để chống flicker
-                if empty_streak >= 2 {
+                // ✅ Candidate hiện diện nhưng OCR không đọc được → KHÔNG đóng session,
+                //    chỉ cần gia hạn last_seen_sec (sub có thể đang fade-in hoặc mờ nhẹ).
+                if let Some(session) = current_session.as_mut() {
+                    session.last_seen_sec = timestamp;
+                }
+                ocr_fail_streak += 1;
+                // Safety valve: OCR fail 8 frame liên tiếp (~1s ở 8fps) → đóng session
+                if ocr_fail_streak >= 8 {
                     if let Some(session) = current_session.take() {
                         let end_sec = session.last_seen_sec;
-                        if end_sec > session.start_sec + 0.35 {
-                            // Chọn biến thể có tần suất frame xuất hiện cao nhất (Majority Voting)
+                        if end_sec > session.start_sec + 0.5 {
                             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                                 if !best_text.is_empty() {
                                     let cue_idx = segments.len() + 1;
                                     let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
                                     let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
-
                                     segments.push(SubtitleSegment {
                                         start_sec: session.start_sec,
                                         end_sec,
@@ -700,9 +717,11 @@ pub fn extract_hardcoded_subtitles(
                             }
                         }
                     }
+                    ocr_fail_streak = 0;
                 }
             } else {
                 empty_streak = 0;
+                ocr_fail_streak = 0;
                 match current_session.as_mut() {
                     Some(session) => {
                         // Lấy biến thể có tần suất cao nhất hiện tại để đối chiếu độ tương đồng
@@ -762,7 +781,7 @@ pub fn extract_hardcoded_subtitles(
                     }
                     None => {
                         current_session = Some(CueSession {
-                            start_sec: timestamp,
+                            start_sec: candidate_first_sec.unwrap_or(timestamp),
                             last_seen_sec: timestamp,
                             candidates: {
                                 let mut map = std::collections::HashMap::new();
@@ -778,32 +797,27 @@ pub fn extract_hardcoded_subtitles(
                 }
             }
         } else if let Some(session) = current_session.as_mut() {
-            if has_subtitle_candidates {
-                // Phụ đề hiện tại vẫn đang tiếp tục hiển thị
-                session.last_seen_sec = timestamp;
-            } else {
-                empty_streak += 1;
-                if empty_streak >= 2 {
-                    if let Some(session) = current_session.take() {
-                        let end_sec = session.last_seen_sec;
-                        if end_sec > session.start_sec + 0.35 {
-                            if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
-                                if !best_text.is_empty() {
-                                    let cue_idx = segments.len() + 1;
-                                    let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
-                                    let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
-
-                                    segments.push(SubtitleSegment {
-                                        start_sec: session.start_sec,
-                                        end_sec,
-                                        text: best_text,
-                                    });
-                                }
+            empty_streak += 1;
+            if empty_streak >= 2 {
+                if let Some(session) = current_session.take() {
+                    let end_sec = session.last_seen_sec;
+                    if end_sec > session.start_sec + 0.5 {
+                        if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
+                            if !best_text.is_empty() {
+                                let cue_idx = segments.len() + 1;
+                                let cue_bmp = frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx));
+                                let _ = save_rgb_as_bmp(&cue_bmp, &session.sample_clahe, session.sample_w, session.sample_h);
+                                segments.push(SubtitleSegment {
+                                    start_sec: session.start_sec,
+                                    end_sec,
+                                    text: best_text,
+                                });
                             }
                         }
                     }
                 }
             }
+            
         }
 
         prev_frame.copy_from_slice(&current_frame);
@@ -815,7 +829,7 @@ pub fn extract_hardcoded_subtitles(
     // Chốt session cuối cùng khi hết video
     if let Some(session) = current_session.take() {
         let end_sec = session.last_seen_sec;
-        if end_sec > session.start_sec + 0.35 {
+        if end_sec > session.start_sec + 0.5 {
             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                 if !best_text.is_empty() {
                     let cue_idx = segments.len() + 1;
@@ -832,39 +846,53 @@ pub fn extract_hardcoded_subtitles(
         }
     }
 
-    // --- BƯỚC 4: Temporal Voting & Deduplication (Loại bỏ flicker, sáp nhập câu lặp) ---
+        // --- BƯỚC 4: Filter rác + Temporal Voting & Deduplication ---
     let mut cleaned_segments: Vec<SubtitleSegment> = Vec::new();
     for seg in segments {
-        if seg.text.chars().count() < 2 {
-            // Bỏ các câu quá ngắn hoặc chỉ có 1 ký tự rác (như "以", "Co", "S")
+        let char_count = seg.text.chars().count();
+        if char_count < 2 {
             continue;
         }
 
-        // Bỏ các câu thuần ký tự Latinh rác không chứa chữ Hán (nếu cấu hình tiếng Trung)
+        // Filter CJK + watermark (Latin nhiều hơn Hán = watermark)
         if config.lang.starts_with("zh") {
             let has_cjk = seg.text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
             if !has_cjk {
                 continue;
             }
+            let latin_count = seg.text.chars().filter(|c| c.is_ascii_alphabetic()).count();
+            let cjk_count = seg.text.chars().filter(|c| ('\u{4e00}'..='\u{9fff}').contains(c)).count();
+            // Latin > Hán và Hán < 3 → rác watermark (vd "AR公PT", "OAN司")
+            if latin_count > cjk_count && cjk_count < 3 {
+                continue;
+            }
+        }
+
+        // Filter rác: sub quá ngắn + text ngắn
+        let duration = seg.end_sec - seg.start_sec;
+        let min_duration = if char_count <= 4 { 0.8 } else { 0.4 };
+        if duration < min_duration {
+            continue;
         }
 
         if let Some(last) = cleaned_segments.last_mut() {
             let gap = seg.start_sec - last.end_sec;
             let sim = text_similarity(&last.text, &seg.text);
+            let min_len = last.text.chars().count().min(char_count);
 
-            // Nếu câu sau gần như giống hệt câu trước (độ tương đồng > 65%) và khoảng cách thời gian ngắn (< 1.2s):
-            // -> Sáp nhập thành 1 câu duy nhất, kéo dài timestamp và giữ lại câu có độ dài đầy đủ hơn
-            if sim > 0.85 && gap < 0.8 {
-                last.end_sec = seg.end_sec;
-                if seg.text.chars().count() > last.text.chars().count() {
+            // Gộp mạnh hơn cho câu ngắn (ngưỡng 0.65) — vd "当我天倦杀我后" vs "当我倦杀后"
+            let merge_threshold = if min_len <= 5 { 0.65 } else { 0.85 };
+            if sim >= merge_threshold && gap < 1.0 {
+                last.end_sec = last.end_sec.max(seg.end_sec);
+                if char_count > last.text.chars().count() {
                     last.text = seg.text;
                 }
                 continue;
             }
 
-            // Nếu câu giống hệt 100% và khoảng cách < 2.0s
+            // Trùng hệt
             if last.text == seg.text && gap < 2.0 {
-                last.end_sec = seg.end_sec;
+                last.end_sec = last.end_sec.max(seg.end_sec);
                 continue;
             }
         }
