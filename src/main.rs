@@ -145,6 +145,6 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    println!("\n>>> [HOÀN THÀNH] Đã xử lý xong toàn bộ danh sách video.");
+    println!("\n>>> [DONE] Đã xử lý xong toàn bộ danh sách video.");
     Ok(())
 }
