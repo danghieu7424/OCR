@@ -12,7 +12,7 @@ pub mod shared {
         }
     }
 
-        pub mod terminal_color {
+    pub mod terminal_color {
         pub struct NameWrapper(pub String);
         impl NameWrapper {
             pub fn violed(self) -> String { self.0 }
@@ -36,7 +36,6 @@ pub mod shared {
             }
         }
 
-        // ✅ THÊM TRAIT NÀY để đủ cho import `TermColorExt`
         pub trait TermColorExt {
             fn violed(&self) -> String;
         }
@@ -74,54 +73,78 @@ pub mod shared {
 }
 
 fn main() -> anyhow::Result<()> {
-    println!(">>> [TEST] Khởi chạy kiểm tra module OCR phụ đề cứng...");
+    println!(">>> [TEST] Khởi chạy kiểm tra module OCR phụ đề cứng cho tất cả video...");
 
     let input_dir = PathBuf::from("video_input");
     if !input_dir.exists() {
         std::fs::create_dir_all(&input_dir)?;
-        println!("   [INFO] Đã tạo thư mục 'video_input/'. Vui lòng bỏ file video vào đây!");
+        println!("    [INFO] Đã tạo thư mục 'video_input/'. Vui lòng bỏ file video vào đây!");
         return Ok(());
     }
 
-    let video_path = input_dir
+    // Lấy tất cả các file video hợp lệ trong thư mục video_input/
+    let video_paths: Vec<PathBuf> = input_dir
         .read_dir()?
         .filter_map(|entry| entry.ok())
         .map(|e| e.path())
-        .find(|path| {
-            path.extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| matches!(ext.to_lowercase().as_str(), "mp4" | "mkv" | "avi" | "mov"))
-                .unwrap_or(false)
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| matches!(ext.to_lowercase().as_str(), "mp4" | "mkv" | "avi" | "mov"))
+                    .unwrap_or(false)
         })
-        .ok_or_else(|| anyhow::anyhow!("Không tìm thấy file video nào trong 'video_input/'!"))?;
+        .collect();
 
-    println!("   [INFO] Video test: {:?}", video_path);
+    if video_paths.is_empty() {
+        return Err(anyhow::anyhow!("Không tìm thấy file video nào trong 'video_input/'!"));
+    }
 
-    let video_stem = video_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("subtitles");
+    let total_videos = video_paths.len();
+    println!("    [INFO] Tìm thấy {} video cần xử lý.", total_videos);
 
     let output_dir = PathBuf::from("output");
     if !output_dir.exists() {
         std::fs::create_dir_all(&output_dir)?;
     }
-    let output_vtt_path = output_dir.join(format!("{}.zh.vtt", video_stem));
     let model_dir = PathBuf::from("models");
+
     let mut config = OcrExtractorConfig::default();
     config.fps = 10;
     config.accuracy_mode = true;
+
     println!(
-        "   [INFO] Mode: {} | FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%]",
+        "    [INFO] Mode: {} | FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%]\n",
         if config.accuracy_mode { "ACCURACY" } else { "NORMAL" },
         config.fps,
         config.roi.y_min * 100.0, config.roi.y_max * 100.0,
         config.roi.x_min * 100.0, config.roi.x_max * 100.0,
     );
 
-    let result = extract_hardcoded_subtitles(&video_path, &output_vtt_path, &model_dir, &config)?;
+    // Duyệt qua từng video và tiến hành trích xuất phụ đề
+    for (idx, video_path) in video_paths.iter().enumerate() {
+        println!("--------------------------------------------------");
+        println!(">>> [{}/{}] Đang xử lý: {:?}", idx + 1, total_videos, video_path);
 
-    println!("[SUCCESS] Xong! Tổng câu sub: {}", result.segments.len());
-    println!("[SUCCESS] VTT: {:?}", result.vtt_path);
+        let video_stem = video_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("subtitles");
+
+        let output_vtt_path = output_dir.join(format!("{}.zh.vtt", video_stem));
+
+        match extract_hardcoded_subtitles(video_path, &output_vtt_path, &model_dir, &config) {
+            Ok(result) => {
+                println!(" [SUCCESS] Xong video {:?}! Tổng câu sub: {}", video_path.file_name().unwrap_or_default(), result.segments.len());
+                println!(" [SUCCESS] VTT: {:?}", result.vtt_path);
+            }
+            Err(err) => {
+                eprintln!("   [ERROR] Thất bại khi xử lý {:?}: {}", video_path, err);
+            }
+        }
+    }
+
+    println!("\n>>> [HOÀN THÀNH] Đã xử lý xong toàn bộ danh sách video.");
     Ok(())
 }
