@@ -608,23 +608,18 @@ pub fn extract_hardcoded_subtitles(
 
     let frame_bytes = crop_w * crop_h * 3;
     let mut current_frame = vec![0u8; frame_bytes];
-    let mut prev_frame = vec![0u8; frame_bytes];
-    let mut has_prev = false;
-
+    
+    // Xóa bỏ prev_frame, has_prev vì không dùng MSE nữa
     let dt = 1.0 / (config.fps as f64);
     let mut frame_idx = 0usize;
 
-
     let mut segments: Vec<SubtitleSegment> = Vec::new();
-
-    // Thư mục lưu các frame phụ đề đã crop và xử lý (Raw + CLAHE) để người dùng kiểm tra trực quan
     let frames_debug_dir = output_vtt_path
         .parent()
         .map(|p| p.join("ocr_frames"))
         .unwrap_or_else(|| PathBuf::from("ocr_frames"));
     let _ = fs::create_dir_all(&frames_debug_dir);
 
-    // Cấu trúc Session gom cụm frame theo thời gian để loại bỏ biến thể nhòe nét (fade-in / fade-out)
     struct CueSession {
         start_sec: f64,
         last_seen_sec: f64,
@@ -636,136 +631,108 @@ pub fn extract_hardcoded_subtitles(
     }
 
     let mut current_session: Option<CueSession> = None;
-
     let mut ocr_fail_streak = 0usize;
-
 
     while stdout.read_exact(&mut current_frame).is_ok() {
         let timestamp = frame_idx as f64 * dt;
         frame_idx += 1;
 
-        // 1. Tính toán mức độ biến thiên (MSE) để bỏ qua các frame tĩnh (tăng tốc độ)
-        let mut is_scene_change = true;
-        if has_prev {
-            let mut diff_sum: u64 = 0;
-            let step = 24; // Lấy mẫu thưa để tính nhanh
-            let mut sample_count = 0;
-            for i in (0..frame_bytes).step_by(step) {
-                let d = (current_frame[i] as i32 - prev_frame[i] as i32).abs() as u64;
-                diff_sum += d;
-                sample_count += 1;
+        // ✅ BỎ HOÀN TOÀN MSE, LUÔN LUÔN CHẠY OCR
+        let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h, true, &det_engine).unwrap_or_default();
+        let recognized = rec.text;
+
+        if recognized.is_empty() {
+            // AI không đọc được chữ
+            ocr_fail_streak += 1;
+            if let Some(session) = current_session.as_mut() {
+                session.last_seen_sec = timestamp;
             }
-            let avg_diff = diff_sum as f32 / (sample_count as f32 * 255.0);
-            // Nếu frame gần như không đổi, không cần chạy lại AI
-            is_scene_change = avg_diff > 0.015;
-        }
-        prev_frame.copy_from_slice(&current_frame);
-
-        // 2. Quyết định xem có nên chạy OCR không
-        // Chạy OCR nếu: Frame có biến thiên HOẶC đang có sub hiển thị (để bắt chính xác lúc sub tắt)
-        let should_ocr = is_scene_change || current_session.is_some();
-
-        if should_ocr {
-            let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h, true, &det_engine).unwrap_or_default();
-            let recognized = rec.text;
-
-            if recognized.is_empty() {
-                // AI không đọc được chữ
-                ocr_fail_streak += 1;
-                if let Some(session) = current_session.as_mut() {
-                    // Nếu đang có session, gia hạn thêm chút thời gian chờ
-                    session.last_seen_sec = timestamp;
-                }
-                // Nếu fail quá 8 frame (~0.6s), đóng session
-                if ocr_fail_streak >= 8 {
-                    if let Some(session) = current_session.take() {
-                        let end_sec = session.last_seen_sec + dt * 0.5;
-                        if end_sec > session.start_sec + 0.3 {
-                            if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
-                                if !best_text.is_empty() {
-                                    let cue_idx = segments.len() + 1;
-                                    let _ = save_rgb_as_bmp(&frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)), &session.sample_clahe, session.sample_w, session.sample_h);
-                                    segments.push(SubtitleSegment { start_sec: session.start_sec, end_sec, text: best_text });
-                                }
+            // Nếu fail quá 8 frame (~0.6s), đóng session
+            if ocr_fail_streak >= 15 {
+                if let Some(session) = current_session.take() {
+                    let end_sec = session.last_seen_sec + dt * 0.5;
+                    if end_sec > session.start_sec + 0.3 {
+                        if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
+                            if !best_text.is_empty() {
+                                let cue_idx = segments.len() + 1;
+                                let _ = save_rgb_as_bmp(&frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)), &session.sample_clahe, session.sample_w, session.sample_h);
+                                segments.push(SubtitleSegment { start_sec: session.start_sec, end_sec, text: best_text });
                             }
                         }
                     }
-                    ocr_fail_streak = 0;
                 }
-            } else {
-                // AI đọc được chữ
-                
                 ocr_fail_streak = 0;
-                match current_session.as_mut() {
-                    Some(session) => {
-                        let dominant_text = session.candidates.iter().max_by_key(|(_, count)| *count).map(|(k, _)| k.as_str()).unwrap_or("");
-                        let sim = text_similarity(dominant_text, &recognized);
-                        let threshold = dynamic_similarity_threshold(dominant_text, &recognized);
+            }
+        } else {
+            // AI đọc được chữ
+            ocr_fail_streak = 0;
+            match current_session.as_mut() {
+                Some(session) => {
+                    let dominant_text = session.candidates.iter().max_by_key(|(_, count)| *count).map(|(k, _)| k.as_str()).unwrap_or("");
+                    let sim = text_similarity(dominant_text, &recognized);
+                    let threshold = dynamic_similarity_threshold(dominant_text, &recognized);
 
-                        if sim >= threshold {
-                            // Cùng một câu sub: kéo dài thời gian
-                            session.last_seen_sec = timestamp;
-                            let count = session.candidates.entry(recognized.clone()).or_insert(0);
-                            *count += 1;
-                            if *count >= 2 && !rec.raw_patch.is_empty() {
-                                session.sample_raw = rec.raw_patch;
-                                session.sample_clahe = rec.clahe_patch;
-                                session.sample_w = rec.width;
-                                session.sample_h = rec.height;
-                            }
-                        } else {
-                            // Sub mới xuất hiện: đóng session cũ, mở session mới
-                            let end_sec = session.last_seen_sec + dt * 0.5;
-                            let last_seg_end = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
-                            let new_start = timestamp.max(end_sec.max(last_seg_end) + 0.01);
-
-                            let old_session = current_session.replace(CueSession {
-                                start_sec: new_start,
-                                last_seen_sec: timestamp,
-                                candidates: { let mut m = std::collections::HashMap::new(); m.insert(recognized, 1); m },
-                                sample_raw: rec.raw_patch,
-                                sample_clahe: rec.clahe_patch,
-                                sample_w: rec.width,
-                                sample_h: rec.height,
-                            }).unwrap();
-
-                            if end_sec > old_session.start_sec + 0.3 {
-                                if let Some((best_text, _)) = old_session.candidates.into_iter().max_by_key(|(_, count)| *count) {
-                                    if !best_text.is_empty() {
-                                        let cue_idx = segments.len() + 1;
-                                        let _ = save_rgb_as_bmp(&frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)), &old_session.sample_clahe, old_session.sample_w, old_session.sample_h);
-                                        segments.push(SubtitleSegment { start_sec: old_session.start_sec, end_sec, text: best_text });
-                                    }
-                                }
-                            }
+                    if sim >= threshold {
+                        // Cùng một câu sub: kéo dài thời gian
+                        session.last_seen_sec = timestamp;
+                        let count = session.candidates.entry(recognized.clone()).or_insert(0);
+                        *count += 1;
+                        if *count >= 2 && !rec.raw_patch.is_empty() {
+                            session.sample_raw = rec.raw_patch;
+                            session.sample_clahe = rec.clahe_patch;
+                            session.sample_w = rec.width;
+                            session.sample_h = rec.height;
                         }
-                    }
-                    None => {
-                        // Bắt đầu session mới hoàn toàn
-                        let min_start = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
-                        let base_start = timestamp.max(min_start);
-                        current_session = Some(CueSession {
-                            start_sec: base_start,
+                    } else {
+                        // Sub mới xuất hiện
+                        let end_sec = session.last_seen_sec + dt * 0.5;
+                        let last_seg_end = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
+                        let new_start = (timestamp - dt).max(end_sec.max(last_seg_end) + 0.01);
+
+                        let old_session = current_session.replace(CueSession {
+                            start_sec: new_start,
                             last_seen_sec: timestamp,
                             candidates: { let mut m = std::collections::HashMap::new(); m.insert(recognized, 1); m },
                             sample_raw: rec.raw_patch,
                             sample_clahe: rec.clahe_patch,
                             sample_w: rec.width,
                             sample_h: rec.height,
-                        });
+                        }).unwrap();
+
+                        if end_sec > old_session.start_sec + 0.3 {
+                            if let Some((best_text, _)) = old_session.candidates.into_iter().max_by_key(|(_, count)| *count) {
+                                if !best_text.is_empty() {
+                                    let cue_idx = segments.len() + 1;
+                                    let _ = save_rgb_as_bmp(&frames_debug_dir.join(format!("cue_{:03}.bmp", cue_idx)), &old_session.sample_clahe, old_session.sample_w, old_session.sample_h);
+                                    segments.push(SubtitleSegment { start_sec: old_session.start_sec, end_sec, text: best_text });
+                                }
+                            }
+                        }
                     }
+                }
+                None => {
+                    // Bắt đầu session mới hoàn toàn
+                    let min_start = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
+                    let base_start = (timestamp - dt).max(0.0).max(min_start);
+                    current_session = Some(CueSession {
+                        start_sec: base_start,
+                        last_seen_sec: timestamp,
+                        candidates: { let mut m = std::collections::HashMap::new(); m.insert(recognized, 1); m },
+                        sample_raw: rec.raw_patch,
+                        sample_clahe: rec.clahe_patch,
+                        sample_w: rec.width,
+                        sample_h: rec.height,
+                    });
                 }
             }
         }
-
-        has_prev = true;
     }
 
     let _ = ffmpeg_child.wait();
 
     // Chốt session cuối cùng khi hết video
     if let Some(session) = current_session.take() {
-        let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
+        let end_sec = session.last_seen_sec + dt * 0.5;
         if end_sec > session.start_sec + 0.5 {
             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                 if !best_text.is_empty() {

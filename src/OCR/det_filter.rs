@@ -33,14 +33,8 @@ pub fn extract_patch_with_det(
         return Ok(None);
     }
 
-    // ✅ Vì ROI đã được crop từ mod.rs, toàn bộ ảnh này là vùng chứa sub.
-    // Ta gom TẤT CẢ các box có kích thước hợp lệ lại thành 1 hộp lớn.
-    let mut min_x = f64::MAX;
-    let mut min_y = f64::MAX;
-    let mut max_x = f64::MIN;
-    let mut max_y = f64::MIN;
-    let mut has_box = false;
-
+    // Bước 1: Thu thập tất cả các box có kích thước hợp lệ
+    let mut valid_boxes = Vec::new();
     for result in &results {
         let points: Vec<(f64, f64)> = result.bounding_box.exterior().points()
             .map(|p| (p.x(), p.y()))
@@ -55,30 +49,47 @@ pub fn extract_patch_with_det(
 
         let w = b_max_x - b_min_x;
         let h = b_max_y - b_min_y;
-
-        // Chỉ lọc các box quá nhỏ (rác)
-        if w < 15.0 || h < 5.0 {
+        
+        // Lọc bỏ các box rác, chữ quá nhỏ hoặc watermark (tỉ lệ vuông)
+        if w < 15.0 || h < 8.0 || (w / h) < 1.0 {
             continue;
         }
-
-        has_box = true;
-        min_x = min_x.min(b_min_x);
-        min_y = min_y.min(b_min_y);
-        max_x = max_x.max(b_max_x);
-        max_y = max_y.max(b_max_y);
+        
+        let center_y = (b_min_y + b_max_y) / 2.0;
+        valid_boxes.push((b_min_x, b_min_y, b_max_x, b_max_y, center_y, w * h));
     }
 
-    if !has_box {
+    if valid_boxes.is_empty() {
         return Ok(None);
     }
 
+    // Bước 2: Tìm box có diện tích lớn nhất làm mốc (Anchor)
+    let anchor = valid_boxes.iter().max_by(|a, b| a.5.partial_cmp(&b.5).unwrap()).unwrap();
+    let anchor_cy = anchor.4;
+
+    // Bước 3: Gom tất cả các box nằm trên cùng dòng với Anchor (chênh lệch tâm Y < 25px)
+    let mut group_min_x = f64::MAX;
+    let mut group_min_y = f64::MAX;
+    let mut group_max_x = f64::MIN;
+    let mut group_max_y = f64::MIN;
+
+    for &(b_min_x, b_min_y, b_max_x, b_max_y, cy, _) in &valid_boxes {
+        if (cy - anchor_cy).abs() < 25.0 {
+            group_min_x = group_min_x.min(b_min_x);
+            group_min_y = group_min_y.min(b_min_y);
+            group_max_x = group_max_x.max(b_max_x);
+            group_max_y = group_max_y.max(b_max_y);
+        }
+    }
+
+    // Bước 4: Cắt ảnh với Padding
     let pad_x = 10.0;
     let pad_y = 6.0;
 
-    let crop_x = (min_x - pad_x).max(0.0) as u32;
-    let crop_y = (min_y - pad_y).max(0.0) as u32;
-    let crop_max_x = (max_x + pad_x).min(width as f64);
-    let crop_max_y = (max_y + pad_y).min(height as f64);
+    let crop_x = (group_min_x - pad_x).max(0.0) as u32;
+    let crop_y = (group_min_y - pad_y).max(0.0) as u32;
+    let crop_max_x = (group_max_x + pad_x).min(width as f64);
+    let crop_max_y = (group_max_y + pad_y).min(height as f64);
 
     let w = (crop_max_x - crop_x as f64) as u32;
     let h = (crop_max_y - crop_y as f64) as u32;
@@ -98,5 +109,5 @@ pub fn extract_patch_with_det(
     let resized = roi.resize_exact(target_w, target_h, FilterType::Triangle);
     let patch_bytes = resized.to_rgb8().into_raw();
 
-    return Ok(Some((patch_bytes, target_w as usize, target_h as usize)));
+    Ok(Some((patch_bytes, target_w as usize, target_h as usize)))
 }
