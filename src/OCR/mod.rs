@@ -73,6 +73,7 @@ impl SubtitleRoi {
 
 /// Cấu hình trích xuất phụ đề video
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct OcrExtractorConfig {
     /// Tần số lấy mẫu khung hình (mặc định: 10 fps cho độ chính xác cao < 50ms)
     pub fps: u32,
