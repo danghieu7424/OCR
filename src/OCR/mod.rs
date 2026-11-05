@@ -252,10 +252,10 @@ impl PpOcrEngine {
         for y in 0..target_h {
             for x in 0..target_w {
                 let idx = (y * target_w + x) * 3;
-                // Chuẩn hóa pixel [0, 255] về [-1, 1] cho mô hình ONNX
-                let r_norm = (clahe_patch[idx] as f32 / 255.0 - 0.5) / 0.5;
-                let g_norm = (clahe_patch[idx + 1] as f32 / 255.0 - 0.5) / 0.5;
-                let b_norm = (clahe_patch[idx + 2] as f32 / 255.0 - 0.5) / 0.5;
+                // Chuẩn hóa ImageNet cho PP-OCRv5
+                let r_norm = (clahe_patch[idx] as f32 / 255.0 - 0.485) / 0.229;
+                let g_norm = (clahe_patch[idx + 1] as f32 / 255.0 - 0.456) / 0.224;
+                let b_norm = (clahe_patch[idx + 2] as f32 / 255.0 - 0.406) / 0.225;
 
                 input_tensor[0 * target_h * target_w + y * target_w + x] = r_norm;
                 input_tensor[1 * target_h * target_w + y * target_w + x] = g_norm;
@@ -884,11 +884,12 @@ pub fn extract_hardcoded_subtitles(
             continue;
         }
 
-        // Min duration động: text càng ngắn càng cần thời gian dài
+        // Min duration hạ thấp hơn cho câu ngắn (vẫn lọc được watermark)
         let min_duration = match char_count {
-            0..=4 => 1.2,
-            5..=6 => 0.8,
-            _ => 0.4,
+            0..=2 => 0.4,
+            3..=4 => 0.5,
+            5..=6 => 0.6,
+            _ => 0.35,
         };
         if duration < min_duration {
             continue;
