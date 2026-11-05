@@ -28,7 +28,7 @@ use ort::{
 use crate::shared::terminal_color::NameUtilsExt;
 use crate::shared::icons::Icons;
 
-pub mod opencv_filter;
+pub mod det_filter;
 /// Cấu hình tọa độ vùng ROI (Region of Interest)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubtitleRoi {
@@ -235,19 +235,31 @@ impl PpOcrEngine {
     }
 
         /// Nhận diện văn bản từ ảnh RGB24 dạng phẳng [H, W, 3] 
-    fn recognize_text(&mut self, rgb_bytes: &[u8], width: usize, height: usize, tight: bool) -> Result<OcrFrameRecognition> {
-        if width == 0 || height == 0 || rgb_bytes.is_empty() {
-            return Ok(OcrFrameRecognition::default());
-        }
+    fn recognize_text(
+    &mut self, 
+    rgb_bytes: &[u8], 
+    width: usize, 
+    height: usize, 
+    _tight: bool, // Giữ lại cho tương thích
+    det_engine: &pure_onnx_ocr::OcrEngine // <-- Thêm tham số này
+) -> Result<OcrFrameRecognition> {
+    if width == 0 || height == 0 || rgb_bytes.is_empty() {
+        return Ok(OcrFrameRecognition::default());
+    }
 
-        // 1. Gọi module OpenCV để lọc nhiễu, tìm bounding box, cắt và resize patch
-        let (raw_patch, clahe_patch, target_w, target_h) = 
-            match self::opencv_filter::extract_and_filter_patch(rgb_bytes, width, height, tight)? {
-                Some(patch) => patch,
-                None => return Ok(OcrFrameRecognition::default()), // Không tìm thấy chữ
-            };
+    // 1. Gọi module DBNet mới để tìm bounding box và cắt ảnh
+    let (raw_patch, target_w, target_h) = 
+        match self::det_filter::extract_patch_with_det(det_engine, rgb_bytes, width, height)? {
+            Some(patch) => patch,
+            None => return Ok(OcrFrameRecognition::default()), // Không tìm thấy chữ
+        };
 
-        // 2. Chuẩn bị Tensor NCHW [1, 3, 48, target_w] từ patch đã qua xử lý OpenCV
+        // (Tùy chọn: Nếu bạn vẫn muốn dùng CLAHE cho ảnh, hãy tạo clahe_patch từ raw_patch. 
+        // Tuy nhiên với PP-OCRv5, ảnh raw từ DBNet thường đã đủ tốt)
+        let clahe_patch = raw_patch.clone(); 
+        let raw_patch_debug = raw_patch.clone();
+
+        // 2. Chuẩn bị Tensor NCHW [1, 3, 48, target_w] từ patch
         let mut input_tensor = vec![0.0f32; 1 * 3 * target_h * target_w];
         for y in 0..target_h {
             for x in 0..target_w {
@@ -262,6 +274,7 @@ impl PpOcrEngine {
                 input_tensor[2 * target_h * target_w + y * target_w + x] = b_norm;
             }
         }
+
 
         let tensor_val = Tensor::from_array(([1usize, 3usize, target_h, target_w], input_tensor))?;
         let outputs = self.rec_session.run(ort::inputs![tensor_val])
@@ -307,7 +320,7 @@ impl PpOcrEngine {
 
         Ok(OcrFrameRecognition {
             text: cleaned,
-            raw_patch,
+            raw_patch: raw_patch_debug,
             clahe_patch,
             width: target_w,
             height: target_h,
@@ -502,9 +515,14 @@ pub fn extract_hardcoded_subtitles(
         config.lang
     ));
 
-    // Bước 0: Nạp mô hình OCR PP-OCRv4
-    crate::shared::tui_events::emit_log(format!("   {} Khởi tạo mô hình ONNX PP-OCRv4 Text Recognition...", "[OCR]".name_utils().violed()));
+    // Bước 0: Nạp mô hình OCR PP-OCRv5
+    crate::shared::tui_events::emit_log(format!("   {} Khởi tạo mô hình ONNX PP-OCRv4/v5 Text Recognition...", "[OCR]".name_utils().violed()));
     let mut ocr_engine = PpOcrEngine::new(model_dir)?;
+
+    // ✅ THÊM MỚI: Khởi tạo DBNet Detector
+    let det_path = model_dir.join("ocr/det.onnx");
+    crate::shared::tui_events::emit_log(format!("   {} Khởi tạo mô hình DBNet Text Detection...", "[OCR]".name_utils().violed()));
+    let det_engine = self::det_filter::create_det_engine(&det_path.to_string_lossy())?;
 
     // Lấy kích thước video gốc bằng ffprobe
     let probe_out = Command::new("ffprobe")
@@ -691,7 +709,7 @@ pub fn extract_hardcoded_subtitles(
 
         if should_ocr {
             // Nhận diện OCR trực tiếp trên khung hình với Pure-Rust CLAHE + Soft Contrast Tuning
-            let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h, config.accuracy_mode).unwrap_or_default();
+            let rec = ocr_engine.recognize_text(&current_frame, crop_w, crop_h, config.accuracy_mode, &det_engine).unwrap_or_default();
             let recognized = rec.text;
 
             if recognized.is_empty() {
