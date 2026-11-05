@@ -43,7 +43,7 @@ pub struct SubtitleRoi {
 impl Default for SubtitleRoi {
     fn default() -> Self {
         Self {
-            y_min: 0.75,
+            y_min: 0.80,
             y_max: 1.00,
             x_min: 0.05,
             x_max: 0.95,
