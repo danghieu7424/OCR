@@ -273,9 +273,10 @@ impl PpOcrEngine {
                 let g_norm = (clahe_patch[idx + 1] as f32 / 255.0 - 0.456) / 0.224;
                 let b_norm = (clahe_patch[idx + 2] as f32 / 255.0 - 0.406) / 0.225;
 
-                input_tensor[0 * target_h * target_w + y * target_w + x] = r_norm;
+                // ✅ Kênh 0 là B, Kênh 1 là G, Kênh 2 là R (Chuẩn BGR của OpenCV/PaddleOCR)
+                input_tensor[0 * target_h * target_w + y * target_w + x] = b_norm;
                 input_tensor[1 * target_h * target_w + y * target_w + x] = g_norm;
-                input_tensor[2 * target_h * target_w + y * target_w + x] = b_norm;
+                input_tensor[2 * target_h * target_w + y * target_w + x] = r_norm;
             }
         }
 
@@ -677,18 +678,18 @@ pub fn extract_hardcoded_subtitles(
                     let r = current_frame[idx];
                     let g = current_frame[idx + 1];
                     let b = current_frame[idx + 2];
-                    if r > 130 && g > 130 && b > 130 { // ✅ Hạ từ 145 xuống 130
+                    if r > 120 && g > 120 && b > 120 { // ✅ Hạ từ 145 xuống 130
                         count += 1;
                         if count >= 3 { // ✅ Hạ từ 4 xuống 3
                             break;
                         }
                     }
                 }
-                if count >= 4 {
+                if count >= 3 {
                     break;
                 }
             }
-            count >= 4
+            count >= 3
         };
 
         // ✅ Track frame đầu tiên có candidate (dùng để lùi start_sec khi OCR fail frame đầu)
@@ -733,7 +734,7 @@ pub fn extract_hardcoded_subtitles(
                 // Safety valve: OCR fail 12 frame liên tiếp (~1.5s ở 8fps) → đóng session
                 if ocr_fail_streak >= 12 { // ✅ Tăng từ 8 lên 12 frame (chịu khó đợi sub hiện rõ)
                     if let Some(session) = current_session.take() {
-                        let end_sec = session.last_seen_sec;
+                        let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
                         if end_sec > session.start_sec + 0.5 {
                             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                                 if !best_text.is_empty() {
@@ -780,7 +781,7 @@ pub fn extract_hardcoded_subtitles(
                             }
                         } else {
                             // Câu mới xuất hiện: đóng session cũ và mở session mới
-                            let end_sec = session.last_seen_sec;
+                            let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
                             let last_seg_end = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
                             let old_end = end_sec.max(last_seg_end);
                             let new_start = timestamp.max(old_end + 0.01);
@@ -817,7 +818,8 @@ pub fn extract_hardcoded_subtitles(
                     }
                     None => {
                         let min_start = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
-                        let base_start = candidate_first_sec.unwrap_or(timestamp).max(min_start);
+                        // ✅ Lùi lại nửa frame để sub bắt đầu sớm hơn một chút
+                        let base_start = (candidate_first_sec.unwrap_or(timestamp) - dt * 0.5).max(0.0).max(min_start);
                         current_session = Some(CueSession {
                             start_sec: base_start,
                             last_seen_sec: timestamp,
@@ -838,7 +840,7 @@ pub fn extract_hardcoded_subtitles(
             empty_streak += 1;
             if empty_streak >= 2 {
                 if let Some(session) = current_session.take() {
-                    let end_sec = session.last_seen_sec;
+                    let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
                     if end_sec > session.start_sec + 0.5 {
                         if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                             if !best_text.is_empty() {
@@ -867,7 +869,7 @@ pub fn extract_hardcoded_subtitles(
 
     // Chốt session cuối cùng khi hết video
     if let Some(session) = current_session.take() {
-        let end_sec = session.last_seen_sec;
+        let end_sec = session.last_seen_sec + dt * 0.5; // ✅ Bù thêm nửa frame
         if end_sec > session.start_sec + 0.5 {
             if let Some((best_text, _)) = session.candidates.into_iter().max_by_key(|(_, count)| *count) {
                 if !best_text.is_empty() {

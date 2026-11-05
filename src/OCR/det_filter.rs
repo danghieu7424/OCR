@@ -18,7 +18,6 @@ pub fn create_det_engine(
     Ok(engine)
 }
 
-
 /// Tìm vùng chứa phụ đề bằng DBNet và cắt ảnh patch để đưa vào mô hình nhận dạng
 pub fn extract_patch_with_det(
     engine: &OcrEngine,
@@ -26,7 +25,7 @@ pub fn extract_patch_with_det(
     width: usize,
     height: usize,
 ) -> Result<Option<(Vec<u8>, usize, usize)>> {
-    // 1. Tạo DynamicImage trực tiếp từ byte RGB (không cần qua OpenCV Mat)
+    // 1. Tạo DynamicImage trực tiếp từ byte RGB
     let img_buf = RgbImage::from_raw(width as u32, height as u32, rgb_bytes.to_vec())
         .ok_or_else(|| anyhow::anyhow!("Không thể tạo RgbImage từ byte RGB"))?;
     let dynamic_img = DynamicImage::ImageRgb8(img_buf);
@@ -38,78 +37,75 @@ pub fn extract_patch_with_det(
         return Ok(None);
     }
 
-    // 3. Tìm bounding box có diện tích lớn nhất (dòng phụ đề chính)
-    let best_result = results
-        .iter()
-        .max_by(|a, b| {
-            let area_a = polygon_area(&a.bounding_box);
-            let area_b = polygon_area(&b.bounding_box);
-            area_a.partial_cmp(&area_b).unwrap_or(std::cmp::Ordering::Equal)
-        });
+    // 3. Gom tất cả các box nằm trên cùng một dòng ngang thành 1 box lớn
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+    let mut has_box = false;
 
-    if let Some(result) = best_result {
+    for result in &results {
         let points: Vec<(f64, f64)> = result.bounding_box.exterior().points()
             .map(|p| (p.x(), p.y()))
             .collect();
 
         if points.is_empty() {
-            return Ok(None);
+            continue;
         }
 
-                // Lấy hình chữ nhật bao quanh đa giác (axis-aligned bounding box)
-        let min_x = points.iter().map(|p| p.0).fold(f64::MAX, f64::min);
-        let min_y = points.iter().map(|p| p.1).fold(f64::MAX, f64::min);
-        let max_x = points.iter().map(|p| p.0).fold(f64::MIN, f64::max);
-        let max_y = points.iter().map(|p| p.1).fold(f64::MIN, f64::max);
+        let b_min_x = points.iter().map(|p| p.0).fold(f64::MAX, f64::min);
+        let b_min_y = points.iter().map(|p| p.1).fold(f64::MAX, f64::min);
+        let b_max_x = points.iter().map(|p| p.0).fold(f64::MIN, f64::max);
+        let b_max_y = points.iter().map(|p| p.1).fold(f64::MIN, f64::max);
 
-        // ✅ THÊM PADDING (Mở rộng hộp ra 8px mỗi phía để không cắt xén nét chữ)
-        let pad_x = 10.0;
-        let pad_y = 8.0;
-
-        let crop_x = (min_x - pad_x).max(0.0) as u32;
-        let crop_y = (min_y - pad_y).max(0.0) as u32;
-        let crop_max_x = (max_x + pad_x).min(width as f64);
-        let crop_max_y = (max_y + pad_y).min(height as f64);
-
-        let w = (crop_max_x - crop_x as f64) as u32;
-        let h = (crop_max_y - crop_y as f64) as u32;
-
-        if w < 10 || h < 5 {
-            return Ok(None);
+        // Bỏ qua các box rác (quá nhỏ)
+        let w = b_max_x - b_min_x;
+        let h = b_max_y - b_min_y;
+        if w < 15.0 || h < 5.0 {
+            continue;
         }
 
-        // 4. Cắt ảnh (Crop) bằng crate `image` với tọa độ đã có padding
-        let roi = dynamic_img.crop_imm(crop_x, crop_y, w, h);
-
-        // 5. Resize chiều cao về 48px chuẩn của PP-OCRv5 server
-        let target_h = 48u32;
-        let aspect = w as f32 / h as f32;
-        let mut target_w = (target_h as f32 * aspect).round() as u32;
-        target_w = target_w.clamp(64, 960);
-        target_w = ((target_w + 7) / 8) * 8;
-
-        let resized = roi.resize_exact(target_w, target_h, FilterType::Triangle);
-
-        // 6. Chuyển về mảng byte RGB24
-        let patch_bytes = resized.to_rgb8().into_raw();
-
-        return Ok(Some((patch_bytes, target_w as usize, target_h as usize)));
+        has_box = true;
+        min_x = min_x.min(b_min_x);
+        min_y = min_y.min(b_min_y);
+        max_x = max_x.max(b_max_x);
+        max_y = max_y.max(b_max_y);
     }
 
-    Ok(None)
-}
+    if !has_box {
+        return Ok(None);
+    }
 
-/// Hàm phụ trợ tính diện tích đa giác (Shoelace formula) để chọn bounding box lớn nhất
-fn polygon_area(poly: &geo_types::Polygon<f64>) -> f64 {
-    let points: Vec<(f64, f64)> = poly.exterior().points().map(|p| (p.x(), p.y())).collect();
-    if points.len() < 3 {
-        return 0.0;
+    // Thêm Padding (Mở rộng hộp ra 12px ngang, 8px dọc để bảo vệ nét chữ hai đầu)
+    let pad_x = 12.0;
+    let pad_y = 8.0;
+
+    let crop_x = (min_x - pad_x).max(0.0) as u32;
+    let crop_y = (min_y - pad_y).max(0.0) as u32;
+    let crop_max_x = (max_x + pad_x).min(width as f64);
+    let crop_max_y = (max_y + pad_y).min(height as f64);
+
+    let w = (crop_max_x - crop_x as f64) as u32;
+    let h = (crop_max_y - crop_y as f64) as u32;
+
+    if w < 10 || h < 5 {
+        return Ok(None);
     }
-    let mut area = 0.0;
-    for i in 0..points.len() {
-        let j = (i + 1) % points.len();
-        area += points[i].0 * points[j].1;
-        area -= points[j].0 * points[i].1;
-    }
-    area.abs() / 2.0
+
+    // 4. Cắt ảnh (Crop)
+    let roi = dynamic_img.crop_imm(crop_x, crop_y, w, h);
+
+    // 5. Resize chiều cao về 48px chuẩn của PP-OCRv5 server
+    let target_h = 48u32;
+    let aspect = w as f32 / h as f32;
+    let mut target_w = (target_h as f32 * aspect).round() as u32;
+    target_w = target_w.clamp(64, 960);
+    target_w = ((target_w + 7) / 8) * 8;
+
+    let resized = roi.resize_exact(target_w, target_h, FilterType::Triangle);
+
+    // 6. Chuyển về mảng byte RGB24
+    let patch_bytes = resized.to_rgb8().into_raw();
+
+    return Ok(Some((patch_bytes, target_w as usize, target_h as usize)));
 }

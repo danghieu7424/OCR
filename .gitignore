@@ -3,3 +3,4 @@ video_input/
 ocr_frames/
 
 Cargo.lock
+*.vtt
