@@ -1,7 +1,9 @@
 target/
 video_input/
 ocr_frames/
+logs/
 
 Cargo.lock
 *.vtt
 *.png
+*.log
