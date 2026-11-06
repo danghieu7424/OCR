@@ -329,9 +329,31 @@ fn levenshtein_distance(s1: &str, s2: &str) -> usize {
 }
 
 /****
+ * common_prefix_len
+ * Tính độ dài tiền tố chung giữa 2 chuỗi ký tự
+ ****/
+fn common_prefix_len(s1: &str, s2: &str) -> usize {
+    s1.chars().zip(s2.chars()).take_while(|(c1, c2)| c1 == c2).count()
+}
+
+/****
+ * common_suffix_len
+ * Tính độ dài hậu tố chung giữa 2 chuỗi ký tự
+ ****/
+fn common_suffix_len(s1: &str, s2: &str) -> usize {
+    let rev1: Vec<char> = s1.chars().rev().collect();
+    let rev2: Vec<char> = s2.chars().rev().collect();
+    rev1.iter().zip(rev2.iter()).take_while(|(c1, c2)| c1 == c2).count()
+}
+
+/****
  * is_same_subtitle
  * Kiểm tra xem 2 khung hình nhận diện có cùng một câu thoại hay không.
- * Sử dụng kết hợp quan hệ Chuỗi con (Substring) và Levenshtein Sequence Similarity.
+ * Kết hợp Levenshtein Sequence Matching và Common Suffix/Prefix Matching.
+ * Đảm bảo:
+ * 1. Tuyệt đối không gộp các câu 1 chữ khác nhau (bảo toàn 100% sub 1 chữ như 爹, 嗯).
+ * 2. Tuyệt đối không gộp 2 câu thoại khác nhau liên tiếp (như cụm Tập 4).
+ * 3. Tự động nhận diện và gộp các biến thể chữ bị nhòe nét đầu/cuối (như "爹爹我们走" vs "珍我们走" vs "多爹我们走").
  ****/
 fn is_same_subtitle(s1: &str, s2: &str) -> bool {
     if s1 == s2 {
@@ -345,6 +367,11 @@ fn is_same_subtitle(s1: &str, s2: &str) -> bool {
     let max_len = len1.max(len2);
     let min_len = len1.min(len2);
 
+    // BẢO VỆ TUYỆT ĐỐI SUB 1 CHỮ: nếu có câu 1 chữ thì bắt buộc phải trùng khớp hoàn toàn
+    if min_len == 1 {
+        return s1 == s2;
+    }
+
     // Nếu một câu là chuỗi con của câu kia (ví dụ rụng chữ '一' ở đầu câu: "定是错觉" trong "一定是错觉")
     if s1.contains(s2) || s2.contains(s1) {
         if max_len - min_len <= 2 {
@@ -352,9 +379,23 @@ fn is_same_subtitle(s1: &str, s2: &str) -> bool {
         }
     }
 
+    // Kiểm tra trùng khớp Tiền tố / Hậu tố (Prefix/Suffix) cho câu >= 4 chữ:
+    // Khắc phục triệt để lỗi rung nét đầu/cuối của OCR (ví dụ: "爹爹我们走" vs "珍我们走" vs "多爹我们走")
+    if min_len >= 4 {
+        let pref = common_prefix_len(s1, s2);
+        let suff = common_suffix_len(s1, s2);
+        let common_fix = pref.max(suff);
+        if common_fix >= 2 {
+            let ratio = common_fix as f32 / min_len as f32;
+            if ratio >= 0.55 && max_len - min_len <= 2 {
+                return true;
+            }
+        }
+    }
+
     let dist = levenshtein_distance(s1, s2);
 
-    // Đối với câu rất ngắn (<= 3 ký tự, ví dụ: 爹, 嗯, 好), bắt buộc phải khớp tuyệt đối
+    // Đối với câu ngắn (<= 3 ký tự), bắt buộc phải khớp tuyệt đối
     if min_len <= 3 {
         dist == 0
     } else if min_len <= 5 {
@@ -368,9 +409,8 @@ fn is_same_subtitle(s1: &str, s2: &str) -> bool {
 /****
  * select_best_subtitle_text
  * Thuật toán Majority Voting thông minh cho OCR:
- * Khắc phục triệt để lỗi rụng ký tự nét mỏng ở mép (như chữ '一' trong "一定是错觉"):
- * Khi một ứng viên dài hơn (đầy đủ hơn) chứa trọn vẹn chuỗi con của ứng viên ngắn hơn,
- * phiếu của ứng viên ngắn sẽ chứng thực và cộng điểm cho ứng viên đầy đủ.
+ * 1. Khắc phục triệt để lỗi rụng ký tự nét mỏng ở mép (như chữ '一' trong "一定是错觉").
+ * 2. Ưu tiên câu hoàn chỉnh, đúng ngữ nghĩa có chung hậu tố/tiền tố (như "爹爹我们走" > "珍我们走" / "多爹我们走").
  ****/
 fn select_best_subtitle_text(texts: &[String]) -> String {
     if texts.is_empty() {
@@ -392,9 +432,14 @@ fn select_best_subtitle_text(texts: &[String]) -> String {
         // Nếu ứng viên này xuất hiện ít nhất 20% số frame hoặc >= 3 lần:
         if count >= 3 || (total <= 5 && count >= 2) || (count as f32 / total as f32) >= 0.20 {
             for (other, &other_cnt) in &counts {
-                if cand != other && cand.contains(other) {
-                    // other là chuỗi con bị rụng nét (ví dụ: "定是错觉" trong "一定是错觉")
-                    score += other_cnt as f32 * 0.95;
+                if cand != other {
+                    if cand.contains(other) {
+                        // other là chuỗi con bị rụng nét (ví dụ: "定是错觉" trong "一定是错觉")
+                        score += other_cnt as f32 * 0.95;
+                    } else if cand_len > other.chars().count() && common_suffix_len(cand, other) >= 2 {
+                        // other có chung đuôi nhưng bị mờ nét đầu (ví dụ: "珍我们走" so với "爹爹我们走")
+                        score += other_cnt as f32 * 0.50;
+                    }
                 }
             }
             score += cand_len as f32 * 0.15;
@@ -630,6 +675,47 @@ pub fn extract_hardcoded_subtitles(
         }
     }
 
+    // 1-frame typo smoothing: A, B, A -> A, A, A (triệt tiêu hiện tượng nhấp nháy chữ đơn lẻ giữa các frame)
+    for i in 1..total_frames.saturating_sub(1) {
+        if !smoothed_text[i - 1].is_empty()
+            && !smoothed_text[i + 1].is_empty()
+            && !smoothed_text[i].is_empty()
+            && smoothed_text[i] != smoothed_text[i - 1]
+            && smoothed_text[i - 1] == smoothed_text[i + 1]
+        {
+            if is_same_subtitle(&smoothed_text[i - 1], &smoothed_text[i]) {
+                // Tuyệt đối không làm suy thoái bản đầy đủ ký tự thành bản bị rụng nét!
+                if smoothed_text[i].chars().count() <= smoothed_text[i - 1].chars().count() {
+                    smoothed_text[i] = smoothed_text[i - 1].clone();
+                } else if smoothed_text[i].contains(&smoothed_text[i - 1]) {
+                    smoothed_text[i - 1] = smoothed_text[i].clone();
+                    smoothed_text[i + 1] = smoothed_text[i].clone();
+                }
+            }
+        }
+    }
+
+    // 2-frame typo smoothing: A, B, B, A -> A, A, A, A
+    for i in 1..total_frames.saturating_sub(2) {
+        if !smoothed_text[i - 1].is_empty()
+            && !smoothed_text[i + 2].is_empty()
+            && !smoothed_text[i].is_empty()
+            && smoothed_text[i - 1] == smoothed_text[i + 2]
+            && smoothed_text[i] == smoothed_text[i + 1]
+            && smoothed_text[i] != smoothed_text[i - 1]
+        {
+            if is_same_subtitle(&smoothed_text[i - 1], &smoothed_text[i]) {
+                if smoothed_text[i].chars().count() <= smoothed_text[i - 1].chars().count() {
+                    smoothed_text[i] = smoothed_text[i - 1].clone();
+                    smoothed_text[i + 1] = smoothed_text[i - 1].clone();
+                } else if smoothed_text[i].contains(&smoothed_text[i - 1]) {
+                    smoothed_text[i - 1] = smoothed_text[i].clone();
+                    smoothed_text[i + 2] = smoothed_text[i].clone();
+                }
+            }
+        }
+    }
+
     // Bước 3: Phân cụm các khung hình thành các phân đoạn (Temporal Segments)
     struct RawSegment {
         start_frame: usize,
@@ -699,7 +785,7 @@ pub fn extract_hardcoded_subtitles(
         let t_start = seg.start_frame as f64 * dt;
         let t_end = seg.end_frame as f64 * dt;
 
-        // Dịch thời gian bắt đầu sang trái 50ms (-0.050s)
+        // Dịch thời gian bắt đầu sang trái 50ms (-0.050s) theo yêu cầu
         let start_sec = (t_start - 0.050).max(0.0);
         let end_sec = t_end + half_dt;
         let duration = end_sec - start_sec;
