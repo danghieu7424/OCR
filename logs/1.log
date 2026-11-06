@@ -1,0 +1,157 @@
+ OCR  cargo run --release                                                                                                                           
+   Compiling OCR v0.1.0 (C:\DATA\OCR)
+    Finished `release` profile [optimized] target(s) in 6.24s
+     Running `target\release\OCR.exe`
+>>> [TEST] Khởi chạy kiểm tra module OCR phụ đề cứng cho tất cả video...
+    [INFO] Tìm thấy 999 video cần xử lý.
+    [INFO] Mode: ACCURACY | FPS: 10 | ROI: Y[85%-100%] X[5%-95%]
+
+--------------------------------------------------
+>>>  [1/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第001集.mp4"
+ [SUCCESS] Xong video "第001集.mp4"! Tổng câu sub: 62
+ [SUCCESS] VTT: "output\\第001集.zh.vtt"
+--------------------------------------------------
+>>>  [2/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第002集.mp4"
+ [SUCCESS] Xong video "第002集.mp4"! Tổng câu sub: 110
+ [SUCCESS] VTT: "output\\第002集.zh.vtt"
+--------------------------------------------------
+>>>  [3/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第003集.mp4"
+ [SUCCESS] Xong video "第003集.mp4"! Tổng câu sub: 44
+ [SUCCESS] VTT: "output\\第003集.zh.vtt"
+--------------------------------------------------
+>>>  [4/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第004集.mp4"
+ [SUCCESS] Xong video "第004集.mp4"! Tổng câu sub: 79
+ [SUCCESS] VTT: "output\\第004集.zh.vtt"
+--------------------------------------------------
+>>>  [5/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第005集.mp4"
+ [SUCCESS] Xong video "第005集.mp4"! Tổng câu sub: 26
+ [SUCCESS] VTT: "output\\第005集.zh.vtt"
+--------------------------------------------------
+>>>  [6/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第006集.mp4"
+ [SUCCESS] Xong video "第006集.mp4"! Tổng câu sub: 23
+ [SUCCESS] VTT: "output\\第006集.zh.vtt"
+--------------------------------------------------
+>>>  [7/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第007集.mp4"
+ [SUCCESS] Xong video "第007集.mp4"! Tổng câu sub: 31
+ [SUCCESS] VTT: "output\\第007集.zh.vtt"
+--------------------------------------------------
+>>>  [8/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第008集.mp4"
+ [SUCCESS] Xong video "第008集.mp4"! Tổng câu sub: 24
+ [SUCCESS] VTT: "output\\第008集.zh.vtt"
+--------------------------------------------------
+>>>  [9/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第009集.mp4"
+ [SUCCESS] Xong video "第009集.mp4"! Tổng câu sub: 30
+ [SUCCESS] VTT: "output\\第009集.zh.vtt"
+--------------------------------------------------
+>>>  [10/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第010集.mp4"
+ [SUCCESS] Xong video "第010集.mp4"! Tổng câu sub: 36
+ [SUCCESS] VTT: "output\\第010集.zh.vtt"
+--------------------------------------------------
+>>>  [11/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第011集.mp4"
+ [SUCCESS] Xong video "第011集.mp4"! Tổng câu sub: 35
+ [SUCCESS] VTT: "output\\第011集.zh.vtt"
+--------------------------------------------------
+>>>  [12/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第012集.mp4"
+ [SUCCESS] Xong video "第012集.mp4"! Tổng câu sub: 26
+ [SUCCESS] VTT: "output\\第012集.zh.vtt"
+--------------------------------------------------
+>>>  [13/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第013集.mp4"
+ [SUCCESS] Xong video "第013集.mp4"! Tổng câu sub: 32
+ [SUCCESS] VTT: "output\\第013集.zh.vtt"
+--------------------------------------------------
+>>>  [14/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第014集.mp4"
+ [SUCCESS] Xong video "第014集.mp4"! Tổng câu sub: 30
+ [SUCCESS] VTT: "output\\第014集.zh.vtt"
+--------------------------------------------------
+>>>  [15/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第015集.mp4"
+ [SUCCESS] Xong video "第015集.mp4"! Tổng câu sub: 26
+ [SUCCESS] VTT: "output\\第015集.zh.vtt"
+--------------------------------------------------
+>>>  [16/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第016集.mp4"
+ [SUCCESS] Xong video "第016集.mp4"! Tổng câu sub: 29
+ [SUCCESS] VTT: "output\\第016集.zh.vtt"
+--------------------------------------------------
+>>>  [17/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第017集.mp4"
+ [SUCCESS] Xong video "第017集.mp4"! Tổng câu sub: 31
+ [SUCCESS] VTT: "output\\第017集.zh.vtt"
+--------------------------------------------------
+>>>  [18/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第018集.mp4"
+ [SUCCESS] Xong video "第018集.mp4"! Tổng câu sub: 28
+ [SUCCESS] VTT: "output\\第018集.zh.vtt"
+--------------------------------------------------
+>>>  [19/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第019集.mp4"
+ [SUCCESS] Xong video "第019集.mp4"! Tổng câu sub: 27
+ [SUCCESS] VTT: "output\\第019集.zh.vtt"
+--------------------------------------------------
+>>>  [20/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第020集.mp4"
+ [SUCCESS] Xong video "第020集.mp4"! Tổng câu sub: 32
+ [SUCCESS] VTT: "output\\第020集.zh.vtt"
+--------------------------------------------------
+>>>  [21/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第021集.mp4"
+ [SUCCESS] Xong video "第021集.mp4"! Tổng câu sub: 24
+ [SUCCESS] VTT: "output\\第021集.zh.vtt"
+--------------------------------------------------
+>>>  [22/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第022集.mp4"
+ [SUCCESS] Xong video "第022集.mp4"! Tổng câu sub: 31
+ [SUCCESS] VTT: "output\\第022集.zh.vtt"
+--------------------------------------------------
+>>>  [23/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第023集.mp4"
+ [SUCCESS] Xong video "第023集.mp4"! Tổng câu sub: 36
+ [SUCCESS] VTT: "output\\第023集.zh.vtt"
+--------------------------------------------------
+>>>  [24/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第024集.mp4"
+ [SUCCESS] Xong video "第024集.mp4"! Tổng câu sub: 27
+ [SUCCESS] VTT: "output\\第024集.zh.vtt"
+--------------------------------------------------
+>>>  [25/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第025集.mp4"
+ [SUCCESS] Xong video "第025集.mp4"! Tổng câu sub: 25
+ [SUCCESS] VTT: "output\\第025集.zh.vtt"
+--------------------------------------------------
+>>>  [26/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第026集.mp4"
+ [SUCCESS] Xong video "第026集.mp4"! Tổng câu sub: 23
+ [SUCCESS] VTT: "output\\第026集.zh.vtt"
+--------------------------------------------------
+>>>  [27/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第027集.mp4"
+ [SUCCESS] Xong video "第027集.mp4"! Tổng câu sub: 20
+ [SUCCESS] VTT: "output\\第027集.zh.vtt"
+--------------------------------------------------
+>>>  [28/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第028集.mp4"
+ [SUCCESS] Xong video "第028集.mp4"! Tổng câu sub: 24
+ [SUCCESS] VTT: "output\\第028集.zh.vtt"
+--------------------------------------------------
+>>>  [29/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第029集.mp4"
+ [SUCCESS] Xong video "第029集.mp4"! Tổng câu sub: 21
+ [SUCCESS] VTT: "output\\第029集.zh.vtt"
+--------------------------------------------------
+>>>  [30/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第030集.mp4"
+ [SUCCESS] Xong video "第030集.mp4"! Tổng câu sub: 24
+ [SUCCESS] VTT: "output\\第030集.zh.vtt"
+--------------------------------------------------
+>>>  [31/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第031集.mp4"
+ [SUCCESS] Xong video "第031集.mp4"! Tổng câu sub: 19
+ [SUCCESS] VTT: "output\\第031集.zh.vtt"
+--------------------------------------------------
+>>>  [32/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第032集.mp4"
+ [SUCCESS] Xong video "第032集.mp4"! Tổng câu sub: 22
+ [SUCCESS] VTT: "output\\第032集.zh.vtt"
+--------------------------------------------------
+>>>  [33/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第033集.mp4"
+ [SUCCESS] Xong video "第033集.mp4"! Tổng câu sub: 19
+ [SUCCESS] VTT: "output\\第033集.zh.vtt"
+--------------------------------------------------
+>>>  [34/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第034集.mp4"
+ [SUCCESS] Xong video "第034集.mp4"! Tổng câu sub: 19
+ [SUCCESS] VTT: "output\\第034集.zh.vtt"
+--------------------------------------------------
+>>>  [35/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第035集.mp4"
+ [SUCCESS] Xong video "第035集.mp4"! Tổng câu sub: 22
+ [SUCCESS] VTT: "output\\第035集.zh.vtt"
+--------------------------------------------------
+>>>  [36/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第036集.mp4"
+ [SUCCESS] Xong video "第036集.mp4"! Tổng câu sub: 22
+ [SUCCESS] VTT: "output\\第036集.zh.vtt"
+--------------------------------------------------
+>>>  [37/999] Đang xử lý: "C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域\\第037集.mp4"
+ [SUCCESS] Xong video "第037集.mp4"! Tổng câu sub: 28
+ [SUCCESS] VTT: "output\\第037集.zh.vtt"
+--------------------------------------------------

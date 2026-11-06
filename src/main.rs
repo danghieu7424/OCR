@@ -75,7 +75,7 @@ pub mod shared {
 fn main() -> anyhow::Result<()> {
     println!(">>> [TEST] Khởi chạy kiểm tra module OCR phụ đề cứng cho tất cả video...");
 
-    let input_dir = PathBuf::from("video_input");
+    let input_dir = PathBuf::from("C:/Users/dangh/Videos/Hongguo/和离后我带女儿横扫魔域");
     if !input_dir.exists() {
         std::fs::create_dir_all(&input_dir)?;
         println!("    [INFO] Đã tạo thư mục 'video_input/'. Vui lòng bỏ file video vào đây!");
