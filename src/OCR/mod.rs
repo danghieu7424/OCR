@@ -43,8 +43,8 @@ pub struct SubtitleRoi {
 impl Default for SubtitleRoi {
     fn default() -> Self {
         Self {
-            y_min: 0.72,
-            y_max: 0.98,
+            y_min: 0.85,
+            y_max: 1.00,
             x_min: 0.05,
             x_max: 0.95,
         }
@@ -699,8 +699,8 @@ pub fn extract_hardcoded_subtitles(
         let t_start = seg.start_frame as f64 * dt;
         let t_end = seg.end_frame as f64 * dt;
 
-        // Dịch thời gian bắt đầu sang trái 100ms (-0.100s)
-        let start_sec = (t_start - 0.100).max(0.0);
+        // Dịch thời gian bắt đầu sang trái 50ms (-0.050s)
+        let start_sec = (t_start - 0.050).max(0.0);
         let end_sec = t_end + half_dt;
         let duration = end_sec - start_sec;
 
