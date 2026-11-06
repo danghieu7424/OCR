@@ -4,3 +4,4 @@ ocr_frames/
 
 Cargo.lock
 *.vtt
+*.png

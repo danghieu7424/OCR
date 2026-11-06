@@ -43,8 +43,8 @@ pub struct SubtitleRoi {
 impl Default for SubtitleRoi {
     fn default() -> Self {
         Self {
-            y_min: 0.80,
-            y_max: 1.00,
+            y_min: 0.72,
+            y_max: 0.98,
             x_min: 0.05,
             x_max: 0.95,
         }
@@ -243,7 +243,7 @@ impl PpOcrEngine {
  * Làm sạch chuỗi ký tự nhận diện, sửa lỗi nhận nhầm nét gạch ngang thành chữ '一'
  * và chuẩn hóa các ký tự dị thể/phồn thể thông dụng sang giản thể chuẩn.
  ****/
-fn sanitize_ocr_text(raw: &str) -> String {
+pub fn sanitize_ocr_text(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -299,61 +299,118 @@ fn sanitize_ocr_text(raw: &str) -> String {
 }
 
 /****
- * text_similarity
- * Tính độ tương đồng giữa 2 chuỗi theo Multiset Character Matching (Sørensen–Dice)
+ * levenshtein_distance
+ * Tính khoảng cách chỉnh sửa giữa 2 chuỗi ký tự (giữ nguyên trật tự tuần tự)
  ****/
-fn text_similarity(s1: &str, s2: &str) -> f32 {
+fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     let chars1: Vec<char> = s1.chars().collect();
     let chars2: Vec<char> = s2.chars().collect();
-
-    if chars1.is_empty() || chars2.is_empty() {
-        return 0.0;
+    let len1 = chars1.len();
+    let len2 = chars2.len();
+    if len1 == 0 {
+        return len2;
     }
-    if s1 == s2 {
-        return 1.0;
-    }
-
-    let min_len = chars1.len().min(chars2.len());
-    let max_len = chars1.len().max(chars2.len());
-
-    // Nếu độ dài lệch quá 40%, chắc chắn là 2 câu khác nhau
-    if (max_len - min_len) as f32 / max_len as f32 > 0.40 {
-        return 0.0;
+    if len2 == 0 {
+        return len1;
     }
 
-    let mut matches = 0usize;
-    let mut c2_used = vec![false; chars2.len()];
-    for c1 in &chars1 {
-        for (j, c2) in chars2.iter().enumerate() {
-            if !c2_used[j] && c1 == c2 {
-                c2_used[j] = true;
-                matches += 1;
-                break;
-            }
+    let mut prev: Vec<usize> = (0..=len2).collect();
+    let mut curr: Vec<usize> = vec![0; len2 + 1];
+
+    for i in 1..=len1 {
+        curr[0] = i;
+        for j in 1..=len2 {
+            let cost = if chars1[i - 1] == chars2[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
         }
+        prev.clone_from_slice(&curr);
     }
-
-    (2.0 * matches as f32) / (chars1.len() + chars2.len()) as f32
+    curr[len2]
 }
 
 /****
  * is_same_subtitle
- * Kiểm tra xem 2 khung hình nhận diện có cùng một câu thoại hay không
+ * Kiểm tra xem 2 khung hình nhận diện có cùng một câu thoại hay không.
+ * Sử dụng kết hợp quan hệ Chuỗi con (Substring) và Levenshtein Sequence Similarity.
  ****/
 fn is_same_subtitle(s1: &str, s2: &str) -> bool {
     if s1 == s2 {
         return true;
     }
-    let sim = text_similarity(s1, s2);
-    let min_len = s1.chars().count().min(s2.chars().count());
-    let threshold = if min_len <= 3 {
-        0.50
-    } else if min_len <= 6 {
-        0.60
+    if s1.is_empty() || s2.is_empty() {
+        return false;
+    }
+    let len1 = s1.chars().count();
+    let len2 = s2.chars().count();
+    let max_len = len1.max(len2);
+    let min_len = len1.min(len2);
+
+    // Nếu một câu là chuỗi con của câu kia (ví dụ rụng chữ '一' ở đầu câu: "定是错觉" trong "一定是错觉")
+    if s1.contains(s2) || s2.contains(s1) {
+        if max_len - min_len <= 2 {
+            return true;
+        }
+    }
+
+    let dist = levenshtein_distance(s1, s2);
+
+    // Đối với câu rất ngắn (<= 3 ký tự, ví dụ: 爹, 嗯, 好), bắt buộc phải khớp tuyệt đối
+    if min_len <= 3 {
+        dist == 0
+    } else if min_len <= 5 {
+        dist <= 1
     } else {
-        0.65
-    };
-    sim >= threshold
+        let sim = 1.0 - (dist as f32 / max_len as f32);
+        sim >= 0.70 && dist <= 2
+    }
+}
+
+/****
+ * select_best_subtitle_text
+ * Thuật toán Majority Voting thông minh cho OCR:
+ * Khắc phục triệt để lỗi rụng ký tự nét mỏng ở mép (như chữ '一' trong "一定是错觉"):
+ * Khi một ứng viên dài hơn (đầy đủ hơn) chứa trọn vẹn chuỗi con của ứng viên ngắn hơn,
+ * phiếu của ứng viên ngắn sẽ chứng thực và cộng điểm cho ứng viên đầy đủ.
+ ****/
+fn select_best_subtitle_text(texts: &[String]) -> String {
+    if texts.is_empty() {
+        return String::new();
+    }
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for t in texts {
+        *counts.entry(t.clone()).or_insert(0) += 1;
+    }
+
+    let total = texts.len();
+    let mut best_text = String::new();
+    let mut best_score = -1.0f32;
+
+    for (cand, &count) in &counts {
+        let cand_len = cand.chars().count();
+        let mut score = count as f32;
+
+        // Nếu ứng viên này xuất hiện ít nhất 20% số frame hoặc >= 3 lần:
+        if count >= 3 || (total <= 5 && count >= 2) || (count as f32 / total as f32) >= 0.20 {
+            for (other, &other_cnt) in &counts {
+                if cand != other && cand.contains(other) {
+                    // other là chuỗi con bị rụng nét (ví dụ: "定是错觉" trong "一定是错觉")
+                    score += other_cnt as f32 * 0.95;
+                }
+            }
+            score += cand_len as f32 * 0.15;
+        }
+
+        if score > best_score {
+            best_score = score;
+            best_text = cand.clone();
+        }
+    }
+
+    if best_text.is_empty() {
+        counts.into_iter().max_by_key(|(_, c)| *c).map(|(t, _)| t).unwrap_or_default()
+    } else {
+        best_text
+    }
 }
 
 pub fn extract_hardcoded_subtitles(
@@ -592,12 +649,8 @@ pub fn extract_hardcoded_subtitles(
         } else {
             match current_seg.as_mut() {
                 Some(seg) => {
-                    let dominant = seg
-                        .texts
-                        .iter()
-                        .max_by_key(|t| seg.texts.iter().filter(|&x| x == *t).count())
-                        .unwrap();
-                    if is_same_subtitle(dominant, text) {
+                    let dominant = select_best_subtitle_text(&seg.texts);
+                    if is_same_subtitle(&dominant, text) {
                         seg.end_frame = i;
                         seg.texts.push(text.clone());
                     } else {
@@ -630,21 +683,13 @@ pub fn extract_hardcoded_subtitles(
     let mut initial_segments: Vec<SubtitleSegment> = Vec::new();
 
     for seg in raw_segments {
-        // Tối thiểu 2 frames liên tiếp (200ms) để loại bỏ hoàn toàn nhiễu nhấp nháy
+        // Tối thiểu 2 frames liên tiếp (ở 20fps là 100ms) để loại bỏ hoàn toàn nhiễu nhấp nháy 1-frame
         if seg.end_frame < seg.start_frame + 1 {
             continue;
         }
 
-        // Majority vote: chọn câu thoại xuất hiện nhiều nhất và chuẩn nhất
-        let mut votes: HashMap<String, usize> = HashMap::new();
-        for t in &seg.texts {
-            *votes.entry(t.clone()).or_insert(0) += 1;
-        }
-        let best_text = votes
-            .into_iter()
-            .max_by_key(|(_, c)| *c)
-            .map(|(t, _)| t)
-            .unwrap_or_default();
+        // Smart Majority Voting: ưu tiên câu hoàn chỉnh ký tự hơn (cứu chữ '一' ở đầu/cuối câu)
+        let best_text = select_best_subtitle_text(&seg.texts);
 
         let char_count = best_text.chars().count();
         if char_count == 0 {
@@ -654,20 +699,18 @@ pub fn extract_hardcoded_subtitles(
         let t_start = seg.start_frame as f64 * dt;
         let t_end = seg.end_frame as f64 * dt;
 
-        // Bù trừ ranh giới thời gian nửa chu kỳ khung hình (half_dt)
-        let start_sec = (t_start - half_dt).max(0.0);
+        // Bù trừ thời gian bắt đầu theo yêu cầu: cộng bù thêm 100ms (+0.100s)
+        let start_sec = (t_start + 0.100).max(0.0);
         let end_sec = t_end + half_dt;
         let duration = end_sec - start_sec;
 
-        // Lọc nhiễu hiệu ứng hình ảnh (VFX noise):
-        // Câu 1 chữ Hán đơn lẻ (ví dụ: 爹, 姐, 他, 嗯) phải hiển thị >= 350ms để mắt người kịp đọc.
-        // Các đốm sáng hiệu ứng kiếm khí/kỹ xảo nhấp nháy < 350ms sẽ được loại bỏ hoàn toàn.
+        // Cho phép nhận diện cả các từ chỉ có 1 ký tự (爹, 嗯, 姐, ...) với duration >= 100ms
         if char_count == 1 {
             let is_cjk = best_text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
-            if !is_cjk || duration < 0.35 {
+            if !is_cjk || duration < 0.10 {
                 continue;
             }
-        } else if duration < 0.15 {
+        } else if duration < 0.10 {
             continue;
         }
 
@@ -678,7 +721,7 @@ pub fn extract_hardcoded_subtitles(
             start_sec
         };
 
-        if end_sec > start_sec + 0.15 {
+        if end_sec > start_sec + 0.05 {
             initial_segments.push(SubtitleSegment {
                 start_sec,
                 end_sec,
@@ -687,12 +730,12 @@ pub fn extract_hardcoded_subtitles(
         }
     }
 
-    // Gộp các phân đoạn liền kề nếu là cùng một câu (gap < 0.8s)
+    // Gộp các phân đoạn liền kề nếu là cùng một câu (gap rất ngắn < 0.35s)
     let mut final_segments: Vec<SubtitleSegment> = Vec::new();
     for seg in initial_segments {
         if let Some(last) = final_segments.last_mut() {
             let gap = seg.start_sec - last.end_sec;
-            if is_same_subtitle(&last.text, &seg.text) && gap < 0.8 {
+            if is_same_subtitle(&last.text, &seg.text) && gap < 0.35 {
                 last.end_sec = seg.end_sec;
                 if seg.text.chars().count() > last.text.chars().count() {
                     last.text = seg.text;

@@ -55,8 +55,8 @@ pub fn extract_patch_with_det(
         let w = b_max_x - b_min_x;
         let h = b_max_y - b_min_y;
 
-        // Lọc bỏ các box rác, chữ quá nhỏ hoặc watermark
-        if w < 12.0 || h < 8.0 {
+        // Lọc bỏ các box rác cực nhỏ (cho phép nét thanh như chữ 一 hoặc dấu chấm)
+        if w < 6.0 || h < 4.0 {
             continue;
         }
 
@@ -76,7 +76,7 @@ pub fn extract_patch_with_det(
     let anchor_cy = anchor.4;
     let anchor_h = anchor.5;
 
-    // Bước 3: Gom tất cả các box nằm trên cùng dòng với Anchor (chênh lệch tâm Y < 60% chiều cao chữ)
+    // Bước 3: Gom tất cả các box nằm trên cùng dòng với Anchor (chênh lệch tâm Y < 65% chiều cao chữ)
     let y_threshold = (anchor_h * 0.65).max(20.0);
     let mut group_min_x = f64::MAX;
     let mut group_min_y = f64::MAX;
@@ -92,9 +92,9 @@ pub fn extract_patch_with_det(
         }
     }
 
-    // Bước 4: Cắt ảnh với Padding an toàn để không xén nét chữ đầu/cuối
-    let pad_x = 12.0;
-    let pad_y = 6.0;
+    // Bước 4: Cắt ảnh với Padding an toàn để không xén nét chữ đầu/cuối (như chữ 一)
+    let pad_x = 16.0;
+    let pad_y = 8.0;
 
     let crop_x = (group_min_x - pad_x).max(0.0) as u32;
     let crop_y = (group_min_y - pad_y).max(0.0) as u32;
@@ -104,7 +104,7 @@ pub fn extract_patch_with_det(
     let w = (crop_max_x - crop_x as f64) as u32;
     let h = (crop_max_y - crop_y as f64) as u32;
 
-    if w < 10 || h < 5 {
+    if w < 8 || h < 5 {
         return Ok(None);
     }
 
@@ -113,10 +113,12 @@ pub fn extract_patch_with_det(
     let target_h = 48u32;
     let aspect = w as f32 / h as f32;
     let mut target_w = (target_h as f32 * aspect).round() as u32;
-    target_w = target_w.clamp(64, 1280);
+    // Giới hạn width từ 48 (cho chữ đơn vuông) đến 1280
+    target_w = target_w.clamp(48, 1280);
     target_w = ((target_w + 7) / 8) * 8;
 
-    let resized = roi.resize_exact(target_w, target_h, FilterType::Triangle);
+    // Lanczos3 giữ độ sắc nét các nét chữ Hán tốt hơn Triangle
+    let resized = roi.resize_exact(target_w, target_h, FilterType::Lanczos3);
     let patch_bytes = resized.to_rgb8().into_raw();
 
     Ok(Some((patch_bytes, target_w as usize, target_h as usize)))
