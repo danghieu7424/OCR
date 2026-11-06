@@ -1,7 +1,5 @@
 // src/main.rs
-mod ocr;
-
-use ocr::{extract_hardcoded_subtitles, OcrExtractorConfig};
+use OCR::{extract_hardcoded_subtitles, OcrExtractorConfig};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -60,74 +58,6 @@ macro_rules! log_eprintln {
         let msg = format!($($arg)*);
         log_err(&msg);
     }};
-}
-
-pub mod shared {
-    pub struct CpuOptimizer;
-    impl CpuOptimizer {
-        pub fn single_task_threads() -> usize {
-            2
-        }
-    }
-
-    pub mod terminal_color {
-        pub struct NameWrapper(pub String);
-        impl NameWrapper {
-            pub fn violed(self) -> String { self.0 }
-        }
-        pub trait NameUtilsExt {
-            fn name_utils(&self) -> NameWrapper;
-        }
-        impl NameUtilsExt for str {
-            fn name_utils(&self) -> NameWrapper {
-                NameWrapper(self.to_string())
-            }
-        }
-        impl NameUtilsExt for &str {
-            fn name_utils(&self) -> NameWrapper {
-                NameWrapper((*self).to_string())
-            }
-        }
-        impl NameUtilsExt for String {
-            fn name_utils(&self) -> NameWrapper {
-                NameWrapper(self.clone())
-            }
-        }
-
-        pub trait TermColorExt {
-            fn violed(&self) -> String;
-        }
-        impl TermColorExt for str {
-            fn violed(&self) -> String { self.to_string() }
-        }
-        impl TermColorExt for &str {
-            fn violed(&self) -> String { (*self).to_string() }
-        }
-        impl TermColorExt for String {
-            fn violed(&self) -> String { self.clone() }
-        }
-    }
-
-    pub mod tui_events {
-        pub fn emit_step(_msg: &str) {}
-        pub fn emit_log(_msg: impl Into<String>) {}
-        pub fn emit_task_progress(
-            _title: &str,
-            _curr: usize,
-            _total: usize,
-            _unit: &str,
-            _elapsed: impl Into<String>,
-            _detail: impl Into<String>,
-        ) {
-        }
-    }
-
-    pub mod icons {
-        pub struct Icons;
-        impl Icons {
-            pub const SUCCESS: &'static str = "✔ ";
-        }
-    }
 }
 
 fn main() -> anyhow::Result<()> {

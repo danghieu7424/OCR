@@ -3,6 +3,18 @@ name = "OCR"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "OCR"
+path = "src/lib.rs"
+
+[[bin]]
+name = "OCR"
+path = "src/main.rs"
+
+[[example]]
+name = "extract_subtitles"
+path = "examples/extract_subtitles.rs"
+
 [dependencies]
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -11,6 +23,7 @@ ort = "=2.0.0-rc.11"
 pure-onnx-ocr = "0.3.2"
 opencv = { version = "0.101.1", features = ["imgproc", "clang-runtime"] }
 cli_gui_form = { path = "./cli_gui_form" }
+ratatui = "0.28"
 
 image = "0.25"
 geo-types = "0.7"
