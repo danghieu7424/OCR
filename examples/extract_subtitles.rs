@@ -2,6 +2,7 @@
 //!
 //! Minh họa:
 //! 1. Cấu hình vị trí cặp mô hình ONNX: `det.onnx` (DBNet Text Detection) và `rec.onnx` (PP-OCR Recognition).
+//!    Tự động tải về nếu phát hiện thiếu file mô hình hoặc từ điển.
 //! 2. Hiển thị thanh tiến trình trực quan thời gian thực (Real-time Progress Bar) trên Terminal.
 //! 3. Cắm tự động vào `cli_gui_form::TaskWidget` (cấu trúc sẵn sàng để gắn vào TUI Form).
 //! 4. Trích xuất phụ đề video từ thư mục `input/` sang WebVTT (.zh.vtt).
@@ -11,8 +12,89 @@ use cli_gui_form::TaskWidget;
 use ratatui::style::Color;
 use std::io::{self, Write};
 use std::path::Path;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use OCR::{extract_hardcoded_subtitles, OcrExtractorConfig};
+
+/// Tải file từ URL về máy qua lệnh curl hoặc PowerShell
+fn download_model_file(url: &str, output_path: &Path) -> Result<()> {
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    println!("    [DOWNLOAD] Đang tải từ : {}", url);
+    println!("    [DOWNLOAD] Lưu vào file : {:?}", output_path);
+
+    // Ưu tiên dùng curl.exe có sẵn trên Windows 10/11 & Linux/macOS (có thanh progress)
+    let curl_status = Command::new("curl.exe")
+        .args(&["-L", "--progress-bar", "-o", &output_path.to_string_lossy(), url])
+        .status();
+
+    let success = match curl_status {
+        Ok(s) if s.success() && output_path.exists() => true,
+        _ => {
+            // Fallback sang PowerShell Invoke-WebRequest nếu curl gặp lỗi
+            println!("    [FALLBACK] Đang tải dự phòng qua PowerShell...");
+            let ps_cmd = format!(
+                "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
+                url,
+                output_path.to_string_lossy()
+            );
+            let ps_status = Command::new("powershell")
+                .args(&["-Command", &ps_cmd])
+                .status();
+            matches!(ps_status, Ok(s) if s.success() && output_path.exists())
+        }
+    };
+
+    if success {
+        println!("    \x1b[32m[DOWNLOAD SUCCESS]\x1b[0m Đã tải xong {:?}", output_path.file_name().unwrap_or_default());
+        Ok(())
+    } else {
+        anyhow::bail!("Không thể tải file từ {}", url);
+    }
+}
+
+/// Kiểm tra trọn bộ mô hình (det.onnx + rec.onnx + keys.txt). Nếu thiếu sẽ tự động tải về theo hướng dẫn.
+fn ensure_models_exist(model_dir: &Path) -> Result<()> {
+    let ocr_dir = model_dir.join("ocr");
+    let det_model = ocr_dir.join("det.onnx");
+    let rec_model = ocr_dir.join("rec.onnx");
+    let keys_file = ocr_dir.join("keys.txt");
+
+    if !det_model.exists() || !rec_model.exists() || !keys_file.exists() {
+        println!(">>> [MODEL CHECK] Phát hiện thiếu file mô hình trong {:?}. Bắt đầu tự động tải...", ocr_dir);
+        std::fs::create_dir_all(&ocr_dir)?;
+
+        // 1. det.onnx: Mô hình DBNet Text Detection (phát hiện tọa độ khung chữ)
+        if !det_model.exists() {
+            println!(">>> [1/3] Đang tải mô hình phát hiện chữ (det.onnx)...");
+            download_model_file(
+                "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx",
+                &det_model,
+            )?;
+        }
+
+        // 2. keys.txt: Từ điển ký tự chuẩn PP-OCRv5
+        if !keys_file.exists() {
+            println!(">>> [2/3] Đang tải từ điển ký tự (keys.txt)...");
+            download_model_file(
+                "https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt",
+                &keys_file,
+            )?;
+        }
+
+        // 3. rec.onnx: Mô hình PP-OCRv5 Text Recognition (nhận diện chữ)
+        if !rec_model.exists() {
+            println!(">>> [3/3] Đang tải mô hình nhận diện chữ (rec.onnx)...");
+            download_model_file(
+                "https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_server_rec.onnx",
+                &rec_model,
+            )?;
+        }
+        println!(">>> [MODEL CHECK] Tất cả các mô hình đã sẵn sàng!\n");
+    }
+    Ok(())
+}
 
 fn main() -> Result<()> {
     println!(">>> [EXAMPLE] Khởi chạy trích xuất phụ đề cứng với OCR Library...\n");
@@ -41,12 +123,15 @@ fn main() -> Result<()> {
     } else {
         (
             Path::new("models"),
-            "Mặc định thư mục fallback 'models/'",
+            "Tự động kích hoạt tải mô hình vào thư mục 'models/ocr/'",
         )
     };
 
     println!("    [MODEL CONFIG] Thư mục mô hình: {:?}", model_dir);
     println!("    [MODEL STATUS] {}\n", model_info);
+
+    // Tự động kiểm tra và tải về nếu thiếu bất kỳ file nào trong cặp det.onnx + rec.onnx + keys.txt
+    ensure_models_exist(model_dir)?;
 
     // =========================================================================
     // 2. Cấu hình OCR Extractor (giữ trọn vẹn thông số công nghiệp độ chuẩn >99%)

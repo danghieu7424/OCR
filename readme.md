@@ -140,19 +140,38 @@ cargo run --release
 
 ## 📥 Tải mô hình và từ điển ký tự
 
-### 🔤 1. Từ điển ký tự (`keys.txt`)
+Hệ thống OCR yêu cầu trọn bộ 3 tệp mô hình đặt tại thư mục `models/ocr/` (chương trình sẽ tự động tải về nếu phát hiện thiếu):
 
-Model OCR CTC yêu cầu file từ điển tương thích đúng số lớp ký tự (thường là 18,384 dòng ký tự + blank index 0 = 18,385 class):
-- **File từ điển chuẩn PP-OCRv5:** `ppocrv5_dict.txt`
-- **Link tải:** [https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt](https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt)
+### 🔍 1. Tải mô hình phát hiện vị trí chữ (`det.onnx`)
 
-*Sau khi tải về, đổi tên file thành `keys.txt` và đặt vào thư mục `models/ocr/`.*
+Mô hình DBNet dùng để quét toàn khung hình và định vị tọa độ (bounding box) của từng dòng phụ đề:
+- **Tên mô hình chuẩn:** `ch_PP-OCRv4_det_infer.onnx` (đổi tên thành `det.onnx`)
+- **Link tải:** [https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx](https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx)
+- **Lệnh tải nhanh:**
+  ```bash
+  curl.exe -L -o models/ocr/det.onnx https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx
+  ```
 
 ---
 
-### 📥 2. Tải mô hình nhận diện (`rec.onnx`)
+### 🔤 2. Từ điển ký tự (`keys.txt`)
 
-- **Bản PP-OCRv5 Server Rec ONNX:**
+Model OCR CTC yêu cầu file từ điển tương thích đúng số lớp ký tự (18,384 dòng ký tự + blank index 0 = 18,385 class):
+- **File từ điển chuẩn PP-OCRv5:** `ppocrv5_dict.txt` (đổi tên thành `keys.txt`)
+- **Link tải:** [https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt](https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt)
+- **Lệnh tải nhanh:**
+  ```bash
+  curl.exe -L -o models/ocr/keys.txt https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt
+  ```
+
+---
+
+### 📥 3. Tải mô hình nhận diện chữ (`rec.onnx`)
+
+Mô hình PP-OCR CTC dùng để dịch các mẩu ảnh chữ thành văn bản tiếng Trung:
+- **Bản PP-OCRv5 Server Rec ONNX:** `ppocrv5_server_rec.onnx` (đổi tên thành `rec.onnx`)
 - **Link tải:** [https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_server_rec.onnx](https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_server_rec.onnx)
-
-*Sau khi tải về, đổi tên file thành `rec.onnx` và đặt vào thư mục `models/ocr/`.*
+- **Lệnh tải nhanh:**
+  ```bash
+  curl.exe -L -o models/ocr/rec.onnx https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_server_rec.onnx
+  ```
