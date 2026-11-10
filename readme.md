@@ -175,3 +175,15 @@ Mô hình PP-OCR CTC dùng để dịch các mẩu ảnh chữ thành văn bản
   ```bash
   curl.exe -L -o models/ocr/rec.onnx https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_server_rec.onnx
   ```
+
+# Download v6
+```Bash
+# Det model (Small)
+curl.exe -L -o models/ocr/det.onnx "https://huggingface.co/PaddlePaddle/PP-OCRv6/resolve/main/PP-OCRv6_small_det_infer/model.onnx"
+
+# Rec model (Small)  
+curl.exe -L -o models/ocr/rec.onnx "https://huggingface.co/PaddlePaddle/PP-OCRv6/resolve/main/PP-OCRv6_small_rec_infer/model.onnx"
+
+# Dictionary
+curl.exe -L -o models/ocr/keys.txt "https://huggingface.co/PaddlePaddle/PP-OCRv6/resolve/main/ppocrv6_dict.txt"
+```
