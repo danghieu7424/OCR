@@ -178,12 +178,12 @@ Mô hình PP-OCR CTC dùng để dịch các mẩu ảnh chữ thành văn bản
 
 # Download v6
 ```Bash
-# Det model (Small)
-curl.exe -L -o models/ocr/det.onnx "https://huggingface.co/PaddlePaddle/PP-OCRv6/resolve/main/PP-OCRv6_small_det_infer/model.onnx"
-
-# Rec model (Small)  
-curl.exe -L -o models/ocr/rec.onnx "https://huggingface.co/PaddlePaddle/PP-OCRv6/resolve/main/PP-OCRv6_small_rec_infer/model.onnx"
+# Tải Detection v6 (Medium)
+curl.exe -L -o models/ocr/det.onnx https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/main/inference.onnx
 
 # Dictionary
-curl.exe -L -o models/ocr/keys.txt "https://huggingface.co/PaddlePaddle/PP-OCRv6/resolve/main/ppocrv6_dict.txt"
+curl.exe -L -o models/ocr/keys.txt https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt
+
+# Tải Recognition v6 (Medium)
+curl.exe -L -o models/ocr/rec.onnx https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx
 ```
