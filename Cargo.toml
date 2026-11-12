@@ -15,6 +15,10 @@ path = "src/main.rs"
 name = "extract_subtitles"
 path = "examples/extract_subtitles.rs"
 
+[[example]]
+name = "extract_captions"
+path = "examples/extract_captions.rs"
+
 [dependencies]
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

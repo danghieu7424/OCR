@@ -108,6 +108,7 @@ pub struct CaptionExtractorOutput {
 
 /// Thông tin text box (AABB từ polygon)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct TextBox {
     min_x: f64,
     min_y: f64,
@@ -354,7 +355,7 @@ pub fn extract_captions(
         "   {} Khởi tạo Caption OCR Engine (DBNet + CTC)...",
         "[CAPTION]".name_utils().violed()
     ));
-    let ocr_engine = super::det_filter::create_det_engine(
+    let ocr_engine = crate::ocr::det_filter::create_det_engine(
         &det_path.to_string_lossy(),
         &rec_path.to_string_lossy(),
         &keys_path.to_string_lossy(),
