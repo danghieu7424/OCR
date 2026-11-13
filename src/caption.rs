@@ -183,7 +183,8 @@ fn detect_and_recognize(
 
         let stats = box_pixel_stats(rgb_bytes, width, height, min_x, min_y, max_x, max_y);
         let ink_ok = ink_looks_like_caption(rgb_bytes, width, height, min_x, min_y, max_x, max_y);
-        let scene_ok = stats.sat_p90 <= CAPTION_MAX_SCENE_SAT_P90;
+        let scene_ok =
+            stats.dark_frac >= CAPTION_MIN_SHADOW_FRAC || stats.lum_med <= CAPTION_BRIGHT_BG_LUM;
 
         let is_vertical = is_vertical_box(w, h, vertical_threshold);
 
@@ -234,11 +235,15 @@ fn detect_and_recognize(
 /// chữ nằm trong cảnh (chữ đỏ 囍, chữ vàng trên sách/cuộn) có độ bão hoà cao.
 const CAPTION_MAX_INK_SAT: f32 = 0.33;
 
-/// Ngưỡng bão hoà phân vị 90% của **toàn box**. Caption là chữ trắng/nhạt đè
-/// lên nền tối gần như vô màu, nên gần như mọi pixel trong box đều ít bão hoà.
-/// Box bắt trên vật thể cảnh có màu mạnh — băng rôn/cờ đỏ (vd: 《社》 tập 9),
-/// chữ vàng trên sách — có phần lớn pixel bão hoà cao dù nét chữ nhạt.
-const CAPTION_MAX_SCENE_SAT_P90: f32 = 0.45;
+/// Caption luôn có quầng tối (viền/bóng) ngay sau nét chữ: đo trên các box
+/// caption thật, tỷ lệ pixel tối (lum < 60) trong box là 0.17–0.98. Chữ in
+/// trên vật thể cảnh — băng rôn/cờ đỏ (vd: 《社》 tập 9), biển hiệu — có nền
+/// sáng liền mạch nên tỷ lệ này chỉ ~0.10.
+const CAPTION_MIN_SHADOW_FRAC: f32 = 0.20;
+
+/// Box chỉ bị coi là chữ trong cảnh khi vừa thiếu quầng tối vừa có nền sáng;
+/// caption đặt trên cảnh sáng vẫn có viền tối (dark_frac ≥ 0.20) nên không mất.
+const CAPTION_BRIGHT_BG_LUM: f32 = 100.0;
 
 /// Kiểm tra nét chữ trong box có phải kiểu chữ caption (trắng/nhạt) không.
 fn ink_looks_like_caption(
