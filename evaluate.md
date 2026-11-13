@@ -145,3 +145,71 @@ Kiểm tra bằng mắt trước đó vẫn đúng: 《社》 là chữ trên b�
 - Commit `7b88873` (fix) + `d15a268` (graphify hook), đã push lên `origin/main`, working tree sạch, không force.
 
 Chưa chạy `cargo test` và chưa gắn tag `v0.2.1` (rules yêu cầu test pass trước khi tag) — nói một câu là tôi chạy.
+
+---
+
+---
+
+Phát hiện vài cặp bị ghép lệch (ví dụ `美` ↔ `孩儿对不起您`), nên tôi cải thiện thuật toán căn trước khi kết luận.
+
+**Kết luận: nên chuẩn hoá, nhưng chỉ ở bước chấm điểm — không thêm vào pipeline.**
+
+## Vì sao
+
+Quét toàn bộ 20 file `output/*.zh.vtt` (sub): chỉ có **1 ký tự phồn thể** trong hơn 5.480 ký tự (團, một mảnh vụn ở tập 1). Tức pipeline đã xuất giản thể gần như tuyệt đối (vocab của model là giản thể). Ngược lại, reference dùng phồn thể lẫn lộn. Nên chuẩn hoá phồn→giản ở khâu so sánh, không phải ở khâu OCR.
+
+## So sánh trước/sau trên 20 tập
+
+| Cách chấm                 | Khớp | Đúng nguyên văn | Lệch | Lỗi ký tự | Accuracy   |
+| ------------------------- | ---- | --------------- | ---- | --------- | ---------- |
+| Không chuẩn hoá           | 752  | 708             | 44   | 44/5480   | **99.20%** |
+| Chuẩn hoá t2s (phồn→giản) | 752  | 742             | 10   | 10/5480   | **99.82%** |
+| Chuẩn hoá s2t (giản→phồn) | 752  | 741             | 11   | 11/5480   | 99.80%     |
+
+Trong 44 câu lệch khi chấm thô, **34 câu chỉ khác biến thể chữ** (`強/强`, `於/于`, `別/别`, `屍/尸`, `虛/虚`, `能夠/能够`, `弒/弑`, `況/况`, `內/内`, `夠/够`, `團/团`, `爺/爷`, `區/区`). t2s và s2t cho kết quả gần như trùng nhau, nhưng **t2s là hướng đúng** vì s2t có ánh xạ một-nhiều (干→乾/幹, 发→發/髮) có thể tạo lỗi giả.
+
+### Theo tập (accuracy thô → sau t2s)
+
+| Tập | Thô    | t2s        | Tập | Thô    | t2s        |
+| --- | ------ | ---------- | --- | ------ | ---------- |
+| 001 | 99.07  | **100.00** | 011 | 99.58  | **100.00** |
+| 002 | 98.50  | 99.46      | 012 | 100.00 | 100.00     |
+| 003 | 99.09  | 99.39      | 013 | 99.59  | 99.59      |
+| 004 | 99.65  | **100.00** | 014 | 98.13  | **100.00** |
+| 005 | 100.00 | 100.00     | 015 | 99.54  | **100.00** |
+| 006 | 98.60  | 98.60      | 016 | 100.00 | 100.00     |
+| 007 | 98.08  | **100.00** | 017 | 98.62  | **100.00** |
+| 008 | 99.50  | **100.00** | 018 | 99.58  | **100.00** |
+| 009 | 99.00  | **100.00** | 019 | 99.08  | **100.00** |
+| 010 | 99.17  | 99.58      | 020 | 99.60  | **100.00** |
+
+Chỉ 4 tập còn lệch sau chuẩn hoá: 002 (4), 003 (2), 006 (2), 010 (1), 013 (1).
+
+## 10 lỗi thật còn lại (sau t2s)
+
+Trong đó **6 lỗi do OCR**, **4 chỗ reference sai mà máy đúng**:
+
+| Tập | ref                | OCR                  | Loại                 |
+| --- | ------------------ | -------------------- | -------------------- |
+| 002 | 魔域之人           | 魔域之人**で**       | OCR thêm kana        |
+| 002 | 嗯                 | 涵                   | OCR sai chữ          |
+| 003 | 那可是魔域         | 那可是魔域**V**      | OCR thêm ký tự Latin |
+| 003 | 爹以前的武器给你   | **参**以前的武器给你 | OCR 爹→参            |
+| 006 | 国一起             | 一起                 | OCR rơi chữ 国       |
+| 013 | 还只是比你强一点点 | **一**还只是…        | OCR thêm 一          |
+| 002 | 娘亲爹**參**       | 娘亲爹爹             | reference sai        |
+| 002 | 自**已**           | 自己                 | reference sai        |
+| 006 | 灭多**小**         | 灭多少               | reference sai        |
+| 010 | 眼**晴**           | 眼睛                 | reference sai        |
+
+Nên chất lượng OCR thật ≈ **6 lỗi / 5480 ký tự = 99.89%**, và điểm 99.82% sau chuẩn hoá là cận dưới hợp lý (bị 4 lỗi reference kéo xuống).
+
+Ngoài lỗi ký tự, phần còn lại là cấu trúc, không liên quan phồn/giản: **6 câu thiếu** (đều 0.2–1.6s: `美`, `挡住`, `五挡往`, `啊啊`, `滚`, `别说了`) và **8 segment thừa** (mảnh vụn ở điểm chuyển sub: `團`, `和离/和高/和`, `区`, `福`, `爷爷/爷`).
+
+## Đã làm
+
+- `tools/compare_subs.py`: căn câu theo overlap giảm dần **toàn cục** rồi bù bằng start gần nhất (bản cũ ghép tuần tự nên dây chuyền lệch khi mất câu ngắn, ví dụ `美` ↔ `孩儿对不起您`), so ký tự Levenshtein, cờ `--norm none|t2s|s2t`, `--show <tập>` in chi tiết. Đã dùng `zhconv` cài tạm (`pip install --target scratch/pydeps`) rồi xoá — không phải dependency dự án; script chỉ import khi dùng `t2s`/`s2t`.
+- `CHANGELOG.md`: mục `## [Unreleased] → ### Thêm` ghi tool này kèm số đo.
+- Commit `d3f33d9` + `8944882` (dọn zhconv tạm) + `dbf2182` (graphify), đã push; cây làm việc sạch.
+
+Gợi ý bước tiếp (chưa làm): nếu muốn con số sát hơn nữa, sửa 4 lỗi reference trong bản so sánh hoặc tách riêng "reference-lỗi" — nhưng như vậy là sửa dữ liệu chuẩn, nên để bạn quyết.

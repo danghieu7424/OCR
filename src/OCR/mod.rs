@@ -769,8 +769,22 @@ pub fn extract_hardcoded_subtitles(
     let mut initial_segments: Vec<SubtitleSegment> = Vec::new();
 
     for seg in raw_segments {
+        let dbg = std::env::var_os("OCR_SUB_DEBUG").is_some();
+        if dbg {
+            eprintln!(
+                "[RAW] {:.2}-{:.2} frames={} texts={:?}",
+                seg.start_frame as f64 * dt,
+                seg.end_frame as f64 * dt,
+                seg.end_frame - seg.start_frame + 1,
+                seg.texts,
+            );
+        }
+
         // Tối thiểu 2 frames liên tiếp (ở 20fps là 100ms) để loại bỏ hoàn toàn nhiễu nhấp nháy 1-frame
         if seg.end_frame < seg.start_frame + 1 {
+            if dbg {
+                eprintln!("       -> DROP 1-frame");
+            }
             continue;
         }
 
@@ -797,6 +811,9 @@ pub fn extract_hardcoded_subtitles(
                 continue;
             }
         } else if duration < 0.10 {
+            if std::env::var_os("OCR_SUB_DEBUG").is_some() {
+                eprintln!("       -> DROP duration {:.3}s", duration);
+            }
             continue;
         }
 
