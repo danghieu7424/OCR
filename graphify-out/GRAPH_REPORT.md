@@ -1,17 +1,17 @@
 # Graph Report - OCR  (2026-11-14)
 
 ## Corpus Check
-- 47 files · ~72,875 words
+- 47 files · ~73,038 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 8 file(s) not represented in the graph (top: (none) 5, .onnx 2, .zip 1)
 
 ## Summary
-- 1070 nodes · 2057 edges · 43 communities (29 shown, 14 thin omitted)
+- 1074 nodes · 2061 edges · 38 communities (27 shown, 11 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `139f0eba`
+- Built from commit: `7b888733`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -20,7 +20,7 @@
 - demo_master.rs
 - Tags
 - Theme
-- FormWidget
+- CheckboxWidget
 - TabsWidget
 - SelectWidget
 - shared.rs
@@ -37,17 +37,13 @@
 - TaskShared
 - 🚀 Hướng dẫn sử dụng
 - TaskShared
-- CardWidget
 - [0.2.0] — 2026-11-14
-- RadioWidget
 - TaskShared
 - TaskShared
 - StatusBarWidget
 - extract_captions.rs
 - src/main.rs
 - tags.rs
-- cli_gui_form/src/lib.rs
-- FormValue
 - [MODULE]: Video Hardcoded Subtitle OCR (Trích xuất phụ đề cứng từ Video)
 - det_filter.rs
 - TaskWidget
@@ -75,25 +71,25 @@
   examples/extract_captions.rs → src/caption.rs
 - `main()` --calls--> `extract_hardcoded_subtitles()`  [INFERRED]
   examples/extract_subtitles.rs → src/OCR/mod.rs
+- `OCR` --depends_on--> `cli_gui_form`  [EXTRACTED]
+  Cargo.toml → cli_gui_form/Cargo.toml
+- `ShimmerShared` --implements--> `FormWidget`  [INFERRED]
+  cli_gui_form/examples/status_shimmer.rs → cli_gui_form/src/traits.rs
 - `extract_and_report()` --references--> `CaptionExtractorConfig`  [EXTRACTED]
-  examples/extract_captions.rs → src/caption.rs
-- `run_batch()` --references--> `CaptionExtractorConfig`  [EXTRACTED]
-  examples/extract_captions.rs → src/caption.rs
-- `run_one()` --references--> `CaptionExtractorConfig`  [EXTRACTED]
   examples/extract_captions.rs → src/caption.rs
 
 ## Import Cycles
 - None detected.
 
-## Communities (43 total, 14 thin omitted)
+## Communities (38 total, 11 thin omitted)
 
 ### Community 0 - "Icons"
 Cohesion: 0.01
 Nodes (148): Icons, .APPROX, .ARC_BOTTOM_LEFT, .ARC_BOTTOM_RIGHT, .ARC_TOP_LEFT, .ARC_TOP_RIGHT, .ARROW_CURVE_DOWN_LEFT, .ARROW_CURVE_DOWN_RIGHT (+140 more)
 
 ### Community 1 - "demo_master.rs"
-Cohesion: 0.07
-Nodes (15): TableRowItem, DeploymentItem, FormManager, test_form_manager_focus_navigation(), EventResult, Consumed, Ignored, Submitted (+7 more)
+Cohesion: 0.06
+Nodes (23): TableRowItem, DeploymentItem, FormManager, test_form_manager_focus_navigation(), EventResult, Consumed, Ignored, Submitted (+15 more)
 
 ### Community 2 - "Tags"
 Cohesion: 0.03
@@ -104,7 +100,7 @@ Cohesion: 0.05
 Nodes (68): Theme, .ACCENT, .BG, .BLACK, .BORDER_FOCUS, .BTN_ACCENT, .BTN_AMBER, .BTN_EMERALD (+60 more)
 
 ### Community 5 - "TabsWidget"
-Cohesion: 0.09
+Cohesion: 0.08
 Nodes (6): TabsWidget, test_tabs_auto_scroll_sticky(), test_tabs_container_overflow_protection(), test_tabs_mouse_and_step_scrolling(), test_tabs_navigation(), test_tabs_scrolling()
 
 ### Community 6 - "SelectWidget"
@@ -112,8 +108,8 @@ Cohesion: 0.08
 Nodes (8): SelectOption, SelectWidget, test_select_widget_basic_creation_and_value(), test_select_widget_dozens_of_options_scrolling_and_navigation(), test_select_widget_esc_cancels(), test_select_widget_open_navigate_and_select(), test_truncate_with_ellipsis_and_overflow_protection(), truncate_with_ellipsis()
 
 ### Community 7 - "shared.rs"
-Cohesion: 0.10
-Nodes (22): attach_cli_gui_task(), clear_handlers(), CpuOptimizer, emit_log(), emit_step(), emit_task_progress(), EventHandlerRegistry, get_registry() (+14 more)
+Cohesion: 0.09
+Nodes (24): CaptionExtractorOutput, CaptionSegment, attach_cli_gui_task(), clear_handlers(), CpuOptimizer, emit_log(), emit_step(), emit_task_progress() (+16 more)
 
 ### Community 8 - "Minimal — TUI Design System"
 Cohesion: 0.06
@@ -128,7 +124,7 @@ Cohesion: 0.07
 Nodes (4): main(), ShimmerShared, ShimmerWidget, test_shimmer_tick_cycle()
 
 ### Community 11 - "ListWidget"
-Cohesion: 0.11
+Cohesion: 0.10
 Nodes (4): ListItem, ListWidget, test_list_widget_form_value(), test_list_widget_sub_level_navigation()
 
 ### Community 12 - "ButtonWidget"
@@ -140,8 +136,8 @@ Cohesion: 0.11
 Nodes (4): Text, InputWidget, test_input_placeholder_builder(), test_input_typing_and_backspace()
 
 ### Community 14 - "caption.rs"
-Cohesion: 0.15
-Nodes (25): assemble_caption(), box_pixel_stats(), BoxPixels, build_watermark_set(), CAPTION_BRIGHT_BG_LUM, caption_key(), CAPTION_MAX_INK_SAT, CAPTION_MIN_SHADOW_FRAC (+17 more)
+Cohesion: 0.17
+Nodes (23): assemble_caption(), box_pixel_stats(), BoxPixels, build_watermark_set(), CAPTION_BRIGHT_BG_LUM, caption_key(), CAPTION_MAX_INK_SAT, CAPTION_MIN_SHADOW_FRAC (+15 more)
 
 ### Community 16 - "OCR/mod.rs"
 Cohesion: 0.13
@@ -155,29 +151,21 @@ Nodes (17): 1. `ListWidget` (Menu Phân Cấp & Điều Hướng Cây Con), 2. `
 Cohesion: 0.13
 Nodes (14): 1. Dùng như Thư viện Rust (`--lib`), 🔍 1. Tải mô hình phát hiện vị trí chữ (`det.onnx`), 2. Tích hợp thanh tiến trình với `cli_gui_form` (TUI Ready), 🔤 2. Từ điển ký tự (`keys.txt`), 3. Chạy file ví dụ mẫu (`examples/`), 📥 3. Tải mô hình nhận diện chữ (`rec.onnx`), 4. Chạy chế độ hàng loạt CLI (`--bin`), Cách A: Cắm trực tiếp vào `cli_gui_form::TaskWidget` (+6 more)
 
-### Community 21 - "CardWidget"
-Cohesion: 0.24
-Nodes (3): CardItem, CardWidget, test_card_widget_creation()
-
 ### Community 22 - "[0.2.0] — 2026-11-14"
-Cohesion: 0.17
-Nodes (11): [0.1.0] — 2026-11-05, [0.2.0] — 2026-11-14, Bảo mật, Changelog, Gỡ bỏ, Sửa, Thay đổi, Thay đổi phá vỡ tương thích (+3 more)
+Cohesion: 0.12
+Nodes (15): [0.1.0] — 2026-11-05, [0.2.0] — 2026-11-14, [0.2.1] — 2026-11-14, Bảo mật, Changelog, Gỡ bỏ, Kiểm chứng, Sửa (+7 more)
+
+### Community 25 - "TaskShared"
+Cohesion: 0.08
+Nodes (4): main(), TaskShared, main(), TaskShared
 
 ### Community 27 - "extract_captions.rs"
 Cohesion: 0.29
 Nodes (10): caption_path(), download_file(), ensure_models(), extract_and_report(), is_done(), main(), run_batch(), run_one() (+2 more)
 
 ### Community 28 - "src/main.rs"
-Cohesion: 0.21
+Cohesion: 0.19
 Nodes (5): init_logger(), LOG_FILE, log_eprintln!, log_println!, main()
-
-### Community 30 - "cli_gui_form/src/lib.rs"
-Cohesion: 0.25
-Nodes (7): EditMode, Adding, Browsing, Editing, TaskState, Loading, Running
-
-### Community 31 - "FormValue"
-Cohesion: 0.22
-Nodes (6): FormValue, Bool, List, None, Select, Text
 
 ### Community 32 - "[MODULE]: Video Hardcoded Subtitle OCR (Trích xuất phụ đề cứng từ Video)"
 Cohesion: 0.29
@@ -185,10 +173,10 @@ Nodes (6): I. KIẾN TRÚC LUỒNG XỬ LÝ (4-STEP PIPELINE), II. ĐẶC TẢ T
 
 ### Community 34 - "TaskWidget"
 Cohesion: 0.05
-Nodes (20): main(), TaskShared, ProgressStyle, Line, Parallelogram, SPINNER_FRAMES_ARC, SPINNER_FRAMES_BRAILLE_6, SPINNER_FRAMES_DOTS (+12 more)
+Nodes (28): CardItem, CardWidget, test_card_widget_creation(), EditMode, Adding, Browsing, Editing, ProgressStyle (+20 more)
 
 ### Community 35 - "extract_subtitles.rs"
-Cohesion: 0.22
+Cohesion: 0.24
 Nodes (3): download_model_file(), ensure_models_exist(), main()
 
 ### Community 40 - "evaluate.md"
@@ -204,24 +192,24 @@ Cohesion: 0.67
 Nodes (3): WorkerMessage, ModelLoaded, ProgressUpdate
 
 ## Knowledge Gaps
-- **27 isolated node(s):** `Consumed`, `Ignored`, `Submitted`, `Password`, `Adding` (+22 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 495 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **14 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **27 isolated node(s):** `OCR`, `Consumed`, `Ignored`, `Submitted`, `Password` (+22 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 498 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **11 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Icons` connect `Icons` to `icons.rs`?**
-  _High betweenness centrality (0.279) - this node is a cross-community bridge._
-- **What connects `Consumed`, `Ignored`, `Submitted` to the rest of the system?**
+  _High betweenness centrality (0.259) - this node is a cross-community bridge._
+- **What connects `OCR`, `Consumed`, `Ignored` to the rest of the system?**
   _27 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Icons` be split into smaller, more focused modules?**
   _Cohesion score 0.013422818791946308 - nodes in this community are weakly interconnected._
-- **Why does `Tags` connect `Tags` to `demo_master.rs`, `tags.rs`, `cli_gui_form/src/lib.rs`?**
-  _High betweenness centrality (0.141) - this node is a cross-community bridge._
+- **Why does `Tags` connect `Tags` to `demo_master.rs`, `TaskWidget`, `tags.rs`?**
+  _High betweenness centrality (0.140) - this node is a cross-community bridge._
 - **Should `demo_master.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.0725604670558799 - nodes in this community are weakly interconnected._
-- **Why does `Theme` connect `Theme` to `demo_master.rs`, `TabsWidget`, `CardWidget`, `StatusBarWidget`, `cli_gui_form/src/lib.rs`?**
-  _High betweenness centrality (0.117) - this node is a cross-community bridge._
+  _Cohesion score 0.057569296375266525 - nodes in this community are weakly interconnected._
+- **Why does `Icons` connect `demo_master.rs` to `OCR/mod.rs`, `TaskWidget`, `caption.rs`, `shared.rs`?**
+  _High betweenness centrality (0.128) - this node is a cross-community bridge._
 - **Should `Tags` be split into smaller, more focused modules?**
   _Cohesion score 0.027777777777777776 - nodes in this community are weakly interconnected._
