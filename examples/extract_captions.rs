@@ -116,7 +116,7 @@ fn main() -> Result<()> {
             x_max: 0.50,
         },
         vertical_aspect_threshold: 1.2,
-        column_x_tolerance: 0.10,
+        column_x_tolerance: 0.06,
         min_confidence: 0.30,
         watermark_freq_threshold: 0.40,
     };

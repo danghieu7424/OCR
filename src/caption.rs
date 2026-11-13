@@ -69,7 +69,7 @@ impl Default for CaptionExtractorConfig {
             fps: 5,
             roi: CaptionRoi::default(),
             vertical_aspect_threshold: 1.2,
-            column_x_tolerance: 0.10,
+            column_x_tolerance: 0.06,
             min_confidence: 0.30,
             watermark_freq_threshold: 0.40,
         }
@@ -586,7 +586,8 @@ pub fn extract_captions(
     // Tạo segments
     let mut segments: Vec<CaptionSegment> = Vec::new();
     for seg in raw_segs {
-        if seg.end < seg.start + 1 { continue; }
+        // Yêu cầu ít nhất 3 frame (0.6s ở 5fps) để tránh spike nhiễu
+        if seg.end < seg.start + 2 { continue; }
         let best = select_best_caption(&seg.texts);
         if best.is_empty() { continue; }
 
