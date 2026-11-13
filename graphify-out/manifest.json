@@ -276,15 +276,51 @@
     "semantic_hash": ""
   },
   "evaluate.md": {
-    "mtime": 1794595530.4316182,
-    "seen": 1794595617.2432506,
-    "ast_hash": "18c28c31187ef53b41e0a4e9d32e601a",
+    "mtime": 1794599603.9889593,
+    "seen": 1794599609.6246817,
+    "ast_hash": "34595ce88a5987a04741968830f08672",
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
     "mtime": 1794599300.0425267,
     "seen": 1794599317.2740512,
     "ast_hash": "20a32635112a602a3c0953a2e6bdcd11",
+    "semantic_hash": ""
+  },
+  "scratch/pydeps/zhconv/__init__.py": {
+    "mtime": 1794599501.5303802,
+    "seen": 1794599609.6246817,
+    "ast_hash": "7e0f77859532cc7010ca71b9208fdc99",
+    "semantic_hash": ""
+  },
+  "scratch/pydeps/zhconv/__main__.py": {
+    "mtime": 1794599501.5335324,
+    "seen": 1794599609.6246817,
+    "ast_hash": "e0d76cc4a491f99705b8c197995ef3ac",
+    "semantic_hash": ""
+  },
+  "scratch/pydeps/zhconv/zhcdict.json": {
+    "mtime": 1794599501.535115,
+    "seen": 1794599609.6246817,
+    "ast_hash": "94173809d134d705114c692cbc517df8",
+    "semantic_hash": ""
+  },
+  "scratch/pydeps/zhconv/zhconv.py": {
+    "mtime": 1794599501.535115,
+    "seen": 1794599609.6246817,
+    "ast_hash": "700253e5e25222900a373b661e6fcc7c",
+    "semantic_hash": ""
+  },
+  "tools/compare_subs.py": {
+    "mtime": 1794599595.4416447,
+    "seen": 1794599609.6246817,
+    "ast_hash": "aa8bc1e5213d0b5b9091405ce96b7a31",
+    "semantic_hash": ""
+  },
+  "scratch/pydeps/zhconv-1.4.3.dist-info/top_level.txt": {
+    "mtime": 1794599501.535115,
+    "seen": 1794599609.6246817,
+    "ast_hash": "09d92f28d4fd8149650109a3f555a246",
     "semantic_hash": ""
   }
 }
