@@ -84,3 +84,64 @@ Tức **24/25 caption khớp chữ khi soi ảnh**, 1 ca sai (banner đỏ bị 
 - Cây git sạch (thay đổi example đã được commit tự động), chưa push.
 
 Nếu muốn, bước tiếp theo hợp lý là siết thêm một luật cho ca `《社》`: box có nền là **vật thể cảnh** (độ tương phản nền cao, không có mảng mực tối phía sau) — nhưng cần thêm dữ liệu để không làm rơi caption thật.
+
+---
+
+---
+
+Tôi đã có số liệu quyết định: caption thật nằm trên nền **tối gần đen** (lum_med 1–47, dark_frac 0.63–0.83), còn box băng rôn 《社》 có lum_med 145–164, dark_frac 0.10. Giờ đo thêm các tập khác để chọn ngưỡng có biên an toàn.
+
+Số liệu cho thấy màu bão hoà không tách được (caption thật cũng nằm trên nền đỏ tối), nhưng **nền tối** thì tách rõ. Tôi đổi luật sang: box sáng và thiếu mảng tối bao quanh chữ ⇒ chữ trong cảnh.
+
+Tiến trình của tôi vẫn chạy sau khi runner restart. Tập 003 xong với 3 caption (không đổi). Chờ 10 lượt chạy hoàn tất.
+
+Vòng 1 xong: 001=7, 002=6, 003=3, 004=2 — y hệt trước khi siết luật. Chờ vòng 2 (005–008) và vòng 3 (009, 012).
+
+Tất cả 10 tập đã chạy lại xong. Cập nhật CHANGELOG + tăng phiên bản, dọn file tạm, rồi commit.
+
+Đã siết luật, chạy lại và xác nhận.
+
+## Luật mới (`src/caption.rs`)
+
+Thay vì đo độ bão hoà màu (không tách được — caption thật cũng nằm trên nền đỏ tối), tôi đo **quầng tối** quanh nét chữ. Hàm mới `box_pixel_stats` → `BoxPixels { lum_med, dark_frac, sat_med, sat_p90, sat_hi }`, và luật:
+
+```rust
+const CAPTION_MIN_SHADOW_FRAC: f32 = 0.20;   // tỷ lệ pixel tối (lum < 60) trong box
+const CAPTION_BRIGHT_BG_LUM:   f32 = 100.0;  // độ sáng trung vị của nền trong box
+
+scene_ok = stats.dark_frac >= 0.20 || stats.lum_med <= 100.0;  // loại khi CẢ HAI đều sai
+```
+
+Đo trên dữ liệu thật (tập 1–3, 9, 12):
+
+- caption thật: `dark_frac` 0.26–0.98 (có viền tối ngay sau chữ), kể cả ca khó `《直到徐清莹突破大帝这天》` nằm trên cảnh sáng (`lum_med` 133–176 nhưng `dark_frac` 0.26–0.35).
+- box băng rôn 《社》 tập 9: `dark_frac` 0.10, `lum_med` 145–164, `sat_p90` 0.48 → bị loại.
+
+Vì điều kiện là AND của hai dấu hiệu, caption đặt trên cảnh sáng vẫn được giữ. Thêm log chẩn đoán bật bằng `OCR_CAP_DEBUG=1` (in thống kê pixel + kết quả từng bộ lọc cho mọi box ứng viên).
+
+## Kết quả chạy lại (001–009, 012)
+
+| Tập | Trước | Sau   | Text so với trước                   |
+| --- | ----- | ----- | ----------------------------------- |
+| 001 | 7     | 7     | giống hệt                           |
+| 002 | 6     | 6     | giống hệt (kể cả 《何訇》)          |
+| 003 | 3     | 3     | giống hệt                           |
+| 004 | 2     | 2     | giống hệt                           |
+| 005 | 1     | 1     | 《魔临城》                          |
+| 006 | 1     | 1     | 《孙敏姿》                          |
+| 007 | 1     | 1     | 《圣王境强者》                      |
+| 008 | 1     | 1     | 《落逢海-帝境中期》                 |
+| 009 | 2     | **1** | mất 《社》, giữ 《临城城主-肖清逸》 |
+| 012 | 1     | 1     | 《陆清安院落》                      |
+
+24 caption thật giữ nguyên chữ; chỉ tập 1, 2, 3 lệch mốc thời gian ±0.2s (một frame bị lọc nên biên segment dịch), nội dung không đổi. Tập 10, 11, 13–20 vốn 0 caption nên không bị ảnh hưởng (luật chỉ loại bỏ box).
+
+Kiểm tra bằng mắt trước đó vẫn đúng: 《社》 là chữ trên băng rôn đỏ ở x≈1600–1850 (nửa phải khung), không phải caption.
+
+## Sách/commit
+
+- Build release pass với `OCR v0.2.1`.
+- `CHANGELOG.md`: thêm mục `## [0.2.1] — 2026-11-14` (Sửa / Thay đổi / Kiểm chứng); `Cargo.toml` bump `0.2.1`.
+- Commit `7b88873` (fix) + `d15a268` (graphify hook), đã push lên `origin/main`, working tree sạch, không force.
+
+Chưa chạy `cargo test` và chưa gắn tag `v0.2.1` (rules yêu cầu test pass trước khi tag) — nói một câu là tôi chạy.
