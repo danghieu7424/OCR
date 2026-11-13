@@ -43,8 +43,10 @@ impl Default for CaptionRoi {
         Self {
             y_min: 0.10,
             y_max: 0.80,
+            // Caption có thể xuất hiện ở bất kỳ vị trí ngang nào (canh trái hoặc
+            // canh giữa màn hình, vd: 《系统》), nên ROI phủ toàn bộ chiều rộng.
             x_min: 0.00,
-            x_max: 0.50,
+            x_max: 1.00,
         }
     }
 }
@@ -58,6 +60,9 @@ pub struct CaptionExtractorConfig {
     pub vertical_aspect_threshold: f32,
     /// Gom cột: khoảng cách X tỷ lệ so với chiều rộng ROI
     pub column_x_tolerance: f32,
+    /// Ngưỡng tin cậy tối thiểu. Caption là chữ được render sắc nét nên điểm
+    /// tin cậy thường ~1.0; chữ trong cảnh (biển hiệu, chữ vàng trên sách)
+    /// thường chỉ 0.7-0.8.
     pub min_confidence: f32,
     /// Ngưỡng tỷ lệ frame xuất hiện để coi là watermark (0.0-1.0)
     pub watermark_freq_threshold: f32,
@@ -70,7 +75,7 @@ impl Default for CaptionExtractorConfig {
             roi: CaptionRoi::default(),
             vertical_aspect_threshold: 1.2,
             column_x_tolerance: 0.06,
-            min_confidence: 0.30,
+            min_confidence: 0.80,
             watermark_freq_threshold: 0.40,
         }
     }
@@ -167,6 +172,10 @@ fn detect_and_recognize(
 
         let clean_text = sanitize_caption_text(&result.text);
         if clean_text.is_empty() { continue; }
+        if !shape_matches_text(w, h, &clean_text) { continue; }
+        if !ink_looks_like_caption(rgb_bytes, width, height, min_x, min_y, max_x, max_y) {
+            continue;
+        }
 
         let is_vertical = h > w * vertical_threshold as f64;
 
@@ -181,6 +190,67 @@ fn detect_and_recognize(
         });
     }
     Ok(boxes)
+}
+
+/// Ngưỡng bão hoà màu tối đa của nét chữ caption.
+/// Caption là chữ trắng/nhạt nên các điểm sáng nhất trong box gần như vô màu;
+/// chữ nằm trong cảnh (chữ đỏ 囍, chữ vàng trên sách/cuộn) có độ bão hoà cao.
+const CAPTION_MAX_INK_SAT: f32 = 0.33;
+
+/// Kiểm tra nét chữ trong box có phải kiểu chữ caption (trắng/nhạt) không.
+fn ink_looks_like_caption(
+    rgb: &[u8],
+    img_w: usize,
+    img_h: usize,
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+) -> bool {
+    let x0 = min_x.max(0.0) as usize;
+    let y0 = min_y.max(0.0) as usize;
+    let x1 = (max_x as usize).min(img_w);
+    let y1 = (max_y as usize).min(img_h);
+    if x1 <= x0 || y1 <= y0 {
+        return false;
+    }
+
+    let mut pixels: Vec<(f32, f32)> = Vec::with_capacity((x1 - x0) * (y1 - y0));
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let idx = (y * img_w + x) * 3;
+            let (r, g, b) = (rgb[idx] as f32, rgb[idx + 1] as f32, rgb[idx + 2] as f32);
+            let mx = r.max(g).max(b);
+            let mn = r.min(g).min(b);
+            let sat = if mx > 0.0 { (mx - mn) / mx } else { 0.0 };
+            let lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            pixels.push((lum, sat));
+        }
+    }
+    if pixels.is_empty() {
+        return false;
+    }
+
+    // Lấy 25% điểm sáng nhất (nét chữ) rồi đo độ bão hoà trung vị.
+    pixels.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+    let top = (pixels.len() / 4).max(1);
+    let mut sats: Vec<f32> = pixels[..top].iter().map(|p| p.1).collect();
+    sats.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sats[sats.len() / 2] <= CAPTION_MAX_INK_SAT
+}
+
+/// Kiểm tra hình học box có khớp với số ký tự nhận diện được không.
+/// Chữ Hán gần như vuông: với caption ngang, mỗi ký tự rộng ~ w/n và cao ~ h;
+/// với caption dọc, mỗi ký tự cao ~ h/n và rộng ~ w. Box lệch xa tỷ lệ này là
+/// chữ trong cảnh (biển hiệu, chữ vàng trên sách...) chứ không phải caption.
+fn shape_matches_text(w: f64, h: f64, text: &str) -> bool {
+    let n = text.chars().count().max(1) as f64;
+    if w <= 0.0 || h <= 0.0 {
+        return false;
+    }
+    let is_vertical = h > w * 1.2;
+    let char_aspect = if is_vertical { w * n / h } else { w / (n * h) };
+    (0.50..=1.80).contains(&char_aspect)
 }
 
 fn sanitize_caption_text(raw: &str) -> String {
@@ -279,7 +349,12 @@ fn group_vertical_columns(boxes: &[TextBox], tolerance_px: f64) -> Vec<Vec<&Text
         let mut found = false;
         for col in columns.iter_mut() {
             let avg_x: f64 = col.iter().map(|cb| cb.center_x).sum::<f64>() / col.len() as f64;
-            if (b.center_x - avg_x).abs() < tolerance_px {
+            let avg_w: f64 = col.iter().map(|cb| cb.width).sum::<f64>() / col.len() as f64;
+            // Dung sai phải co theo bề rộng ký tự, không theo bề rộng ROI:
+            // ROI full-width mà dùng 6% chiều rộng sẽ gộp 2 cột chữ dọc liền kề
+            // (vd: 《大女儿》 và 《陆紫萱》) thành một cột duy nhất.
+            let tol = tolerance_px.min(0.6 * b.width.min(avg_w));
+            if (b.center_x - avg_x).abs() < tol {
                 col.push(b);
                 found = true;
                 break;
@@ -375,16 +450,38 @@ fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     curr[l2]
 }
 
+/// Chuẩn hóa khoá so sánh: bỏ dấu nối giữa các cột chữ dọc.
+fn caption_key(s: &str) -> String {
+    s.chars().filter(|c| *c != '-').collect()
+}
+
 fn select_best_caption(texts: &[String]) -> String {
     if texts.is_empty() { return String::new(); }
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for t in texts {
-        if !t.is_empty() { *counts.entry(t.clone()).or_insert(0) += 1; }
+
+    // Gom các biến thể chỉ khác nhau ở dấu nối cột (vd: "大女儿-陆紫萱" và
+    // "大女儿陆紫萱") về cùng một nhóm để bầu chọn ổn định, và ưu tiên biến
+    // thể có dấu nối (giữ đúng thứ tự cột trái → phải).
+    let mut groups: HashMap<String, (usize, String)> = HashMap::new();
+    for t in texts.iter().filter(|t| !t.is_empty()) {
+        let key = caption_key(t);
+        let entry = groups.entry(key).or_insert((0, t.clone()));
+        entry.0 += 1;
+        if t.contains('-') && !entry.1.contains('-') {
+            entry.1 = t.clone();
+        } else if t.chars().count() > entry.1.chars().count() {
+            entry.1 = t.clone();
+        }
     }
-    if counts.is_empty() { return String::new(); }
-    counts.into_iter()
-        .max_by(|(t1, c1), (t2, c2)| c1.cmp(c2).then_with(|| t1.chars().count().cmp(&t2.chars().count())))
-        .map(|(t, _)| t).unwrap_or_default()
+
+    groups
+        .into_iter()
+        .max_by(|(k1, (c1, t1)), (k2, (c2, t2))| {
+            c1.cmp(c2)
+                .then_with(|| t1.chars().count().cmp(&t2.chars().count()))
+                .then_with(|| k2.cmp(k1))
+        })
+        .map(|(_, (_, t))| t)
+        .unwrap_or_default()
 }
 
 // =====================================================================
