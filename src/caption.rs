@@ -177,7 +177,7 @@ fn detect_and_recognize(
             continue;
         }
 
-        let is_vertical = h > w * vertical_threshold as f64;
+        let is_vertical = is_vertical_box(w, h, vertical_threshold);
 
         boxes.push(TextBox {
             min_x, min_y, max_x, max_y,
@@ -239,6 +239,11 @@ fn ink_looks_like_caption(
     sats[sats.len() / 2] <= CAPTION_MAX_INK_SAT
 }
 
+/// Box là chữ dọc khi cao hơn rộng theo ngưỡng tỷ lệ.
+fn is_vertical_box(width: f64, height: f64, aspect_threshold: f32) -> bool {
+    height > width * aspect_threshold as f64
+}
+
 /// Kiểm tra hình học box có khớp với số ký tự nhận diện được không.
 /// Chữ Hán gần như vuông: với caption ngang, mỗi ký tự rộng ~ w/n và cao ~ h;
 /// với caption dọc, mỗi ký tự cao ~ h/n và rộng ~ w. Box lệch xa tỷ lệ này là
@@ -248,7 +253,7 @@ fn shape_matches_text(w: f64, h: f64, text: &str) -> bool {
     if w <= 0.0 || h <= 0.0 {
         return false;
     }
-    let is_vertical = h > w * 1.2;
+    let is_vertical = is_vertical_box(w, h, 1.2);
     let char_aspect = if is_vertical { w * n / h } else { w / (n * h) };
     (0.50..=1.80).contains(&char_aspect)
 }
