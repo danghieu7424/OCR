@@ -788,14 +788,10 @@ pub fn extract_hardcoded_subtitles(
             continue;
         }
 
-        // Tối thiểu 2 frames liên tiếp (100ms @10fps) để loại nhiễu nhấp nháy 1-frame.
-        // Ngoại lệ: câu rất ngắn (1-2 chữ Hán) vẫn được giữ — sub thật có thể chỉ
-        // hiện đúng 1 khung mẫu mà không phải nhiễu.
-        let short_cjk = char_count <= 2
-            && best_text
-                .chars()
-                .all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
-        if seg.end_frame < seg.start_frame + 1 && !short_cjk {
+        // Tối thiểu 2 frames liên tiếp (100ms @10fps) để loại hoàn toàn nhiễu nhấp nháy 1-frame.
+        // Đã thử nới cho câu 1-2 chữ Hán (giữ 1 frame): không cứu được câu nào,
+        // chỉ thêm nhiễu rời rạc (海, 夏, 艾, 華, 污…) nên giữ nguyên 2 frames.
+        if seg.end_frame < seg.start_frame + 1 {
             if dbg {
                 eprintln!("       -> DROP 1-frame");
             }

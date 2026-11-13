@@ -9,6 +9,7 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
+- Log chẩn đoán phụ đề bật bằng `OCR_SUB_DEBUG=1` (in từng phân đoạn thô, số frame và lý do bị loại) và ghi đè tốc độ lấy mẫu bằng `OCR_SUB_FPS` (mặc định 10) trong `examples/extract_subtitles.rs`.
 - `tools/compare_subs.py`: đối chiếu phụ đề OCR với reference (căn câu theo overlap giảm dần toàn cục, bù bằng start gần nhất, so ký tự bằng Levenshtein) và tùy chọn `--norm none|t2s|s2t` để quy biến thể phồn/giản về một dạng trước khi chấm điểm. Trên 20 tập, chuẩn hoá `t2s` đưa độ chính xác ký tự từ 99.20% lên 99.82% (34/44 lỗi cũ chỉ là khác biến thể chữ).
 
 ## [0.2.1] — 2026-11-14

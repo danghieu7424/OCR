@@ -137,7 +137,11 @@ fn main() -> Result<()> {
     // 2. Cấu hình OCR Extractor (giữ trọn vẹn thông số công nghiệp độ chuẩn >99%)
     // =========================================================================
     let mut config = OcrExtractorConfig::default();
-    config.fps = 10;                // Tốc độ 10 fps tiêu chuẩn
+    // Tốc độ 10 fps tiêu chuẩn; có thể thử nhanh bằng OCR_SUB_FPS=12
+    config.fps = std::env::var("OCR_SUB_FPS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
     config.accuracy_mode = true;    // Chế độ nhận diện chính xác cao
     println!(
         "    [ENGINE CONFIG] Mode: ACCURACY | FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%]",
