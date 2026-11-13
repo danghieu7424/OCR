@@ -180,16 +180,17 @@ fn detect_and_recognize(
 
         let clean_text = sanitize_caption_text(&result.text);
         if clean_text.is_empty() { continue; }
-        if !ink_looks_like_caption(rgb_bytes, width, height, min_x, min_y, max_x, max_y) {
-            continue;
-        }
+
+        let stats = box_pixel_stats(rgb_bytes, width, height, min_x, min_y, max_x, max_y);
+        let ink_ok = ink_looks_like_caption(rgb_bytes, width, height, min_x, min_y, max_x, max_y);
+        let scene_ok = stats.sat_p90 <= CAPTION_MAX_SCENE_SAT_P90;
 
         let is_vertical = is_vertical_box(w, h, vertical_threshold);
 
         // Cột dọc đọc thiếu ký tự so với số ký tự hình học cho phép → thử lại
         // trên ảnh đảo màu, chỉ nhận bản mở rộng đúng chuỗi đã đọc.
         let mut caption_text = clean_text;
-        if is_vertical {
+        if is_vertical && ink_ok {
             let expected = (h / w).round().max(1.0) as usize;
             if expected > caption_text.chars().count() {
                 if let Some(better) = retry_vertical_missing_chars(
@@ -201,7 +202,19 @@ fn detect_and_recognize(
             }
         }
 
-        if !shape_matches_text(w, h, &caption_text) { continue; }
+        let shape_ok = shape_matches_text(w, h, &caption_text);
+        let accept = ink_ok && shape_ok && scene_ok;
+
+        if std::env::var_os("OCR_CAP_DEBUG").is_some() {
+            eprintln!(
+                "[BOX] ({:.0},{:.0})-({:.0},{:.0}) w={:.0} h={:.0} '{}' conf={:.2} ink={} shape={} scene={} | lum_med={:.0} dark={:.2} sat_med={:.2} sat_p90={:.2} sat_hi={:.2}",
+                min_x, min_y, max_x, max_y, w, h, caption_text, result.confidence,
+                ink_ok as u8, shape_ok as u8, scene_ok as u8,
+                stats.lum_med, stats.dark_frac, stats.sat_med, stats.sat_p90, stats.sat_hi,
+            );
+        }
+
+        if !accept { continue; }
 
         boxes.push(TextBox {
             min_x, min_y, max_x, max_y,
@@ -220,6 +233,12 @@ fn detect_and_recognize(
 /// Caption là chữ trắng/nhạt nên các điểm sáng nhất trong box gần như vô màu;
 /// chữ nằm trong cảnh (chữ đỏ 囍, chữ vàng trên sách/cuộn) có độ bão hoà cao.
 const CAPTION_MAX_INK_SAT: f32 = 0.33;
+
+/// Ngưỡng bão hoà phân vị 90% của **toàn box**. Caption là chữ trắng/nhạt đè
+/// lên nền tối gần như vô màu, nên gần như mọi pixel trong box đều ít bão hoà.
+/// Box bắt trên vật thể cảnh có màu mạnh — băng rôn/cờ đỏ (vd: 《社》 tập 9),
+/// chữ vàng trên sách — có phần lớn pixel bão hoà cao dù nét chữ nhạt.
+const CAPTION_MAX_SCENE_SAT_P90: f32 = 0.45;
 
 /// Kiểm tra nét chữ trong box có phải kiểu chữ caption (trắng/nhạt) không.
 fn ink_looks_like_caption(
@@ -261,6 +280,70 @@ fn ink_looks_like_caption(
     let mut sats: Vec<f32> = pixels[..top].iter().map(|p| p.1).collect();
     sats.sort_by(|a, b| a.partial_cmp(b).unwrap());
     sats[sats.len() / 2] <= CAPTION_MAX_INK_SAT
+}
+
+/// Thống kê pixel trong box, dùng để phân biệt caption với vật thể trong cảnh.
+struct BoxPixels {
+    lum_med: f32,
+    dark_frac: f32,
+    sat_med: f32,
+    sat_p90: f32,
+    sat_hi: f32,
+}
+
+fn box_pixel_stats(
+    rgb: &[u8],
+    img_w: usize,
+    img_h: usize,
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+) -> BoxPixels {
+    let x0 = min_x.max(0.0) as usize;
+    let y0 = min_y.max(0.0) as usize;
+    let x1 = (max_x as usize).min(img_w);
+    let y1 = (max_y as usize).min(img_h);
+
+    let mut lums: Vec<f32> = Vec::new();
+    let mut sats: Vec<f32> = Vec::new();
+    let mut dark = 0usize;
+
+    if x1 > x0 && y1 > y0 {
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let idx = (y * img_w + x) * 3;
+                let (r, g, b) = (rgb[idx] as f32, rgb[idx + 1] as f32, rgb[idx + 2] as f32);
+                let mx = r.max(g).max(b);
+                let mn = r.min(g).min(b);
+                let sat = if mx > 0.0 { (mx - mn) / mx } else { 0.0 };
+                let lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                if lum < 60.0 {
+                    dark += 1;
+                }
+                lums.push(lum);
+                sats.push(sat);
+            }
+        }
+    }
+
+    if lums.is_empty() {
+        return BoxPixels { lum_med: 0.0, dark_frac: 0.0, sat_med: 0.0, sat_p90: 1.0, sat_hi: 1.0 };
+    }
+
+    let n = lums.len();
+    lums.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sats.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let pct = |sorted: &[f32], q: f32| sorted[((sorted.len() as f32 - 1.0) * q) as usize];
+    let sat_hi = sats.iter().filter(|&&s| s > 0.45).count() as f32 / n as f32;
+
+    BoxPixels {
+        lum_med: pct(&lums, 0.5),
+        dark_frac: dark as f32 / n as f32,
+        sat_med: pct(&sats, 0.5),
+        sat_p90: pct(&sats, 0.9),
+        sat_hi,
+    }
 }
 
 /// Box là chữ dọc khi cao hơn rộng theo ngưỡng tỷ lệ.
