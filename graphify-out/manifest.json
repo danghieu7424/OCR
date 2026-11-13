@@ -216,9 +216,9 @@
     "semantic_hash": ""
   },
   "src/caption.rs": {
-    "mtime": 1794581768.3794615,
-    "seen": 1794582274.360758,
-    "ast_hash": "ace75c784c0f48ea4078317adaa7ee9d",
+    "mtime": 1794584231.7783208,
+    "seen": 1794584253.515789,
+    "ast_hash": "23577b237fc3017faded8be3dc34eafb",
     "semantic_hash": ""
   },
   "src/lib.rs": {
