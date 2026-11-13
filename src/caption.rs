@@ -172,12 +172,28 @@ fn detect_and_recognize(
 
         let clean_text = sanitize_caption_text(&result.text);
         if clean_text.is_empty() { continue; }
-        if !shape_matches_text(w, h, &clean_text) { continue; }
         if !ink_looks_like_caption(rgb_bytes, width, height, min_x, min_y, max_x, max_y) {
             continue;
         }
 
         let is_vertical = is_vertical_box(w, h, vertical_threshold);
+
+        // Cột dọc đọc thiếu ký tự so với số ký tự hình học cho phép → thử lại
+        // trên ảnh đảo màu, chỉ nhận bản mở rộng đúng chuỗi đã đọc.
+        let mut caption_text = clean_text;
+        if is_vertical {
+            let expected = (h / w).round().max(1.0) as usize;
+            if expected > caption_text.chars().count() {
+                if let Some(better) = retry_vertical_missing_chars(
+                    engine, &dynamic_img, width, height,
+                    min_x, min_y, max_x, max_y, expected, &caption_text,
+                ) {
+                    caption_text = better;
+                }
+            }
+        }
+
+        if !shape_matches_text(w, h, &caption_text) { continue; }
 
         boxes.push(TextBox {
             min_x, min_y, max_x, max_y,
@@ -185,7 +201,7 @@ fn detect_and_recognize(
             center_x: (min_x + max_x) / 2.0,
             center_y: (min_y + max_y) / 2.0,
             is_vertical,
-            text: clean_text,
+            text: caption_text,
             confidence: result.confidence,
         });
     }
@@ -256,6 +272,44 @@ fn shape_matches_text(w: f64, h: f64, text: &str) -> bool {
     let is_vertical = is_vertical_box(w, h, 1.2);
     let char_aspect = if is_vertical { w * n / h } else { w / (n * h) };
     (0.50..=1.80).contains(&char_aspect)
+}
+
+/// Chữ dọc hiếm nét (vd: 訇) có thể bị CTC bỏ qua khi đọc cả cột. Thử lại trên
+/// ảnh đảo màu (chữ đen trên nền trắng) — cách đọc đủ "何訇" thay vì chỉ "何" —
+/// và chỉ nhận khi kết quả mở rộng đúng chuỗi đã đọc được và khớp số ký tự mà
+/// hình học box cho phép.
+#[allow(clippy::too_many_arguments)]
+fn retry_vertical_missing_chars(
+    engine: &OcrEngine,
+    img: &DynamicImage,
+    img_w: usize,
+    img_h: usize,
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+    expected_chars: usize,
+    known: &str,
+) -> Option<String> {
+    let x0 = min_x.max(0.0) as u32;
+    let y0 = min_y.max(0.0) as u32;
+    let x1 = (max_x as u32).min(img_w as u32);
+    let y1 = (max_y as u32).min(img_h as u32);
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+
+    let mut crop = img.crop_imm(x0, y0, x1 - x0, y1 - y0).to_rgb8();
+    for p in crop.pixels_mut() {
+        p.0 = [255 - p.0[0], 255 - p.0[1], 255 - p.0[2]];
+    }
+
+    let results = engine.run_from_image(&DynamicImage::ImageRgb8(crop)).ok()?;
+    results
+        .iter()
+        .map(|r| sanitize_caption_text(&r.text))
+        .filter(|t| t.chars().count() == expected_chars && t.starts_with(known))
+        .max_by_key(|t| t.chars().count())
 }
 
 fn sanitize_caption_text(raw: &str) -> String {
