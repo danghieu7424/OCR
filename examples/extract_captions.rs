@@ -117,16 +117,19 @@ fn main() -> Result<()> {
         },
         vertical_aspect_threshold: 1.2,
         column_x_tolerance: 0.06,
-        min_confidence: 0.80,
+        min_confidence: 0.80,   // caption mờ/nhòe: hạ về 0.30
+        min_duration_sec: 1.0, // caption rất ngắn: hạ về ~0.4
         watermark_freq_threshold: 0.40,
     };
 
     println!(
-        "    [CONFIG] FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%] | V_Threshold: {:.1}",
+        "    [CONFIG] FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%] | V_Threshold: {:.1} | MinConf: {:.2} | MinDur: {:.1}s",
         config.fps,
         config.roi.y_min * 100.0, config.roi.y_max * 100.0,
         config.roi.x_min * 100.0, config.roi.x_max * 100.0,
         config.vertical_aspect_threshold,
+        config.min_confidence,
+        config.min_duration_sec,
     );
 
     // === Progress bar ===

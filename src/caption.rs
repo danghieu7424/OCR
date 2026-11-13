@@ -62,8 +62,15 @@ pub struct CaptionExtractorConfig {
     pub column_x_tolerance: f32,
     /// Ngưỡng tin cậy tối thiểu. Caption là chữ được render sắc nét nên điểm
     /// tin cậy thường ~1.0; chữ trong cảnh (biển hiệu, chữ vàng trên sách)
-    /// thường chỉ 0.7-0.8.
+    /// thường chỉ 0.7-0.8. Hạ xuống 0.30 sẽ bắt thêm được caption mờ/nhòe
+    /// nhưng cũng kéo theo chữ nằm trong cảnh — hạ kèm `min_duration_sec`>1s
+    /// nếu video có nhiều biển hiệu/sách chữ.
     pub min_confidence: f32,
+    /// Thời lượng tối thiểu (giây) của một cụm caption. Caption thật hiển thị
+    /// đủ lâu để đọc, còn chữ nằm trong cảnh chỉ lướt qua vài khung hình.
+    /// Mặc định 1.0s; hạ xuống ~0.4s nếu video có caption rất ngắn (đổi lại
+    /// dễ bắt nhầm chữ trên sách/biển hiệu).
+    pub min_duration_sec: f64,
     /// Ngưỡng tỷ lệ frame xuất hiện để coi là watermark (0.0-1.0)
     pub watermark_freq_threshold: f32,
 }
@@ -76,6 +83,7 @@ impl Default for CaptionExtractorConfig {
             vertical_aspect_threshold: 1.2,
             column_x_tolerance: 0.06,
             min_confidence: 0.80,
+            min_duration_sec: 1.0,
             watermark_freq_threshold: 0.40,
         }
     }
@@ -742,10 +750,10 @@ pub fn extract_captions(
     // Tạo segments
     let mut segments: Vec<CaptionSegment> = Vec::new();
     for seg in raw_segs {
-        // Caption phải hiển thị đủ lâu để đọc (>= 1.0s). Chữ nằm trong cảnh
-        // (sách, cuộn, biển hiệu) chỉ lướt qua vài khung hình nên bị loại.
-        let min_frames = (config.fps as f64).ceil() as usize;
-        if seg.end.saturating_sub(seg.start) + 1 < min_frames { continue; }
+        // Caption phải hiển thị đủ lâu để đọc; chữ nằm trong cảnh (sách, cuộn,
+        // biển hiệu) chỉ lướt qua vài khung hình nên bị loại.
+        let min_frames = (config.min_duration_sec * config.fps as f64).ceil() as usize;
+        if seg.end.saturating_sub(seg.start) + 1 < min_frames.max(1) { continue; }
         let best = select_best_caption(&seg.texts);
         if best.is_empty() { continue; }
 
