@@ -110,14 +110,15 @@ fn main() -> Result<()> {
     let config = CaptionExtractorConfig {
         fps: 5,
         roi: CaptionRoi {
-            y_min: 0.05,
-            y_max: 0.75,
+            y_min: 0.10,
+            y_max: 0.80,
             x_min: 0.00,
             x_max: 0.50,
         },
         vertical_aspect_threshold: 1.2,
         column_x_tolerance: 0.10,
         min_confidence: 0.30,
+        watermark_freq_threshold: 0.40,
     };
 
     println!(
