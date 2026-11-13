@@ -162,16 +162,19 @@ fn main() -> Result<()> {
     });
 
     // === Video ===
+    // Chọn tập qua tham số: cargo run --release --example extract_captions -- 002
+    let episode = std::env::args().nth(1).unwrap_or_else(|| "001".to_string());
+    let video_name = format!("第{}集.mp4", episode);
     let candidates = [
-        Path::new("input/第001集.mp4"),
-        Path::new("video_input/第001集.mp4"),
+        Path::new("input").join(&video_name),
+        Path::new("video_input").join(&video_name),
     ];
-    let video = candidates.iter().copied().find(|p| p.exists())
-        .unwrap_or(Path::new("input/第001集.mp4"));
+    let video = candidates.iter().find(|p| p.exists()).cloned()
+        .unwrap_or_else(|| Path::new("input").join(&video_name));
 
     let output_dir = Path::new("output");
     std::fs::create_dir_all(output_dir)?;
-    let output_vtt = output_dir.join("第001集.captions.zh.vtt");
+    let output_vtt = output_dir.join(format!("第{}集.captions.zh.vtt", episode));
 
     if !video.exists() {
         eprintln!("\n    [ERROR] Video không tìm thấy: {:?}", video);
@@ -184,7 +187,7 @@ fn main() -> Result<()> {
     println!(">>> Output: {:?}", output_vtt);
     println!("--------------------------------------------------");
 
-    let output = extract_captions(video, &output_vtt, model_dir, &config)?;
+    let output = extract_captions(&video, &output_vtt, model_dir, &config)?;
 
     println!("\n--------------------------------------------------");
     println!(
