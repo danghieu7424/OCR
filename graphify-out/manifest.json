@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "examples/extract_captions.rs": {
-    "mtime": 1794581218.7697008,
-    "seen": 1794582274.360758,
-    "ast_hash": "b43a09653d62f79fb04486b6cc13032b",
+    "mtime": 1794582698.4306958,
+    "seen": 1794582728.2765286,
+    "ast_hash": "56d41b6c1ef9d6bd9ae18817071d5893",
     "semantic_hash": ""
   },
   "examples/extract_subtitles.rs": {

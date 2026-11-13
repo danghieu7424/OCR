@@ -1,9 +1,9 @@
 # Graph Report - OCR  (2026-11-13)
 
 ## Corpus Check
-- 45 files · ~70,072 words
+- 45 files · ~70,097 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 7 file(s) not represented in the graph (top: (none) 4, .onnx 2, .zip 1)
+- Unclassified: 8 file(s) not represented in the graph (top: (none) 5, .onnx 2, .zip 1)
 
 ## Summary
 - 1041 nodes · 2013 edges · 42 communities (29 shown, 13 thin omitted)
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f44f0c93`
+- Built from commit: `2754b0e3`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -204,7 +204,7 @@ Cohesion: 0.67
 Nodes (3): TaskState, Loading, Running
 
 ## Knowledge Gaps
-- **27 isolated node(s):** `Consumed`, `Ignored`, `Submitted`, `Password`, `Bool` (+22 more)
+- **27 isolated node(s):** `Consumed`, `Ignored`, `Submitted`, `Password`, `Adding` (+22 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 480 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -212,16 +212,16 @@ Nodes (3): TaskState, Loading, Running
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Icons` connect `Icons` to `icons.rs`?**
-  _High betweenness centrality (0.271) - this node is a cross-community bridge._
+  _High betweenness centrality (0.287) - this node is a cross-community bridge._
 - **What connects `Consumed`, `Ignored`, `Submitted` to the rest of the system?**
   _27 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Icons` be split into smaller, more focused modules?**
   _Cohesion score 0.013422818791946308 - nodes in this community are weakly interconnected._
-- **Why does `FormWidget` connect `FormWidget` to `demo_master.rs`, `TaskWidget`, `TabsWidget`, `SelectWidget`, `editable_list.rs`, `ShimmerWidget`, `ListWidget`, `ButtonWidget`, `InputWidget`, `TaskShared`, `TaskShared`, `TaskShared`, `TaskShared`, `TaskShared`, `task.rs`?**
-  _High betweenness centrality (0.143) - this node is a cross-community bridge._
-- **Should `demo_master.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.09163160355306219 - nodes in this community are weakly interconnected._
 - **Why does `Theme` connect `Theme` to `demo_master.rs`, `StatusBarWidget`, `ListWidget`, `TabsWidget`?**
   _High betweenness centrality (0.121) - this node is a cross-community bridge._
+- **Should `demo_master.rs` be split into smaller, more focused modules?**
+  _Cohesion score 0.09163160355306219 - nodes in this community are weakly interconnected._
+- **Why does `FormWidget` connect `FormWidget` to `demo_master.rs`, `TaskWidget`, `TabsWidget`, `SelectWidget`, `editable_list.rs`, `ShimmerWidget`, `ListWidget`, `ButtonWidget`, `InputWidget`, `TaskShared`, `TaskShared`, `TaskShared`, `TaskShared`, `TaskShared`, `task.rs`?**
+  _High betweenness centrality (0.120) - this node is a cross-community bridge._
 - **Should `Tags` be split into smaller, more focused modules?**
   _Cohesion score 0.027777777777777776 - nodes in this community are weakly interconnected._
