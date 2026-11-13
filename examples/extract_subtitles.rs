@@ -197,22 +197,25 @@ fn main() -> Result<()> {
     // =========================================================================
     // 4. Chọn video đầu vào (Ưu tiên thư mục `input/` theo yêu cầu)
     // =========================================================================
+    // Chọn tập qua tham số: cargo run --release --example extract_subtitles -- 005
+    let episode = std::env::args().nth(1).unwrap_or_else(|| "001".to_string());
+    let video_name = format!("第{}集.mp4", episode);
     let candidates = [
-        Path::new("input/第001集.mp4"),
-        Path::new("video_input/第001集.mp4"),
+        Path::new("input").join(&video_name),
+        Path::new("video_input").join(&video_name),
     ];
 
     let video_path = candidates
         .iter()
-        .copied()
         .find(|p| p.exists())
-        .unwrap_or(Path::new("input/第001集.mp4"));
+        .cloned()
+        .unwrap_or_else(|| Path::new("input").join(&video_name));
 
     let output_dir = Path::new("output");
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)?;
     }
-    let output_vtt_path = output_dir.join("第001集_example.zh.vtt");
+    let output_vtt_path = output_dir.join(format!("第{}集.zh.vtt", episode));
 
     if !video_path.exists() {
         eprintln!("\n    [ERROR] Không tìm thấy video tại {:?}.", video_path);
@@ -226,7 +229,7 @@ fn main() -> Result<()> {
     println!("--------------------------------------------------");
 
     // Khởi chạy xử lý trích xuất
-    let output = extract_hardcoded_subtitles(video_path, &output_vtt_path, model_dir, &config)?;
+    let output = extract_hardcoded_subtitles(&video_path, &output_vtt_path, model_dir, &config)?;
 
     // Xuống dòng sau khi Progress Bar hoàn tất
     println!("\n--------------------------------------------------");
