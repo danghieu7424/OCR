@@ -83,6 +83,25 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **Commit message:** Write a concise message describing *what* changed and *why*.
 - **Push:** Run `git push` to the current upstream branch right after committing. Never use `--force`. Only use `--force-with-lease` on personal feature branches immediately after an explicit `git commit --amend` or `rebase`—never to bypass non-fast-forward rejections, and never on `main`/`master`.
 
+## 6. Versioning (Semantic Versioning)
+
+**Bump `Cargo.toml` version intentionally based on scope (`MAJOR.MINOR.PATCH`).**
+
+- **PATCH (`0.0.x`):** Bug fixes, internal refactors, or docs/test updates with no new public API or breaking changes.
+- **MINOR (`0.x.0`):** New backward-compatible public APIs, features, or format support.
+- **MAJOR (`x.0.0`):** Breaking changes to public APIs, CLI flags/output formats, or `#[non_exhaustive]` assumptions.
+- **Pre-`1.0.0` (`0.y.z`):** Treat minor/breaking changes during initial development carefully; explicitly note breaking changes.
+- **Tagging:** Only create an annotated Git tag (`git tag -a vX.Y.Z -m "..."`) after updating `Cargo.toml` and `CHANGELOG.md`, verifying `cargo test` passes, and running `graphify update .`.
+
+## 7. Changelog Maintenance (Keep a Changelog)
+
+**Keep `CHANGELOG.md` synchronized with every versioned or user-facing change.**
+
+- **Format & Language:** Follow [Keep a Changelog 1.1.0](https://keepachangelog.com/vi/1.1.0/) in **Vietnamese**, matching the existing file structure (`## [X.Y.Z] — YYYY-MM-DD`).
+- **Standard Sections:** Group entries strictly under existing Vietnamese headings: `### Thêm`, `### Thay đổi`, `### Sửa`, `### Gỡ bỏ`, `### Bảo mật`, and `### Thay đổi phá vỡ tương thích`.
+- **Entry Style:** Write concise, technical bullet points naming exact public items, modules, CLI subcommands, or formats affected (e.g., `` `read_mp4` ``, `` `Mkv::cues_text` ``).
+- **Workflow:** Update `CHANGELOG.md` (under `## [Unreleased]` during development or the target `## [X.Y.Z] — YYYY-MM-DD` on release) *before* committing in Mục 5.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
