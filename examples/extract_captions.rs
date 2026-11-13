@@ -8,7 +8,10 @@
 //! - Chữ NGANG: đọc bình thường trái → phải
 //! - Chữ DỌC: đọc trên → dưới, cột trái → cột phải
 //!
-//! Chạy: cargo run --release --example extract_captions
+//! Chạy:
+//! - Hàng loạt (mặc định): `cargo run --release --example extract_captions`
+//!   quét mọi video trong `input/`, bỏ qua tập đã có VTT hợp lệ (checkpoint/resume).
+//! - Một tập: `cargo run --release --example extract_captions -- 002`
 
 use anyhow::Result;
 use cli_gui_form::TaskWidget;
@@ -164,33 +167,28 @@ fn main() -> Result<()> {
         println!("\n    \x1b[34m[STEP]\x1b[0m {}", step);
     });
 
-    // === Video ===
-    // Chọn tập qua tham số: cargo run --release --example extract_captions -- 002
-    let episode = std::env::args().nth(1).unwrap_or_else(|| "001".to_string());
-    let video_name = format!("第{}集.mp4", episode);
-    let candidates = [
-        Path::new("input").join(&video_name),
-        Path::new("video_input").join(&video_name),
-    ];
-    let video = candidates.iter().find(|p| p.exists()).cloned()
-        .unwrap_or_else(|| Path::new("input").join(&video_name));
-
-    let output_dir = Path::new("output");
-    std::fs::create_dir_all(output_dir)?;
-    let output_vtt = output_dir.join(format!("第{}集.captions.zh.vtt", episode));
-
-    if !video.exists() {
-        eprintln!("\n    [ERROR] Video không tìm thấy: {:?}", video);
-        eprintln!("    [INFO] Đặt video vào 'input/' hoặc 'video_input/'");
-        return Ok(());
+    // === Chế độ chạy ===
+    //   (không tham số) hoặc `-- all` : quét cả input/
+    //   `-- 002`                      : chỉ tập 002
+    match std::env::args().nth(1).as_deref() {
+        Some(ep) if ep != "all" => run_one(ep, model_dir, &config),
+        _ => run_batch(model_dir, &config),
     }
+}
 
+/// Trích xuất 1 video và in preview kết quả.
+fn extract_and_report(
+    video: &Path,
+    output_vtt: &Path,
+    model_dir: &Path,
+    config: &CaptionExtractorConfig,
+) -> Result<()> {
     println!("\n--------------------------------------------------");
     println!(">>> Video : {:?}", video);
     println!(">>> Output: {:?}", output_vtt);
     println!("--------------------------------------------------");
 
-    let output = extract_captions(&video, &output_vtt, model_dir, &config)?;
+    let output = extract_captions(video, output_vtt, model_dir, config)?;
 
     println!("\n--------------------------------------------------");
     println!(
@@ -214,5 +212,113 @@ fn main() -> Result<()> {
         println!("  ... và {} caption nữa", output.segments.len() - 15);
     }
 
+    Ok(())
+}
+
+/// Chạy 1 tập: `第<episode>集.mp4` trong input/ hoặc video_input/.
+fn run_one(episode: &str, model_dir: &Path, config: &CaptionExtractorConfig) -> Result<()> {
+    let video_name = format!("第{}集.mp4", episode);
+    let candidates = [
+        Path::new("input").join(&video_name),
+        Path::new("video_input").join(&video_name),
+    ];
+    let video = candidates
+        .iter()
+        .find(|p| p.exists())
+        .cloned()
+        .unwrap_or_else(|| Path::new("input").join(&video_name));
+
+    let output_dir = Path::new("output");
+    std::fs::create_dir_all(output_dir)?;
+    let output_vtt = output_dir.join(format!("第{}集.captions.zh.vtt", episode));
+
+    if !video.exists() {
+        eprintln!("\n    [ERROR] Video không tìm thấy: {:?}", video);
+        eprintln!("    [INFO] Đặt video vào 'input/' hoặc 'video_input/'");
+        return Ok(());
+    }
+
+    extract_and_report(&video, &output_vtt, model_dir, config)
+}
+
+/// Đường dẫn VTT caption tương ứng với 1 video: `output/<stem>.captions.zh.vtt`.
+fn caption_path(video: &Path, output_dir: &Path) -> Option<std::path::PathBuf> {
+    let stem = video.file_stem()?.to_str()?;
+    Some(output_dir.join(format!("{}.captions.zh.vtt", stem)))
+}
+
+/// Checkpoint: VTT đã tồn tại và có nội dung => coi như đã xong.
+fn is_done(video: &Path, output_dir: &Path) -> bool {
+    caption_path(video, output_dir)
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+}
+
+/// Chạy hàng loạt: quét mọi video trong input/, resume từ tập chưa có VTT.
+fn run_batch(model_dir: &Path, config: &CaptionExtractorConfig) -> Result<()> {
+    let input_dir = Path::new("input");
+    let output_dir = Path::new("output");
+    std::fs::create_dir_all(output_dir)?;
+
+    let mut videos: Vec<std::path::PathBuf> = std::fs::read_dir(input_dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| matches!(ext.to_lowercase().as_str(), "mp4" | "mkv" | "avi" | "mov"))
+                    .unwrap_or(false)
+        })
+        .collect();
+
+    if videos.is_empty() {
+        eprintln!("    [ERROR] Không tìm thấy video nào trong 'input/'");
+        return Ok(());
+    }
+    videos.sort();
+
+    let pending: Vec<&std::path::PathBuf> =
+        videos.iter().filter(|v| !is_done(v, output_dir)).collect();
+
+    println!(
+        "    [CHECKPOINT] Đã có VTT: {}/{} video | Còn lại: {} video",
+        videos.len() - pending.len(),
+        videos.len(),
+        pending.len()
+    );
+
+    if pending.is_empty() {
+        println!("    [DONE] Toàn bộ video đã có caption trong output!");
+        return Ok(());
+    }
+
+    let mut failed = 0usize;
+    for (idx, video) in pending.iter().enumerate() {
+        let Some(out) = caption_path(video, output_dir) else { continue };
+        println!(
+            "\n>>> [{}/{}] Đang xử lý: {:?}",
+            idx + 1,
+            pending.len(),
+            video.file_name().unwrap_or_default()
+        );
+        if let Err(err) = extract_and_report(video, &out, model_dir, config) {
+            eprintln!(
+                "    [ERROR] Thất bại {:?}: {}",
+                video.file_name().unwrap_or_default(),
+                err
+            );
+            failed += 1;
+        }
+    }
+
+    println!(
+        "\n>>> [DONE] Xong {}/{} video, lỗi: {}",
+        pending.len() - failed,
+        pending.len(),
+        failed
+    );
     Ok(())
 }
