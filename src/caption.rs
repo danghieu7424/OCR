@@ -683,8 +683,10 @@ pub fn extract_captions(
     // Tạo segments
     let mut segments: Vec<CaptionSegment> = Vec::new();
     for seg in raw_segs {
-        // Yêu cầu ít nhất 3 frame (0.6s ở 5fps) để tránh spike nhiễu
-        if seg.end < seg.start + 2 { continue; }
+        // Caption phải hiển thị đủ lâu để đọc (>= 1.0s). Chữ nằm trong cảnh
+        // (sách, cuộn, biển hiệu) chỉ lướt qua vài khung hình nên bị loại.
+        let min_frames = (config.fps as f64).ceil() as usize;
+        if seg.end.saturating_sub(seg.start) + 1 < min_frames { continue; }
         let best = select_best_caption(&seg.texts);
         if best.is_empty() { continue; }
 
