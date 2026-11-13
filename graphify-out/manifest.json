@@ -210,9 +210,9 @@
     "semantic_hash": ""
   },
   "src/OCR/mod.rs": {
-    "mtime": 1793958409.0128303,
-    "seen": 1794577826.5737367,
-    "ast_hash": "6d084fbe3ce4bfbe39264d540a3a5289",
+    "mtime": 1794599953.7194474,
+    "seen": 1794600298.2092626,
+    "ast_hash": "161bb09f1a0af5184d7b15c13e935616",
     "semantic_hash": ""
   },
   "src/caption.rs": {
@@ -276,9 +276,9 @@
     "semantic_hash": ""
   },
   "evaluate.md": {
-    "mtime": 1794599603.9889593,
-    "seen": 1794599609.6246817,
-    "ast_hash": "34595ce88a5987a04741968830f08672",
+    "mtime": 1794600282.8816607,
+    "seen": 1794600298.2092626,
+    "ast_hash": "e7311b66cf7086c284b470958ed7bbc4",
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
