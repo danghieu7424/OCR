@@ -1,7 +1,7 @@
 # Graph Report - OCR  (2026-11-13)
 
 ## Corpus Check
-- 45 files · ~70,377 words
+- 45 files · ~70,488 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 8 file(s) not represented in the graph (top: (none) 5, .onnx 2, .zip 1)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `90bc5754`
+- Built from commit: `a465d371`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -207,7 +207,7 @@ Nodes (3): TaskState, Loading, Running
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Icons` connect `Icons` to `icons.rs`?**
-  _High betweenness centrality (0.280) - this node is a cross-community bridge._
+  _High betweenness centrality (0.268) - this node is a cross-community bridge._
 - **What connects `Consumed`, `Ignored`, `Submitted` to the rest of the system?**
   _27 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Icons` be split into smaller, more focused modules?**
@@ -216,7 +216,7 @@ _Questions this graph is uniquely positioned to answer:_
   _High betweenness centrality (0.148) - this node is a cross-community bridge._
 - **Should `demo_master.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.09499389499389499 - nodes in this community are weakly interconnected._
-- **Why does `Tags` connect `Tags` to `demo_master.rs`, `ListWidget`, `tags.rs`?**
-  _High betweenness centrality (0.119) - this node is a cross-community bridge._
+- **Why does `Theme` connect `Theme` to `demo_master.rs`, `StatusBarWidget`, `ListWidget`, `editable_list.rs`?**
+  _High betweenness centrality (0.120) - this node is a cross-community bridge._
 - **Should `Tags` be split into smaller, more focused modules?**
   _Cohesion score 0.027777777777777776 - nodes in this community are weakly interconnected._
