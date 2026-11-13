@@ -39,5 +39,9 @@
   "37": "plan.md",
   "38": "cli_gui_form",
   "39": "FormValue",
-  "41": "OcrEngine"
+  "40": "SpinnerType",
+  "41": "OcrEngine",
+  "42": "task.rs",
+  "43": "ProgressStyle",
+  "44": "TaskState"
 }

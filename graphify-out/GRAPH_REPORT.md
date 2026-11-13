@@ -1,17 +1,17 @@
 # Graph Report - OCR  (2026-11-13)
 
 ## Corpus Check
-- 45 files · ~70,122 words
+- 45 files · ~70,377 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 8 file(s) not represented in the graph (top: (none) 5, .onnx 2, .zip 1)
 
 ## Summary
-- 1042 nodes · 2016 edges · 41 communities (24 shown, 17 thin omitted)
+- 1043 nodes · 2021 edges · 45 communities (27 shown, 18 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `527409fc`
+- Built from commit: `90bc5754`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -56,6 +56,10 @@
 - plan.md
 - cli_gui_form
 - FormValue
+- SpinnerType
+- task.rs
+- ProgressStyle
+- TaskState
 
 ## God Nodes (most connected - your core abstractions)
 1. `Icons` - 159 edges
@@ -84,14 +88,14 @@
 ## Import Cycles
 - None detected.
 
-## Communities (41 total, 17 thin omitted)
+## Communities (45 total, 18 thin omitted)
 
 ### Community 0 - "Icons"
 Cohesion: 0.01
 Nodes (148): Icons, .APPROX, .ARC_BOTTOM_LEFT, .ARC_BOTTOM_RIGHT, .ARC_TOP_LEFT, .ARC_TOP_RIGHT, .ARROW_CURVE_DOWN_LEFT, .ARROW_CURVE_DOWN_RIGHT (+140 more)
 
 ### Community 1 - "demo_master.rs"
-Cohesion: 0.10
+Cohesion: 0.09
 Nodes (12): TableRowItem, DeploymentItem, EventResult, Consumed, Ignored, Submitted, InputMode, Password (+4 more)
 
 ### Community 2 - "Tags"
@@ -102,12 +106,8 @@ Nodes (71): Tags, .ALERT_CHAR, .APIS, .ARCH, .AUDI, .AUTH, .BUSY, .CERT (+63 mor
 Cohesion: 0.05
 Nodes (68): Theme, .ACCENT, .BG, .BLACK, .BORDER_FOCUS, .BTN_ACCENT, .BTN_AMBER, .BTN_EMERALD (+60 more)
 
-### Community 4 - "TaskWidget"
-Cohesion: 0.05
-Nodes (25): CardItem, CardWidget, test_card_widget_creation(), ListItem, ProgressStyle, Line, Parallelogram, SPINNER_FRAMES_ARC (+17 more)
-
 ### Community 5 - "TabsWidget"
-Cohesion: 0.09
+Cohesion: 0.08
 Nodes (6): TabsWidget, test_tabs_auto_scroll_sticky(), test_tabs_container_overflow_protection(), test_tabs_mouse_and_step_scrolling(), test_tabs_navigation(), test_tabs_scrolling()
 
 ### Community 6 - "SelectWidget"
@@ -131,8 +131,8 @@ Cohesion: 0.07
 Nodes (4): main(), ShimmerShared, ShimmerWidget, test_shimmer_tick_cycle()
 
 ### Community 11 - "ListWidget"
-Cohesion: 0.10
-Nodes (3): ListWidget, test_list_widget_form_value(), test_list_widget_sub_level_navigation()
+Cohesion: 0.07
+Nodes (7): CardItem, CardWidget, test_card_widget_creation(), ListItem, ListWidget, test_list_widget_form_value(), test_list_widget_sub_level_navigation()
 
 ### Community 12 - "ButtonWidget"
 Cohesion: 0.13
@@ -143,8 +143,8 @@ Cohesion: 0.11
 Nodes (4): Text, InputWidget, test_input_placeholder_builder(), test_input_typing_and_backspace()
 
 ### Community 14 - "caption.rs"
-Cohesion: 0.20
-Nodes (20): assemble_caption(), build_watermark_set(), caption_key(), CAPTION_MAX_INK_SAT, CaptionExtractorOutput, CaptionSegment, detect_and_recognize(), extract_captions() (+12 more)
+Cohesion: 0.19
+Nodes (21): assemble_caption(), build_watermark_set(), caption_key(), CAPTION_MAX_INK_SAT, CaptionExtractorOutput, CaptionSegment, detect_and_recognize(), extract_captions() (+13 more)
 
 ### Community 16 - "OCR/mod.rs"
 Cohesion: 0.17
@@ -182,25 +182,41 @@ Nodes (3): WorkerMessage, ModelLoaded, ProgressUpdate
 Cohesion: 0.25
 Nodes (6): FormValue, Bool, List, None, Select, Text
 
+### Community 40 - "SpinnerType"
+Cohesion: 0.21
+Nodes (8): SpinnerType, Arc, Braille6, Dots, Moon, Pulse, test_task_loading_tick_with_moon(), test_task_loading_tick_with_pulse()
+
+### Community 42 - "task.rs"
+Cohesion: 0.20
+Nodes (5): SPINNER_FRAMES_ARC, SPINNER_FRAMES_BRAILLE_6, SPINNER_FRAMES_DOTS, SPINNER_FRAMES_MOON, SPINNER_FRAMES_PULSE
+
+### Community 43 - "ProgressStyle"
+Cohesion: 0.29
+Nodes (3): ProgressStyle, Line, Parallelogram
+
+### Community 44 - "TaskState"
+Cohesion: 0.67
+Nodes (3): TaskState, Loading, Running
+
 ## Knowledge Gaps
-- **27 isolated node(s):** `Consumed`, `Ignored`, `Submitted`, `Password`, `Adding` (+22 more)
+- **27 isolated node(s):** `Consumed`, `Ignored`, `Submitted`, `Password`, `ModelLoaded` (+22 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 480 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **17 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Icons` connect `Icons` to `icons.rs`?**
-  _High betweenness centrality (0.277) - this node is a cross-community bridge._
+  _High betweenness centrality (0.280) - this node is a cross-community bridge._
 - **What connects `Consumed`, `Ignored`, `Submitted` to the rest of the system?**
   _27 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Icons` be split into smaller, more focused modules?**
   _Cohesion score 0.013422818791946308 - nodes in this community are weakly interconnected._
-- **Why does `FormWidget` connect `FormWidget` to `demo_master.rs`, `TaskWidget`, `TabsWidget`, `SelectWidget`, `FormValue`, `editable_list.rs`, `ShimmerWidget`, `ListWidget`, `ButtonWidget`, `InputWidget`, `CheckboxWidget`, `TaskShared`, `TaskShared`, `TaskShared`, `FormManager`, `TaskShared`, `TaskShared`?**
-  _High betweenness centrality (0.144) - this node is a cross-community bridge._
+- **Why does `FormWidget` connect `FormWidget` to `demo_master.rs`, `TaskWidget`, `TabsWidget`, `SelectWidget`, `FormValue`, `editable_list.rs`, `ShimmerWidget`, `ListWidget`, `ButtonWidget`, `InputWidget`, `task.rs`, `CheckboxWidget`, `TaskShared`, `TaskShared`, `TaskShared`, `FormManager`, `TaskShared`, `TaskShared`?**
+  _High betweenness centrality (0.148) - this node is a cross-community bridge._
 - **Should `demo_master.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.09703779366700716 - nodes in this community are weakly interconnected._
-- **Why does `Theme` connect `Theme` to `demo_master.rs`, `TaskWidget`, `TabsWidget`, `editable_list.rs`, `StatusBarWidget`?**
-  _High betweenness centrality (0.115) - this node is a cross-community bridge._
+  _Cohesion score 0.09499389499389499 - nodes in this community are weakly interconnected._
+- **Why does `Tags` connect `Tags` to `demo_master.rs`, `ListWidget`, `tags.rs`?**
+  _High betweenness centrality (0.119) - this node is a cross-community bridge._
 - **Should `Tags` be split into smaller, more focused modules?**
   _Cohesion score 0.027777777777777776 - nodes in this community are weakly interconnected._
