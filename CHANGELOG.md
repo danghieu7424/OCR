@@ -7,7 +7,17 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ## [Unreleased]
 
-## [0.4.0] — 2026-11-14
+## [0.4.1] — 2026-11-14
+
+### Sửa
+
+- Ép buộc chế độ Pure CPU (`OLLAMA_LLM_LIBRARY=cpu`, `CUDA_VISIBLE_DEVICES=""`, `VK_ICD_FILENAMES=""`) khi khởi động `ollama serve` tự động trong `OllamaManager`, ngăn chặn tình trạng treo vô hạn do Ollama tự kích hoạt Vulkan trên card đồ họa đời cũ (như GeForce GT 710 VRAM 984MB).
+- Thiết lập thời gian chờ timeout 10 giây cho từng câu gọi mô hình qua `ollama-rs` để bảo đảm pipeline không bao giờ bị nghẽn (tự động fallback sang Rule Engine nếu quá hạn).
+
+### Thay đổi
+
+- Tối ưu hóa hiệu năng: tái sử dụng Tokio Runtime đa luồng tập trung trong `OllamaManager` thay vì khởi tạo lại runtime trên từng câu.
+- Bổ sung hiển thị tiến độ thời gian thực (real-time progress) theo từng dòng câu trong phương thức `Proofreader::proofread_vtt_file`.
 
 ### Thêm
 

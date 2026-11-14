@@ -83,6 +83,17 @@ impl Proofreader {
         Self::new(ProofreadConfig::default())
     }
 
+    /// Khởi tạo Proofreader chỉ dùng bộ luật CPU (không cần Ollama/LLM)
+    pub fn with_rule_engine_only() -> Self {
+        let mut config = ProofreadConfig::default();
+        config.use_ollama = false;
+        config.endpoint = None;
+        Self {
+            config,
+            ollama: None,
+        }
+    }
+
     /// Hiệu đính một câu phụ đề đơn lẻ
     pub fn proofread_sentence(
         &self,
@@ -132,7 +143,10 @@ impl Proofreader {
 
         // 1. Sửa lỗi nhầm 参 <-> 爹 (nhầm phổ biến trong phim có xưng hô gia đình)
         if s.contains("娘亲") || s.contains("爹") || s.contains("孩子们") {
-            s = s.replace("娘亲参", "娘亲爹").replace("娘亲爹參", "娘亲爹爹");
+            s = s
+                .replace("娘亲参", "娘亲爹")
+                .replace("娘亲爹參", "娘亲爹爹")
+                .replace("娘亲爹参", "娘亲爹爹");
         }
         if s.contains("参以前") || s.contains("参的武器") {
             s = s.replace("参以前", "爹以前").replace("参的武器", "爹的武器");
@@ -289,6 +303,10 @@ Chỉ trả về duy nhất câu phụ đề tiếng Trung đã sửa, không gi
 
             if in_subtitle_block {
                 summary.total_lines += 1;
+                let preview: String = line.chars().take(20).collect();
+                print!("    \x1b[36m[Tiến độ: {:3} câu]\x1b[0m Đang kiểm tra: \"{}\"... \r", summary.total_lines, preview);
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+
                 let corrected = self.proofread_sentence(line, &history, glossary);
                 if corrected != line {
                     summary.corrected_lines += 1;
@@ -303,6 +321,8 @@ Chỉ trả về duy nhất câu phụ đề tiếng Trung đã sửa, không gi
                 lines.push(raw_line.to_string());
             }
         }
+        print!("\r\x1b[K");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
 
         if let Some(parent) = output_vtt.parent() {
             fs::create_dir_all(parent)?;
@@ -318,7 +338,7 @@ mod tests {
 
     #[test]
     fn test_builtin_rules_corrections() {
-        let proofreader = Proofreader::with_default_config();
+        let proofreader = Proofreader::with_rule_engine_only();
 
         // 1. Sửa 参 -> 爹 trong ngữ cảnh xưng hô
         let s1 = proofreader.proofread_sentence("娘亲爹參", &[], None);

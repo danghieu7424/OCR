@@ -1,8 +1,8 @@
 {
   "Cargo.toml": {
-    "mtime": 1794645823.4038117,
-    "seen": 1794645860.1168833,
-    "ast_hash": "9f25f76ce59dd17862d4cb61c1c3d057",
+    "mtime": 1794646341.3977277,
+    "seen": 1794646362.5796182,
+    "ast_hash": "79e1dacd84b7655d3a5db173d02aebfb",
     "semantic_hash": ""
   },
   "cli_gui_form/Cargo.toml": {
@@ -282,9 +282,9 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1794645235.5493443,
-    "seen": 1794645253.79617,
-    "ast_hash": "8b80a5297d17de8adb39740f3ee384f4",
+    "mtime": 1794646350.2881298,
+    "seen": 1794646362.5796182,
+    "ast_hash": "e6be53b331344b04efd1c96de2951295",
     "semantic_hash": ""
   },
   "tools/compare_subs.py": {
@@ -318,15 +318,15 @@
     "semantic_hash": ""
   },
   "src/proofread.rs": {
-    "mtime": 1794645624.3884215,
-    "seen": 1794645860.1168833,
-    "ast_hash": "95438f5ea192d4ddf88eeba0732b8108",
+    "mtime": 1794646247.3074918,
+    "seen": 1794646362.5796182,
+    "ast_hash": "300178770dd18f284cd217c30411fde6",
     "semantic_hash": ""
   },
   "src/ollama.rs": {
-    "mtime": 1794645766.30243,
-    "seen": 1794645860.1168833,
-    "ast_hash": "717cfb6ca6e55b946f5b4179c5742a47",
+    "mtime": 1794646194.7014613,
+    "seen": 1794646362.5796182,
+    "ast_hash": "53c4d41571ae84376cfbbac0a1b7946d",
     "semantic_hash": ""
   }
 }
