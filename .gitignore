@@ -5,6 +5,8 @@ logs/
 graphify-out/
 scratch/
 __pycache__/
+ocr-cli/*
+!ocr-cli/USE.MD
 
 Cargo.lock
 *.vtt
