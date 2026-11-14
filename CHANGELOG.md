@@ -7,6 +7,22 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-11-14
+
+### Gỡ bỏ
+
+- Toàn bộ các chuỗi và quy tắc hard-code theo ngữ cảnh video cụ thể (`娘亲参`, `参以前`, `魔域之人で`, `一还只是`) trong `src/proofread.rs`.
+
+### Thêm
+
+- Phương thức `Proofreader::sanitize_ocr_noise`: bộ lọc làm sạch nhiễu detector tổng quát (loại bỏ ký tự rác ngoại lai `^`, `_`, `|`, `~`, `v`, `V` ở viền câu và kana rác dính đuôi từ background) độc lập với video.
+- Trường `custom_replacements` trong `ProofreadConfig`: cho phép caller/người dùng tự do nạp bảng từ điển ánh xạ lỗi chính tả tùy ý vào pipeline mà không cần sửa code.
+
+### Thay đổi
+
+- Tái cấu trúc pipeline hiệu đính: giao toàn bộ phần phân tích ngữ cảnh, đại từ xưng hô và câu thoại tự nhiên cho mô hình ngôn ngữ **Qwen2.5-VL** (thông qua `OllamaManager`), kết hợp với bảng danh từ riêng động (`EntityGlossary`) học từ caption `《...》`.
+- Chuẩn hóa các cặp chữ Hán tương đồng hình học kinh điển trong OCR (`自已` ↔ `自己`, `眼晴` ↔ `眼睛`) thành bảng hằng số dùng chung thay vì các khối `if-else` lồng ghép.
+
 ## [0.4.1] — 2026-11-14
 
 ### Sửa

@@ -8,6 +8,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -24,8 +25,11 @@ pub struct ProofreadConfig {
     pub model_name: String,
     /// API key (nếu có)
     pub api_key: Option<String>,
-    /// Bật bộ luật sửa lỗi ngữ cảnh trực tiếp (chạy 0ms trên CPU)
+    /// Bật bộ lọc làm sạch nhiễu ký tự OCR & từ điển nhầm chữ phổ biến
     pub enable_rule_engine: bool,
+    /// Bảng từ điển ánh xạ lỗi chính tả / nhầm chữ do người dùng tùy biến nạp vào (Generic)
+    #[serde(default)]
+    pub custom_replacements: HashMap<String, String>,
     /// Bật kết nối Ollama tự động qua thư viện Rust
     pub use_ollama: bool,
 }
@@ -38,6 +42,7 @@ impl Default for ProofreadConfig {
                 .unwrap_or_else(|_| "qwen2.5vl:3b".to_string()),
             api_key: std::env::var("OCR_LLM_API_KEY").ok(),
             enable_rule_engine: true,
+            custom_replacements: HashMap::new(),
             use_ollama: true,
         }
     }
@@ -106,12 +111,18 @@ impl Proofreader {
             return text;
         }
 
-        // 1. Áp dụng bảng thực thể trước (chuẩn hóa tên nhân vật)
+        // 1. Làm sạch nhiễu detector & chuẩn hóa các cặp chữ Hán nhầm lẫn kinh điển (Generic)
+        if self.config.enable_rule_engine {
+            text = self.apply_generic_sanitizer(&text);
+        }
+
+        // 2. Chuẩn hóa tên nhân vật / thực thể tự động từ EntityGlossary (học từ caption 《...》)
         if let Some(g) = glossary {
             text = g.normalize_sentence(&text);
         }
 
-        // 2. Thử gọi qua Ollama Rust Client nếu đã được khởi tạo
+        // 3. Hiệu đính ngữ cảnh nâng cao bằng mô hình ngôn ngữ (Qwen2.5-VL qua ollama-rs)
+        // Mô hình ngôn ngữ tự động phân tích ngữ pháp, xưng hô, hội thoại tự nhiên mà không cần hard-code!
         if let Some(ref ollama) = self.ollama {
             if let Ok(llm_out) = ollama.proofread_sentence_sync(&text, context_history, glossary) {
                 if !llm_out.trim().is_empty() {
@@ -120,7 +131,7 @@ impl Proofreader {
             }
         }
 
-        // 3. Thử gọi Qwen2.5-VL qua API nếu có cấu hình endpoint
+        // 4. Thử gọi Qwen2.5-VL qua API endpoint nếu có cấu hình
         if let Some(ref ep) = self.config.endpoint {
             if let Ok(llm_out) = self.call_qwen_api(ep, &text, context_history, glossary) {
                 if !llm_out.trim().is_empty() {
@@ -129,60 +140,76 @@ impl Proofreader {
             }
         }
 
-        // 4. Fallback: Bộ luật ngữ cảnh tích hợp (Rule Engine chạy tức thì trên CPU)
-        if self.config.enable_rule_engine {
-            text = self.apply_builtin_rules(&text, context_history);
-        }
-
         text
     }
 
-    /// Áp dụng bộ luật sửa lỗi ngữ cảnh tiếng Trung điển hình trong hoạt hình
-    fn apply_builtin_rules(&self, text: &str, context_history: &[String]) -> String {
-        let mut s = text.to_string();
+    /// Làm sạch nhiễu OCR và áp dụng từ điển ký tự nhầm lẫn phổ biến (100% Generic, không hard-code theo video)
+    pub fn apply_generic_sanitizer(&self, text: &str) -> String {
+        let mut s = Self::sanitize_ocr_noise(text);
 
-        // 1. Sửa lỗi nhầm 参 <-> 爹 (nhầm phổ biến trong phim có xưng hô gia đình)
-        if s.contains("娘亲") || s.contains("爹") || s.contains("孩子们") {
-            s = s
-                .replace("娘亲参", "娘亲爹")
-                .replace("娘亲爹參", "娘亲爹爹")
-                .replace("娘亲爹参", "娘亲爹爹");
-        }
-        if s.contains("参以前") || s.contains("参的武器") {
-            s = s.replace("参以前", "爹以前").replace("参的武器", "爹的武器");
-        }
-        // Kiểm tra câu liền trước có nói về cha con
-        let prev_has_dad = context_history
-            .last()
-            .map(|p| p.contains("爹") || p.contains("娘亲") || p.contains("相公"))
-            .unwrap_or(false);
-        if prev_has_dad && s.starts_with("参") && s.chars().count() >= 3 {
-            let mut chars: Vec<char> = s.chars().collect();
-            chars[0] = '爹';
-            s = chars.into_iter().collect();
+        // 1. Áp dụng bảng nhầm lẫn ký tự tiêu chuẩn trong từ điển tiếng Trung (độc lập với ngữ cảnh video)
+        // Đây là các cặp chữ Hán tương đồng hình học (Homoglyphs) kinh điển trong OCR:
+        const STANDARD_OCR_CONFUSABLES: &[(&str, &str)] = &[
+            ("自已", "自己"), // Lỗi nhầm 己 (kỷ) và 已 (dĩ)
+            ("眼晴", "眼睛"), // Lỗi nhầm 睛 (tinh/mắt) và 晴 (tình/nắng)
+            ("绝対", "绝对"), // Lỗi nhầm kanji/phồn thể 対 sang giản thể 对
+        ];
+
+        for (from, to) in STANDARD_OCR_CONFUSABLES {
+            if s.contains(from) {
+                s = s.replace(from, to);
+            }
         }
 
-        // 2. Sửa lỗi nhầm 嗯 <-> 涵 (từ đệm hội thoại)
-        if s == "涵" || s == "涵。" {
-            s = "嗯".to_string();
+        // 2. Áp dụng bảng thay thế tùy chỉnh do người dùng cung cấp qua cấu hình (nếu có)
+        for (from, to) in &self.config.custom_replacements {
+            if s.contains(from) {
+                s = s.replace(from, to);
+            }
         }
 
-        // 3. Sửa lỗi nhầm chữ 己 <-> 已
-        s = s.replace("自已", "自己");
+        s
+    }
 
-        // 4. Sửa lỗi nhầm 眼晴 <-> 眼睛
-        s = s.replace("眼晴", "眼睛");
+    /// Tương thích ngược: alias cho apply_generic_sanitizer
+    pub fn apply_builtin_rules(&self, text: &str, _context_history: &[String]) -> String {
+        self.apply_generic_sanitizer(text)
+    }
 
-        // 5. Sửa lỗi nhầm 灭多小 <-> 灭多少
-        s = s.replace("灭多小", "灭多少");
+    /// Làm sạch các ký tự nhiễu OCR ngoại lai (dấu vết vệt sáng, ký tự dính đuôi từ background)
+    pub fn sanitize_ocr_noise(text: &str) -> String {
+        let mut s = text.trim().to_string();
+        if s.is_empty() {
+            return s;
+        }
 
-        // 6. Xóa ký tự ngoại lai lẻ (kana, ký tự Latin dính đuôi do hiệu ứng hình ảnh)
-        s = s.replace("魔域之人で", "魔域之人");
-        if s.ends_with('V') || s.ends_with('v') {
+        // 1. Loại bỏ các ký tự nhiễu detector ở đầu/cuối chuỗi do viền box bắt trúng tia sáng/bụi
+        while s.starts_with(['^', '_', '|', '~', '`', '-', ' ']) {
+            s.remove(0);
+            s = s.trim_start().to_string();
+        }
+        while s.ends_with(['^', '_', '|', '~', '`', '-', 'v', 'V', 'x', 'X', ' ']) {
             s.pop();
+            s = s.trim_end().to_string();
         }
-        if s.starts_with("一还只是") {
-            s = s.replacen("一还只是", "还只是", 1);
+
+        // 2. Loại bỏ ký tự kana (Hiragana/Katakana) đơn lẻ dính ở đuôi chuỗi tiếng Trung
+        // Do clipping hiệu ứng hình ảnh hoặc chữ nền tiếng Nhật trong phim
+        if s.chars().count() >= 3 {
+            if let Some(last_char) = s.chars().last() {
+                let is_kana = ('\u{3040}'..='\u{309F}').contains(&last_char)
+                    || ('\u{30A0}'..='\u{30FF}').contains(&last_char);
+                if is_kana {
+                    let han_count = s
+                        .chars()
+                        .filter(|c| ('\u{4E00}'..='\u{9FFF}').contains(c))
+                        .count();
+                    if (han_count as f32 / s.chars().count() as f32) > 0.6 {
+                        s.pop();
+                        s = s.trim_end().to_string();
+                    }
+                }
+            }
         }
 
         s
@@ -337,27 +364,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_builtin_rules_corrections() {
-        let proofreader = Proofreader::with_rule_engine_only();
+    fn test_generic_sanitizer_and_custom_rules() {
+        let mut proofreader = Proofreader::with_rule_engine_only();
 
-        // 1. Sửa 参 -> 爹 trong ngữ cảnh xưng hô
-        let s1 = proofreader.proofread_sentence("娘亲爹參", &[], None);
-        assert_eq!(s1, "娘亲爹爹");
+        // 1. Chuẩn hóa cặp chữ Hán nhầm lẫn kinh điển trong OCR (Homoglyphs)
+        let s1 = proofreader.proofread_sentence("保护好自已", &[], None);
+        assert_eq!(s1, "保护好自己");
 
-        let s2 = proofreader.proofread_sentence("参以前的武器给你", &[], None);
-        assert_eq!(s2, "爹以前的武器给你");
+        let s2 = proofreader.proofread_sentence("擦亮眼晴", &[], None);
+        assert_eq!(s2, "擦亮眼睛");
 
-        // 2. Sửa 涵 -> 嗯
-        let s3 = proofreader.proofread_sentence("涵", &[], None);
-        assert_eq!(s3, "嗯");
+        // 2. Làm sạch nhiễu detector (dấu viền, ký tự rác Latin, kana dính đuôi)
+        let s3 = proofreader.proofread_sentence("~无敌剑意v", &[], None);
+        assert_eq!(s3, "无敌剑意");
 
-        // 3. Sửa 自已 -> 自己
-        let s4 = proofreader.proofread_sentence("保护好自已", &[], None);
-        assert_eq!(s4, "保护好自己");
+        let s4 = proofreader.proofread_sentence("绝世仙尊で", &[], None);
+        assert_eq!(s4, "绝世仙尊");
 
-        // 4. Xóa rác kana
-        let s5 = proofreader.proofread_sentence("魔域之人で", &[], None);
-        assert_eq!(s5, "魔域之人");
+        // 3. Hỗ trợ nạp từ điển tùy chỉnh của người dùng (Generic)
+        proofreader
+            .config
+            .custom_replacements
+            .insert("错别字".to_string(), "正确词".to_string());
+        let s5 = proofreader.proofread_sentence("这是一个错别字", &[], None);
+        assert_eq!(s5, "这是一个正确词");
     }
 
     #[test]
