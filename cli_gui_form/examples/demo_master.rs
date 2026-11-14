@@ -1,22 +1,24 @@
 // --- PHÂN ĐOẠN: MASTER SHOWCASE TOÀN DIỆN DESIGN.MD VÀ MỌI WIDGET ---
 
 use cli_gui_form::{
-    ButtonWidget, CardWidget, CheckboxWidget, EditableListWidget, EventResult, FormManager, FormWidget, Icons,
-    InputMode, InputWidget, ListWidget, ProgressStyle, RadioWidget, SelectWidget, ShimmerWidget, SpinnerType, StatusBarWidget, TabsWidget,
-    Tags, TaskWidget, Theme,
+    ButtonWidget, CardWidget, CheckboxWidget, EditableListWidget, EventResult, FormManager,
+    FormWidget, Icons, InputMode, InputWidget, ListWidget, ProgressStyle, RadioWidget,
+    SelectWidget, ShimmerWidget, SpinnerType, StatusBarWidget, TabsWidget, Tags, TaskWidget, Theme,
 };
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Terminal,
 };
 use std::{
     io::{self, stdout},
@@ -217,10 +219,30 @@ fn main() -> io::Result<()> {
     let infra_card = CardWidget::new("card_infra", "Infrastructure")
         .with_rounded(true)
         .with_title_color(Theme::PURPLE)
-        .with_item("PostgreSQL", Some(Icons::SUCCESS), "Healthy", Theme::EMERALD)
-        .with_item("Redis Cluster", Some(Icons::WARNING), "Degraded", Theme::ORANGE)
-        .with_item("Kafka Stream", Some(Icons::CIRCLE_TARGET), "Leader", Theme::CYAN)
-        .with_item("Edge Router", Some(Icons::DIAMOND_FILLED), "Active", Theme::SKY);
+        .with_item(
+            "PostgreSQL",
+            Some(Icons::SUCCESS),
+            "Healthy",
+            Theme::EMERALD,
+        )
+        .with_item(
+            "Redis Cluster",
+            Some(Icons::WARNING),
+            "Degraded",
+            Theme::ORANGE,
+        )
+        .with_item(
+            "Kafka Stream",
+            Some(Icons::CIRCLE_TARGET),
+            "Leader",
+            Theme::CYAN,
+        )
+        .with_item(
+            "Edge Router",
+            Some(Icons::DIAMOND_FILLED),
+            "Active",
+            Theme::SKY,
+        );
 
     // 4. TASKS & ANIMATIONS (TAB 3)
     let mut pulse_task = TaskWidget::new_loading(
@@ -289,18 +311,36 @@ fn main() -> io::Result<()> {
     let mut live_logs: Vec<Line<'static>> = vec![
         Line::from(vec![
             Span::styled("14:22:01 ", Style::default().fg(Theme::MUTED)),
-            Span::styled(format!("{} ", Tags::INFO), Style::default().fg(Tags::color_for(Tags::INFO))),
-            Span::styled("HTTP server listening at 127.0.0.1:3000", Style::default().fg(Theme::FG)),
+            Span::styled(
+                format!("{} ", Tags::INFO),
+                Style::default().fg(Tags::color_for(Tags::INFO)),
+            ),
+            Span::styled(
+                "HTTP server listening at 127.0.0.1:3000",
+                Style::default().fg(Theme::FG),
+            ),
         ]),
         Line::from(vec![
             Span::styled("14:22:05 ", Style::default().fg(Theme::MUTED)),
-            Span::styled(format!("{} ", Tags::DONE), Style::default().fg(Tags::color_for(Tags::DONE))),
-            Span::styled("Database schema migrations verified", Style::default().fg(Theme::FG)),
+            Span::styled(
+                format!("{} ", Tags::DONE),
+                Style::default().fg(Tags::color_for(Tags::DONE)),
+            ),
+            Span::styled(
+                "Database schema migrations verified",
+                Style::default().fg(Theme::FG),
+            ),
         ]),
         Line::from(vec![
             Span::styled("14:22:18 ", Style::default().fg(Theme::MUTED)),
-            Span::styled(format!("{} ", Tags::EXEC), Style::default().fg(Tags::color_for(Tags::EXEC))),
-            Span::styled("Native Rust backend compiled in 480ms", Style::default().fg(Theme::FG)),
+            Span::styled(
+                format!("{} ", Tags::EXEC),
+                Style::default().fg(Tags::color_for(Tags::EXEC)),
+            ),
+            Span::styled(
+                "Native Rust backend compiled in 480ms",
+                Style::default().fg(Theme::FG),
+            ),
         ]),
     ];
 
@@ -324,16 +364,37 @@ fn main() -> io::Result<()> {
             let sec = 25 + log_id * 2;
             let time_str = format!("14:23:{:02}", sec % 60);
             let (tag, msg) = match log_id % 5 {
-                0 => (Tags::DONE, format!("Event stream batch #{} acknowledged", log_id)),
-                1 => (Tags::INFO, format!("Client session #{} authenticated via JWT", log_id)),
-                2 => (Tags::CONF, format!("Redis cache hit for key 'cluster_metrics_{}'", log_id)),
-                3 => (Tags::WARN, format!("Garbage collection took 14.2ms on worker #{}", (log_id % 3) + 1)),
-                _ => (Tags::EXEC, format!("WASM bundle hot-reloaded for client #{}", log_id)),
+                0 => (
+                    Tags::DONE,
+                    format!("Event stream batch #{} acknowledged", log_id),
+                ),
+                1 => (
+                    Tags::INFO,
+                    format!("Client session #{} authenticated via JWT", log_id),
+                ),
+                2 => (
+                    Tags::CONF,
+                    format!("Redis cache hit for key 'cluster_metrics_{}'", log_id),
+                ),
+                3 => (
+                    Tags::WARN,
+                    format!(
+                        "Garbage collection took 14.2ms on worker #{}",
+                        (log_id % 3) + 1
+                    ),
+                ),
+                _ => (
+                    Tags::EXEC,
+                    format!("WASM bundle hot-reloaded for client #{}", log_id),
+                ),
             };
 
             live_logs.push(Line::from(vec![
                 Span::styled(format!("{} ", time_str), Style::default().fg(Theme::MUTED)),
-                Span::styled(format!("{} ", tag), Style::default().fg(Tags::color_for(tag))),
+                Span::styled(
+                    format!("{} ", tag),
+                    Style::default().fg(Tags::color_for(tag)),
+                ),
                 Span::styled(msg, Style::default().fg(Theme::FG)),
             ]));
 
@@ -366,12 +427,13 @@ fn main() -> io::Result<()> {
             match tabs.selected() {
                 0 => {
                     // TAB 1: FORMS & INPUTS
-                    let mut form_lines = Vec::new();
-                    form_lines.push(Line::from(vec![
+                    let form_lines = vec![
+                        Line::from(vec![
                         Span::styled("  Form Inputs & Keyboard Navigation", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
                         Span::styled(" (Tab/↑/↓: Form Focus ─ Lists: → to enter, ← to exit ─ Radios: ←/→)", Style::default().fg(Theme::MUTED)),
-                    ]));
-                    form_lines.push(Line::from(""));
+                        ]),
+                        Line::from(""),
+                    ];
                     tabs.render_container(main_chunks[1], form_lines, f);
 
                     // Render FormManager bên trong lòng Panel
@@ -385,20 +447,21 @@ fn main() -> io::Result<()> {
                 }
                 1 => {
                     // TAB 2: DATA TABLE & BADGES (Read-only Data Table theo chuẩn DESIGN.md mục 5)
-                    let mut lines = Vec::new();
-                    lines.push(Line::from(vec![
+                    let mut lines = vec![
+                        Line::from(vec![
                         Span::styled("  Deployment Workloads & Status Badges", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
                         Span::styled(" (Read-only Table ─ DESIGN.md)", Style::default().fg(Theme::MUTED)),
-                    ]));
-                    lines.push(Line::from(""));
+                        ]),
+                        Line::from(""),
 
                     // Header bảng theo chuẩn DESIGN.md: No outer border, header separated by ─, dim separator
-                    lines.push(Line::from(vec![
+                        Line::from(vec![
                         Span::styled("  NAME              STATUS         BRANCH     COMMIT    LATENCY    TIME", Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD)),
-                    ]));
-                    lines.push(Line::from(vec![
+                        ]),
+                        Line::from(vec![
                         Span::styled("  ─────────────────────────────────────────────────────────────────────────────", Style::default().fg(Theme::NEUTRAL_100)),
-                    ]));
+                        ]),
+                    ];
 
                     for row in &table_items {
                         lines.push(Line::from(vec![
@@ -445,12 +508,13 @@ fn main() -> io::Result<()> {
                 }
                 2 => {
                     // TAB 3: TASKS, PROGRESS & SHIMMER (Bố cục 2 cột công nghiệp chuẩn Vercel/Linear)
-                    let mut lines = Vec::new();
-                    lines.push(Line::from(vec![
+                    let lines = vec![
+                        Line::from(vec![
                         Span::styled("  Background Task Lifecycle & Animation Engine", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
                         Span::styled(" (Dual-Column Layout ─ Spinners & Metrics)", Style::default().fg(Theme::MUTED)),
-                    ]));
-                    lines.push(Line::from(""));
+                        ]),
+                        Line::from(""),
+                    ];
                     tabs.render_container(main_chunks[1], lines, f);
 
                     // Bố cục 2 cột an toàn (Dual-Column Guardrail) triệt tiêu hoàn toàn tràn biên buffer
@@ -1002,7 +1066,8 @@ fn main() -> io::Result<()> {
             match event::read()? {
                 Event::Key(key) => {
                     if key.kind == KeyEventKind::Press {
-                        let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+                        let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
+                            && key.code == KeyCode::Char('c');
                         if is_ctrl_c {
                             break;
                         }
@@ -1052,10 +1117,8 @@ fn main() -> io::Result<()> {
                         // 2. Tab 1 (Form): FormManager xử lý trước (Widget-First Event Delegation)
                         // Khi popup dropdown/overlay đang mở, Esc/Enter sẽ được tiêu thụ (Consumed) để đóng/lưu popup
                         // và KHÔNG làm thoát chương trình TUI!
-                        if tabs.selected() == 0 {
-                            if form.handle_event(key) == EventResult::Consumed {
-                                continue;
-                            }
+                        if tabs.selected() == 0 && form.handle_event(key) == EventResult::Consumed {
+                            continue;
                         }
 
                         // 3. Thoát chương trình khi nhấn Esc hoặc q (chỉ khi không có overlay nào tiêu thụ)
@@ -1079,7 +1142,11 @@ fn main() -> io::Result<()> {
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     println!("=== MASTER SHOWCASE HOÀN TẤT ===");
     Ok(())

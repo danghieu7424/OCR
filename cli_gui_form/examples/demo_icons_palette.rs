@@ -4,15 +4,15 @@ use cli_gui_form::{Icons, Theme};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
-    Terminal,
 };
 use std::{
     io::{self, stdout},
@@ -64,8 +64,16 @@ fn main() -> io::Result<()> {
 
                 // 1. Header
                 let header = Paragraph::new(Line::from(vec![
-                    Span::styled("  LINEAR / VERCEL TUI", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
-                    Span::styled(" ─ Palette, Icons & Motion Showcase", Style::default().fg(Theme::SECONDARY)),
+                    Span::styled(
+                        "  LINEAR / VERCEL TUI",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        " ─ Palette, Icons & Motion Showcase",
+                        Style::default().fg(Theme::SECONDARY),
+                    ),
                 ]))
                 .style(Style::default().bg(Theme::BG));
                 f.render_widget(header, chunks[0]);
@@ -73,10 +81,7 @@ fn main() -> io::Result<()> {
                 // 2. Chia đôi màn hình: Cột trái (Color Palette & Neutral Scale), Cột phải (Icons, Spinner & Progress)
                 let main_cols = Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Percentage(50),
-                        Constraint::Percentage(50),
-                    ])
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
                     .split(chunks[1]);
 
                 // PANEL TRÁI: Color Palette & Neutral Scale
@@ -86,13 +91,23 @@ fn main() -> io::Result<()> {
                     .border_style(Style::default().fg(Theme::NEUTRAL_100))
                     .title(Line::from(vec![
                         Span::styled("─ ", Style::default().fg(Theme::NEUTRAL_100)),
-                        Span::styled("Color Palette & Neutral Scale", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            "Color Palette & Neutral Scale",
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled(" ─", Style::default().fg(Theme::NEUTRAL_100)),
                     ]))
                     .style(Style::default().bg(Theme::BG));
 
                 let color_lines = vec![
-                    Line::from(Span::styled("  Semantic Roles (Màu theo ngữ nghĩa):", Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled(
+                        "  Semantic Roles (Màu theo ngữ nghĩa):",
+                        Style::default()
+                            .fg(Theme::SECONDARY)
+                            .add_modifier(Modifier::BOLD),
+                    )),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::BG)),
                         Span::styled("Background  ", Style::default().fg(Theme::FG)),
@@ -105,28 +120,53 @@ fn main() -> io::Result<()> {
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::PRIMARY)),
-                        Span::styled("Primary     ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
-                        Span::styled("#ffffff  (Key actions, focus)", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "Primary     ",
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            "#ffffff  (Key actions, focus)",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::SECONDARY)),
                         Span::styled("Secondary   ", Style::default().fg(Theme::SECONDARY)),
-                        Span::styled("#888888  (Supporting text)", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "#888888  (Supporting text)",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::ACCENT)),
-                        Span::styled("Accent      ", Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD)),
-                        Span::styled("#0070f3  (Vercel Blue links)", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "Accent      ",
+                            Style::default()
+                                .fg(Theme::ACCENT)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            "#0070f3  (Vercel Blue links)",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::SUCCESS)),
                         Span::styled("Success     ", Style::default().fg(Theme::SUCCESS)),
-                        Span::styled("#00c853  (Positive status)", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "#00c853  (Positive status)",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::WARNING)),
                         Span::styled("Warning     ", Style::default().fg(Theme::WARNING)),
-                        Span::styled("#f5a623  (Caution status)", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "#f5a623  (Caution status)",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::ERROR)),
@@ -136,38 +176,67 @@ fn main() -> io::Result<()> {
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::MUTED)),
                         Span::styled("Muted       ", Style::default().fg(Theme::MUTED)),
-                        Span::styled("#555555  (Disabled, hints)", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "#555555  (Disabled, hints)",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::SURFACE)),
                         Span::styled("Surface     ", Style::default().fg(Theme::SURFACE)),
-                        Span::styled("#1a1a1a  (Panels, cards)", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "#1a1a1a  (Panels, cards)",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(""),
-                    Line::from(Span::styled("  Neutral Scale (Thang xám phân cấp độ sâu):", Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled(
+                        "  Neutral Scale (Thang xám phân cấp độ sâu):",
+                        Style::default()
+                            .fg(Theme::SECONDARY)
+                            .add_modifier(Modifier::BOLD),
+                    )),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::NEUTRAL_50)),
-                        Span::styled("Step 50  (#1a1a1a) -> Subtle bg, surface", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "Step 50  (#1a1a1a) -> Subtle bg, surface",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::NEUTRAL_100)),
-                        Span::styled("Step 100 (#2a2a2a) -> Borders, dividers", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "Step 100 (#2a2a2a) -> Borders, dividers",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::NEUTRAL_200)),
-                        Span::styled("Step 200 (#444444) -> Disabled text", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "Step 200 (#444444) -> Disabled text",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::NEUTRAL_300)),
-                        Span::styled("Step 300 (#666666) -> Placeholder text", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "Step 300 (#666666) -> Placeholder text",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::NEUTRAL_400)),
-                        Span::styled("Step 400 (#888888) -> Secondary text", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "Step 400 (#888888) -> Secondary text",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("   ■ ", Style::default().fg(Theme::NEUTRAL_500)),
-                        Span::styled("Step 500 (#ededed) -> Body text", Style::default().fg(Theme::MUTED)),
+                        Span::styled(
+                            "Step 500 (#ededed) -> Body text",
+                            Style::default().fg(Theme::MUTED),
+                        ),
                     ]),
                 ];
                 let p_left = Paragraph::new(color_lines).block(color_block);
@@ -180,7 +249,12 @@ fn main() -> io::Result<()> {
                     .border_style(Style::default().fg(Theme::NEUTRAL_100))
                     .title(Line::from(vec![
                         Span::styled("─ ", Style::default().fg(Theme::NEUTRAL_100)),
-                        Span::styled("Icons, Spinners & Progress (Mục 7 & 8)", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            "Icons, Spinners & Progress (Mục 7 & 8)",
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled(" ─", Style::default().fg(Theme::NEUTRAL_100)),
                     ]))
                     .style(Style::default().bg(Theme::BG));
@@ -190,7 +264,12 @@ fn main() -> io::Result<()> {
 
                 // Căn chuẩn cột không bị lệch do khoảng trắng kép của các icon rộng
                 let icon_lines = vec![
-                    Line::from(Span::styled("  Status Indicators (Mỗi icon chiếm chuẩn 2 ô):", Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled(
+                        "  Status Indicators (Mỗi icon chiếm chuẩn 2 ô):",
+                        Style::default()
+                            .fg(Theme::SECONDARY)
+                            .add_modifier(Modifier::BOLD),
+                    )),
                     Line::from(vec![
                         Span::raw("   "),
                         Span::styled(Icons::SUCCESS, Style::default().fg(Icons::color_success())),
@@ -220,7 +299,12 @@ fn main() -> io::Result<()> {
                         Span::styled("Pause", Style::default().fg(Theme::FG)),
                     ]),
                     Line::from(""),
-                    Line::from(Span::styled("  Controls & Selectors:", Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled(
+                        "  Controls & Selectors:",
+                        Style::default()
+                            .fg(Theme::SECONDARY)
+                            .add_modifier(Modifier::BOLD),
+                    )),
                     Line::from(vec![
                         Span::raw("   "),
                         Span::styled(Icons::CHECKBOX_ON, Style::default().fg(Theme::SUCCESS)),
@@ -237,7 +321,12 @@ fn main() -> io::Result<()> {
                     ]),
                     Line::from(vec![
                         Span::raw("   "),
-                        Span::styled(Icons::POINTER, Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            Icons::POINTER,
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled("Selected          ", Style::default().fg(Theme::FG)),
                         Span::styled(Icons::ARROW_RIGHT, Style::default().fg(Theme::SECONDARY)),
                         Span::styled("Arrow", Style::default().fg(Theme::FG)),
@@ -271,23 +360,53 @@ fn main() -> io::Result<()> {
                         Span::styled("Up Triangle", Style::default().fg(Theme::FG)),
                     ]),
                     Line::from(""),
-                    Line::from(Span::styled("  Motion & Spinners (Mục 8):", Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled(
+                        "  Motion & Spinners (Mục 8):",
+                        Style::default()
+                            .fg(Theme::SECONDARY)
+                            .add_modifier(Modifier::BOLD),
+                    )),
                     Line::from(vec![
-                        Span::styled(format!("   {} ", cur_braille), Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            format!("   {} ", cur_braille),
+                            Style::default()
+                                .fg(Theme::ACCENT)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled("Braille Spinner (80ms)", Style::default().fg(Theme::FG)),
                     ]),
                     Line::from(vec![
-                        Span::styled(format!("   {} ", cur_think), Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            format!("   {} ", cur_think),
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled("Thinking Pulse (150ms)", Style::default().fg(Theme::FG)),
                     ]),
                     Line::from(""),
-                    Line::from(Span::styled("  Progress Bar (DESIGN.md Mục 8):", Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled(
+                        "  Progress Bar (DESIGN.md Mục 8):",
+                        Style::default()
+                            .fg(Theme::SECONDARY)
+                            .add_modifier(Modifier::BOLD),
+                    )),
                     Line::from(vec![
                         Span::styled("   ▕", Style::default().fg(Theme::NEUTRAL_100)), // Left Cap ▕
-                        Span::styled("━━━━━━━━━━", Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD)), // Filled ━
+                        Span::styled(
+                            "━━━━━━━━━━",
+                            Style::default()
+                                .fg(Theme::ACCENT)
+                                .add_modifier(Modifier::BOLD),
+                        ), // Filled ━
                         Span::styled("──────────", Style::default().fg(Theme::MUTED)), // Empty ─
                         Span::styled("▏", Style::default().fg(Theme::NEUTRAL_100)), // Right Cap ▏
-                        Span::styled(" 50%", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            " 50%",
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                     ]),
                 ];
                 let paragraph = Paragraph::new(icon_lines).block(icon_block);
@@ -301,11 +420,19 @@ fn main() -> io::Result<()> {
                 let spaces = " ".repeat(space_count);
 
                 let status_line = Line::from(vec![
-                    Span::styled(" main ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        " main ",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
                     Span::styled(" Press Esc to Exit ", Style::default().fg(Theme::SECONDARY)),
                     Span::raw(spaces),
-                    Span::styled("✓ 100% Design Matched ", Style::default().fg(Theme::SUCCESS)),
+                    Span::styled(
+                        "✓ 100% Design Matched ",
+                        Style::default().fg(Theme::SUCCESS),
+                    ),
                 ]);
                 let status_bar = Paragraph::new(status_line).style(Style::default().bg(Theme::BG));
                 f.render_widget(status_bar, chunks[2]);
@@ -313,15 +440,14 @@ fn main() -> io::Result<()> {
             needs_render = false;
         }
 
-        if event::poll(Duration::from_millis(80))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c');
-                    if key.code == KeyCode::Esc || is_ctrl_c {
-                        break;
-                    }
-                }
+        if event::poll(Duration::from_millis(80))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            let is_ctrl_c =
+                key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+            if key.code == KeyCode::Esc || is_ctrl_c {
+                break;
             }
         }
     }

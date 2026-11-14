@@ -4,26 +4,22 @@
 //          để kiểm tra xem glyph Unicode '▶' và tiếng Việt có bị co, méo, hay giật lề khi Focus/Blur.
 
 use cli_gui_form::{
-    ButtonWidget, EventResult, FormManager, Icons,
-    InputMode, InputWidget, SelectWidget, Theme,
+    ButtonWidget, EventResult, FormManager, Icons, InputMode, InputWidget, SelectWidget, Theme,
 };
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
-    Terminal,
 };
-use std::{
-    io::stdout,
-    time::Duration,
-};
+use std::{io::stdout, time::Duration};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
@@ -131,7 +127,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_preset(Theme::BTN_ACCENT),
     ));
 
-    let mut last_action = String::from("Sẵn sàng. Dùng Tab / ↑ / ↓ để di chuyển focus vào các nút.");
+    let mut last_action =
+        String::from("Sẵn sàng. Dùng Tab / ↑ / ↓ để di chuyển focus vào các nút.");
 
     loop {
         terminal.draw(|f| {
@@ -186,25 +183,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             f.render_widget(footer, chunks[2]);
         })?;
 
-        if event::poll(Duration::from_millis(30))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    if key.code == KeyCode::Esc || key.code == KeyCode::Char('q') {
-                        break;
-                    }
+        if event::poll(Duration::from_millis(30))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            if key.code == KeyCode::Esc || key.code == KeyCode::Char('q') {
+                break;
+            }
 
-                    // Form xử lý phím
-                    let res = form.handle_event(key);
-                    if res == EventResult::Submitted {
-                        last_action = format!("✔ Đã nhấn kích hoạt: '▶ BẮT ĐẦU TẠO PODCAST (Enter)' thành công!");
-                    }
-                }
+            // Form xử lý phím
+            let res = form.handle_event(key);
+            if res == EventResult::Submitted {
+                last_action =
+                    "✔ Đã nhấn kích hoạt: '▶ BẮT ĐẦU TẠO PODCAST (Enter)' thành công!".to_string();
             }
         }
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     println!("=== TEST PODCAST BUTTON HOÀN TẤT ===");
     Ok(())

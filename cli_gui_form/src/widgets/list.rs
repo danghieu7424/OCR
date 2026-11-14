@@ -6,11 +6,11 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 /****
@@ -173,16 +173,22 @@ impl FormWidget for ListWidget {
             if self.focused && self.active {
                 label_spans.push(Span::styled(
                     format!("  {} ", lbl),
-                    Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Theme::PRIMARY)
+                        .add_modifier(Modifier::BOLD),
                 ));
                 label_spans.push(Span::styled(
                     "[Active: Use ↑/↓ to choose, ← to exit]",
-                    Style::default().fg(Theme::ACCENT).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Theme::ACCENT)
+                        .add_modifier(Modifier::BOLD),
                 ));
             } else if self.focused {
                 label_spans.push(Span::styled(
                     format!("  {} ", lbl),
-                    Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Theme::PRIMARY)
+                        .add_modifier(Modifier::BOLD),
                 ));
                 label_spans.push(Span::styled(
                     "(Press → to enter list)",
@@ -191,7 +197,9 @@ impl FormWidget for ListWidget {
             } else {
                 label_spans.push(Span::styled(
                     format!("  {}", lbl),
-                    Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Theme::SECONDARY)
+                        .add_modifier(Modifier::BOLD),
                 ));
             }
             lines.push(Line::from(label_spans));
@@ -235,7 +243,9 @@ impl FormWidget for ListWidget {
                 };
                 Span::styled(
                     prefix,
-                    Style::default().fg(prefix_color).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(prefix_color)
+                        .add_modifier(Modifier::BOLD),
                 )
             } else {
                 Span::raw(prefix)
@@ -364,9 +374,6 @@ mod tests {
             .with_item("main.rs")
             .with_item("lib.rs");
 
-        assert_eq!(
-            list.value(),
-            FormValue::Select(0, "main.rs".to_string())
-        );
+        assert_eq!(list.value(), FormValue::Select(0, "main.rs".to_string()));
     }
 }

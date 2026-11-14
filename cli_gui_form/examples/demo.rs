@@ -7,14 +7,14 @@ use cli_gui_form::{
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, style::Color, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend, style::Color};
 use std::{
     io::{self, stdout},
     sync::{
-        mpsc::{channel, Receiver, Sender},
         Arc, Mutex,
+        mpsc::{Receiver, Sender, channel},
     },
     thread,
     time::{Duration, Instant},
@@ -37,8 +37,7 @@ fn main() -> io::Result<()> {
 
     // 1. Inputs (Hỗ trợ con trỏ nhấp nháy, chỉnh sửa inline, placeholder mờ)
     form.add_widget(Box::new(
-        InputWidget::new("user", "Username", InputMode::Text)
-            .with_placeholder("admin@linear.app"),
+        InputWidget::new("user", "Username", InputMode::Text).with_placeholder("admin@linear.app"),
     ));
     form.add_widget(Box::new(
         InputWidget::new("pass", "Password", InputMode::Password)
@@ -46,7 +45,11 @@ fn main() -> io::Result<()> {
     ));
 
     // 2. Checkbox & Radio
-    form.add_widget(Box::new(CheckboxWidget::new("remember", "Remember Me", false)));
+    form.add_widget(Box::new(CheckboxWidget::new(
+        "remember",
+        "Remember Me",
+        false,
+    )));
     form.add_widget(Box::new(RadioWidget::new(
         "env",
         "Environment",
@@ -75,7 +78,12 @@ fn main() -> io::Result<()> {
     form.add_widget(Box::new(TaskShared(Arc::clone(&dynamic_task))));
 
     // 5. Submit Button
-    form.add_widget(Box::new(ButtonWidget::new("submit", "SUBMIT", Color::Blue, Color::White)));
+    form.add_widget(Box::new(ButtonWidget::new(
+        "submit",
+        "SUBMIT",
+        Color::Blue,
+        Color::White,
+    )));
 
     // --- KHỞI TẠO BACKGROUND WORKER THREAD ---
     let (tx, rx): (Sender<WorkerMessage>, Receiver<WorkerMessage>) = channel();
@@ -133,21 +141,21 @@ fn main() -> io::Result<()> {
         }
 
         // 4. Polling sự kiện phím
-        if event::poll(target_frame_duration)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    // Thoát khi nhấn Esc hoặc Ctrl + C
-                    let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
-                    if key.code == KeyCode::Esc || is_ctrl_c {
-                        break;
-                    }
+        if event::poll(target_frame_duration)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            // Thoát khi nhấn Esc hoặc Ctrl + C
+            let is_ctrl_c =
+                key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+            if key.code == KeyCode::Esc || is_ctrl_c {
+                break;
+            }
 
-                    let res = form.handle_event(key);
-                    if res == EventResult::Submitted {
-                        submitted_values = Some(form.get_values());
-                        break;
-                    }
-                }
+            let res = form.handle_event(key);
+            if res == EventResult::Submitted {
+                submitted_values = Some(form.get_values());
+                break;
             }
         }
     }

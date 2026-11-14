@@ -3,11 +3,11 @@
 use crate::traits::{EventResult, FormWidget};
 use crossterm::event::KeyEvent;
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 /****
@@ -38,7 +38,7 @@ impl ShimmerWidget {
         Self {
             id: id.into(),
             text: text.into(),
-            color_base: (90, 90, 90),          // Xám tối nền
+            color_base: (90, 90, 90),         // Xám tối nền
             color_highlight: (235, 235, 235), // Trắng nhạt đỉnh sóng
             wave_width,
             step: 0.35,

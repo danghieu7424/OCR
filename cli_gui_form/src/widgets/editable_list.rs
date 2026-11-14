@@ -4,11 +4,11 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph},
-    Frame,
 };
 
 use crate::{
@@ -77,7 +77,10 @@ fn render_input_spans(input: &str, cursor: usize, max_w: usize) -> Vec<Span<'sta
     let mut spans = Vec::new();
     let left: String = chars[start_idx..cursor].iter().collect();
     if !left.is_empty() {
-        spans.push(Span::styled(left, Style::default().fg(Theme::FG).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(
+            left,
+            Style::default().fg(Theme::FG).add_modifier(Modifier::BOLD),
+        ));
     }
 
     // Con trỏ chèn dạng khối █ chuẩn Linear TUI
@@ -85,7 +88,10 @@ fn render_input_spans(input: &str, cursor: usize, max_w: usize) -> Vec<Span<'sta
 
     let right: String = chars[cursor..end_idx].iter().collect();
     if !right.is_empty() {
-        spans.push(Span::styled(right, Style::default().fg(Theme::FG).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(
+            right,
+            Style::default().fg(Theme::FG).add_modifier(Modifier::BOLD),
+        ));
     }
 
     spans
@@ -316,7 +322,9 @@ impl FormWidget for EditableListWidget {
 
         let display_text = format!("{} {}", count_str, self.label);
         let text_style = if self.focused {
-            Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Theme::PRIMARY)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Theme::FG)
         };
@@ -421,21 +429,36 @@ impl FormWidget for EditableListWidget {
                 // DÒNG 0: "[+] Thêm mới."
                 match &self.mode {
                     EditMode::Adding { input, cursor } if is_highlighted => {
-                        spans.push(Span::styled("▸ [+] [ ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)));
+                        spans.push(Span::styled(
+                            "▸ [+] [ ",
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ));
                         let max_input_w = inner_w.saturating_sub(10 + scroll_col_width);
                         spans.extend(render_input_spans(input, *cursor, max_input_w));
                         spans.push(Span::styled(" ]", Style::default().fg(Theme::PRIMARY)));
                     }
                     _ => {
-                        let can_add = self.max_items.map_or(true, |max| self.items.len() < max);
+                        let can_add = self.max_items.is_none_or(|max| self.items.len() < max);
                         if is_highlighted {
-                            spans.push(Span::styled("▸ ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)));
+                            spans.push(Span::styled(
+                                "▸ ",
+                                Style::default()
+                                    .fg(Theme::PRIMARY)
+                                    .add_modifier(Modifier::BOLD),
+                            ));
                             let text = if can_add {
                                 "[+] Thêm mới."
                             } else {
                                 "[+] Thêm mới. (Đầy)"
                             };
-                            spans.push(Span::styled(text, Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)));
+                            spans.push(Span::styled(
+                                text,
+                                Style::default()
+                                    .fg(Theme::PRIMARY)
+                                    .add_modifier(Modifier::BOLD),
+                            ));
                         } else {
                             spans.push(Span::raw("  "));
                             let text = if can_add {
@@ -446,7 +469,9 @@ impl FormWidget for EditableListWidget {
                             let style = if can_add {
                                 Style::default().fg(Theme::SECONDARY)
                             } else {
-                                Style::default().fg(Theme::NEUTRAL_200).add_modifier(Modifier::DIM)
+                                Style::default()
+                                    .fg(Theme::NEUTRAL_200)
+                                    .add_modifier(Modifier::DIM)
                             };
                             spans.push(Span::styled(text, style));
                         }
@@ -459,9 +484,21 @@ impl FormWidget for EditableListWidget {
                 let prefix_num = format!("[{}] ", item_idx + 1);
 
                 match &self.mode {
-                    EditMode::Editing { index, input, cursor } if *index == item_idx && is_highlighted => {
-                        spans.push(Span::styled("▸ ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)));
-                        spans.push(Span::styled(prefix_num.clone(), Style::default().fg(Theme::SECONDARY)));
+                    EditMode::Editing {
+                        index,
+                        input,
+                        cursor,
+                    } if *index == item_idx && is_highlighted => {
+                        spans.push(Span::styled(
+                            "▸ ",
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                        spans.push(Span::styled(
+                            prefix_num.clone(),
+                            Style::default().fg(Theme::SECONDARY),
+                        ));
                         spans.push(Span::styled("[ ", Style::default().fg(Theme::PRIMARY)));
                         let fixed_w = 2 + prefix_num.chars().count() + 2 + 2 + scroll_col_width;
                         let max_input_w = inner_w.saturating_sub(fixed_w);
@@ -474,12 +511,30 @@ impl FormWidget for EditableListWidget {
                         let safe_text = truncate_with_ellipsis(item_text, max_text_w);
 
                         if is_highlighted {
-                            spans.push(Span::styled("▸ ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)));
-                            spans.push(Span::styled(prefix_num, Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)));
-                            spans.push(Span::styled(safe_text, Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)));
+                            spans.push(Span::styled(
+                                "▸ ",
+                                Style::default()
+                                    .fg(Theme::PRIMARY)
+                                    .add_modifier(Modifier::BOLD),
+                            ));
+                            spans.push(Span::styled(
+                                prefix_num,
+                                Style::default()
+                                    .fg(Theme::PRIMARY)
+                                    .add_modifier(Modifier::BOLD),
+                            ));
+                            spans.push(Span::styled(
+                                safe_text,
+                                Style::default()
+                                    .fg(Theme::PRIMARY)
+                                    .add_modifier(Modifier::BOLD),
+                            ));
                         } else {
                             spans.push(Span::raw("  "));
-                            spans.push(Span::styled(prefix_num, Style::default().fg(Theme::SECONDARY)));
+                            spans.push(Span::styled(
+                                prefix_num,
+                                Style::default().fg(Theme::SECONDARY),
+                            ));
                             spans.push(Span::styled(safe_text, Style::default().fg(Theme::FG)));
                         }
                     }
@@ -536,7 +591,7 @@ impl FormWidget for EditableListWidget {
                     KeyCode::Enter => {
                         let trimmed = input.trim();
                         if !trimmed.is_empty() {
-                            let can_add = self.max_items.map_or(true, |max| self.items.len() < max);
+                            let can_add = self.max_items.is_none_or(|max| self.items.len() < max);
                             if can_add {
                                 self.items.push(trimmed.to_string());
                                 self.highlighted = self.items.len(); // Di chuyển tới item vừa thêm
@@ -558,7 +613,11 @@ impl FormWidget for EditableListWidget {
                 }
                 return EventResult::Consumed;
             }
-            EditMode::Editing { index, input, cursor } => {
+            EditMode::Editing {
+                index,
+                input,
+                cursor,
+            } => {
                 let edit_idx = *index;
                 match key.code {
                     KeyCode::Enter => {
@@ -625,7 +684,7 @@ impl FormWidget for EditableListWidget {
             KeyCode::Enter => {
                 if self.highlighted == 0 {
                     // Kích hoạt thêm mới nếu chưa đầy
-                    let can_add = self.max_items.map_or(true, |max| self.items.len() < max);
+                    let can_add = self.max_items.is_none_or(|max| self.items.len() < max);
                     if can_add {
                         self.mode = EditMode::Adding {
                             input: String::new(),
@@ -695,7 +754,10 @@ mod tests {
     #[test]
     fn test_editable_list_creation_and_value() {
         let widget = EditableListWidget::new("tags", "Tags", vec!["Rust", "TUI"]);
-        assert_eq!(widget.value(), FormValue::List(vec!["Rust".into(), "TUI".into()]));
+        assert_eq!(
+            widget.value(),
+            FormValue::List(vec!["Rust".into(), "TUI".into()])
+        );
         assert_eq!(widget.items.len(), 2);
     }
 

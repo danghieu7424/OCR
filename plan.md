@@ -2,15 +2,15 @@
 
 ## Nguyên tắc
 
-- Pipeline mặc định chỉ trích xuất subtitle/caption và merge bằng `OCR_Merge`.
+- Pipeline mặc định chỉ trích xuất subtitle/caption và merge bằng `ocr_merge`.
 - VTT OCR thô là dữ liệu chuẩn của pipeline; không tự sửa bằng LLM, glossary hay fuzzy matching.
-- Không thay đổi thuật toán lõi của `OCR_Subtitles` và `OCR_Captions` trong các hạng mục dưới đây.
+- Không thay đổi thuật toán lõi của `ocr_subtitles` và `ocr_captions` trong các hạng mục dưới đây.
 - Đánh giá theo video và VTT tham chiếu đã kiểm chứng; không suy rộng một điểm số thành bảo đảm cho mọi đầu vào.
 
 ## Hiện trạng
 
-- `OCR_Subtitles` dùng PP-OCRv6, mặc định quét vùng gần đáy khung hình; profile ROI cần đổi nếu subtitle nằm ở vị trí khác.
-- `OCR_Captions` mặc định quét Y 10–80% và X 0–100%; vùng rộng có thể chứa chữ trong cảnh và watermark.
+- `ocr_subtitles` dùng PP-OCRv6, mặc định quét vùng gần đáy khung hình; profile ROI cần đổi nếu subtitle nằm ở vị trí khác.
+- `ocr_captions` mặc định quét Y 10–80% và X 0–100%; vùng rộng có thể chứa chữ trong cảnh và watermark.
 - `extract_and_merge` chạy hai OCR song song, giữ VTT thô riêng và merge trực tiếp.
 - `--caption-evidence` xuất crop first/best/last có timestamp, manifest và danh sách cảnh báo theo confidence/thời lượng.
 - Comparator hỗ trợ `.subtitles.zh.vtt` và `.zh.vtt`, báo riêng Conditional Character Accuracy và Overall CER.

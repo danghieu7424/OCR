@@ -36,7 +36,7 @@ pub use tags::Tags;
 pub use theme::Theme;
 pub use traits::{EventResult, FormValue, FormWidget};
 pub use widgets::{
-    ButtonWidget, CardItem, CardWidget, CheckboxWidget, EditMode, EditableListWidget, InputMode, InputWidget,
-    ListItem, ListWidget, RadioWidget, SelectOption, SelectWidget, ShimmerWidget, StatusBarWidget, TabsWidget,
-    ProgressStyle, SpinnerType, TaskState, TaskWidget,
+    ButtonWidget, CardItem, CardWidget, CheckboxWidget, EditMode, EditableListWidget, InputMode,
+    InputWidget, ListItem, ListWidget, ProgressStyle, RadioWidget, SelectOption, SelectWidget,
+    ShimmerWidget, SpinnerType, StatusBarWidget, TabsWidget, TaskState, TaskWidget,
 };

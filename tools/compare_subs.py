@@ -26,15 +26,16 @@ MAX_START_DIFF = 2.0
 def parse_vtt(path):
     segments = []
     start = end = None
-    for raw in open(path, encoding="utf-8"):
-        line = raw.strip()
-        if "-->" in line:
-            left, right = line.split("-->")
-            start = to_sec(left.strip().split(" ")[0])
-            end = to_sec(right.strip().split(" ")[0])
-        elif line and line != "WEBVTT" and start is not None:
-            segments.append((start, end, line))
-            start = end = None
+    with open(path, encoding="utf-8") as vtt_file:
+        for raw in vtt_file:
+            line = raw.strip()
+            if "-->" in line:
+                left, right = line.split("-->")
+                start = to_sec(left.strip().split(" ")[0])
+                end = to_sec(right.strip().split(" ")[0])
+            elif line and line != "WEBVTT" and start is not None:
+                segments.append((start, end, line))
+                start = end = None
     return segments
 
 
@@ -159,7 +160,7 @@ def score_alignment(ref, ours, normalizer):
     conditional_accuracy = (
         1.0 - paired_errors / paired_ref_chars if paired_ref_chars else None
     )
-    overall_cer = overall_errors / total_ref_chars if total_ref_chars else 0.0
+    overall_cer = overall_errors / total_ref_chars if total_ref_chars else None
     return {
         "pairs": pairs,
         "missing": missing,
@@ -177,9 +178,15 @@ def score_alignment(ref, ours, normalizer):
     }
 
 
+def configure_stdout(stream=None):
+    stream = sys.stdout if stream is None else stream
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure:
+        reconfigure(encoding="utf-8")
+
+
 def main():
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+    configure_stdout()
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--norm", default="none", choices=["none", "t2s", "s2t"])
@@ -219,10 +226,12 @@ def main():
         score = score_alignment(ref, ours, norm)
         conditional = score["conditional_accuracy"]
         conditional_text = "n/a" if conditional is None else f"{100 * conditional:.2f}%"
+        overall_cer = score["overall_cer"]
+        overall_cer_text = "n/a" if overall_cer is None else f"{100 * overall_cer:.2f}%"
         print(
             f"| {stem} | {len(ref)} | {len(ours)} | {len(score['pairs'])} | "
             f"{score['exact']} | {len(score['missing'])} | {len(score['extra'])} | "
-            f"{conditional_text} | {100 * score['overall_cer']:.2f}% |"
+            f"{conditional_text} | {overall_cer_text} |"
         )
         if args.show in (episode, stem):
             for r, o in score["pairs"]:
@@ -260,8 +269,14 @@ def main():
         + ("n/a" if conditional is None else f"{100 * conditional:.2f}%")
         + f" ({total['paired_errors']}/{total['paired_ref_chars']} paired reference characters)"
     )
+    overall_cer = (
+        total["overall_errors"] / total["total_ref_chars"]
+        if total["total_ref_chars"]
+        else None
+    )
+    overall_cer_text = "n/a" if overall_cer is None else f"{100 * overall_cer:.2f}%"
     print(
-        f"Overall CER: {100 * total['overall_errors'] / max(total['total_ref_chars'], 1):.2f}% "
+        f"Overall CER: {overall_cer_text} "
         f"({total['overall_errors']}/{total['total_ref_chars']} reference characters; "
         f"paired edits={total['paired_errors']}, missing cue chars={total['missing_chars']}, "
         f"extra cue chars={total['extra_chars']})"

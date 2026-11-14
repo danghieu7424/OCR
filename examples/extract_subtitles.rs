@@ -9,14 +9,12 @@
 
 use anyhow::Result;
 use cli_gui_form::TaskWidget;
+use ocr::{OcrExtractorConfig, extract_hardcoded_subtitles};
 use ratatui::style::Color;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
-use OCR::{extract_hardcoded_subtitles, OcrExtractorConfig};
-
-
 
 /// Tải file mô hình PP-OCRv6 từ URL
 fn download_model_file(url: &str, output_path: &Path) -> Result<()> {
@@ -26,21 +24,33 @@ fn download_model_file(url: &str, output_path: &Path) -> Result<()> {
     println!("    [DOWNLOAD] {}", url);
 
     let status = Command::new("curl.exe")
-        .args(&["-L", "--progress-bar", "-o", &output_path.to_string_lossy(), url])
+        .args([
+            "-L",
+            "--progress-bar",
+            "-o",
+            &output_path.to_string_lossy(),
+            url,
+        ])
         .status();
 
     match status {
         Ok(s) if s.success() && output_path.exists() => {
-            println!("    \x1b[32m[OK]\x1b[0m {:?}", output_path.file_name().unwrap_or_default());
+            println!(
+                "    \x1b[32m[OK]\x1b[0m {:?}",
+                output_path.file_name().unwrap_or_default()
+            );
             Ok(())
         }
         _ => {
             println!("    [FALLBACK] PowerShell...");
             let ps = format!(
                 "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
-                url, output_path.to_string_lossy()
+                url,
+                output_path.to_string_lossy()
             );
-            Command::new("powershell").args(&["-Command", &ps]).status()?;
+            Command::new("powershell")
+                .args(["-Command", &ps])
+                .status()?;
             if output_path.exists() {
                 Ok(())
             } else {
@@ -67,17 +77,28 @@ fn ensure_models_exist(model_dir: &Path) -> Result<()> {
         let mut unzipped = false;
         for zip in &zip_candidates {
             if zip.exists() {
-                println!(">>> [MODEL CHECK] Đang giải nén bộ mô hình PP-OCRv6 từ {:?}...", zip);
+                println!(
+                    ">>> [MODEL CHECK] Đang giải nén bộ mô hình PP-OCRv6 từ {:?}...",
+                    zip
+                );
                 let _ = std::fs::create_dir_all(model_dir);
                 let status = Command::new("tar")
-                    .args(&["-xf", &zip.to_string_lossy(), "-C", &model_dir.to_string_lossy()])
+                    .args([
+                        "-xf",
+                        &zip.to_string_lossy(),
+                        "-C",
+                        &model_dir.to_string_lossy(),
+                    ])
                     .status();
-                if let Ok(s) = status {
-                    if s.success() && det_model.exists() && rec_model.exists() && keys_file.exists() {
-                        println!("    \x1b[32m[OK]\x1b[0m Giải nén thành công bộ mô hình PP-OCRv6!");
-                        unzipped = true;
-                        break;
-                    }
+                if let Ok(s) = status
+                    && s.success()
+                    && det_model.exists()
+                    && rec_model.exists()
+                    && keys_file.exists()
+                {
+                    println!("    \x1b[32m[OK]\x1b[0m Giải nén thành công bộ mô hình PP-OCRv6!");
+                    unzipped = true;
+                    break;
                 }
             }
         }
@@ -127,16 +148,14 @@ fn main() -> Result<()> {
     let rec_model = Path::new("models/ocr/rec.onnx");
     let keys_file = Path::new("models/ocr/keys.txt");
 
-    let (model_dir, model_info) = if det_model.exists() && rec_model.exists() && keys_file.exists() {
+    let (model_dir, model_info) = if det_model.exists() && rec_model.exists() && keys_file.exists()
+    {
         (
             Path::new("models"),
             "Trọn bộ mô hình hoàn chỉnh tại 'models/ocr/' (det.onnx + rec.onnx + keys.txt)",
         )
     } else if Path::new("ocr/det.onnx").exists() && Path::new("ocr/rec.onnx").exists() {
-        (
-            Path::new("."),
-            "Tìm thấy mô hình tại thư mục gốc './ocr/'",
-        )
+        (Path::new("."), "Tìm thấy mô hình tại thư mục gốc './ocr/'")
     } else {
         (
             Path::new("models"),
@@ -153,13 +172,15 @@ fn main() -> Result<()> {
     // =========================================================================
     // 2. Cấu hình OCR Extractor (giữ trọn vẹn thông số công nghiệp độ chuẩn >99%)
     // =========================================================================
-    let mut config = OcrExtractorConfig::default();
     // Tốc độ 10 fps tiêu chuẩn; có thể thử nhanh bằng OCR_SUB_FPS=12
-    config.fps = std::env::var("OCR_SUB_FPS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(10);
-    config.accuracy_mode = true;    // Chế độ nhận diện chính xác cao
+    let config = OcrExtractorConfig {
+        fps: std::env::var("OCR_SUB_FPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10),
+        accuracy_mode: true,
+        ..OcrExtractorConfig::default()
+    };
     println!(
         "    [ENGINE CONFIG] Mode: ACCURACY | FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%]",
         config.fps,
@@ -180,14 +201,14 @@ fn main() -> Result<()> {
     )));
 
     // A. Cắm widget trực tiếp vào hệ thống phát tiến trình của thư viện OCR
-    OCR::attach_cli_gui_task(Arc::clone(&task_widget));
+    ocr::attach_cli_gui_task(Arc::clone(&task_widget));
 
     // B. Hiển thị Progress Bar trực quan thời gian thực trên màn hình Console
     // Sử dụng ký tự khối bình hành hiện đại từ cli_gui_form (▰ và ▱)
     let (filled_char, empty_char) = cli_gui_form::Icons::PROGRESS_CHARS_PARALLELOGRAM;
     let bar_width = 25usize;
 
-    OCR::on_progress(move |p| {
+    ocr::on_progress(move |p| {
         let total = p.total.max(1);
         let current = p.current.min(total);
         let ratio = (current as f32 / total as f32).clamp(0.0, 1.0);
@@ -211,7 +232,7 @@ fn main() -> Result<()> {
     });
 
     // C. Lắng nghe sự kiện chuyển bước
-    OCR::on_step(|step| {
+    ocr::on_step(|step| {
         println!("\n    \x1b[34m[STEP]\x1b[0m {}", step);
     });
 
@@ -258,25 +279,27 @@ fn main() -> Result<()> {
         ">>> \x1b[32m[SUCCESS]\x1b[0m Hoàn thành trích xuất! Tổng số câu phụ đề: \x1b[1m{}\x1b[0m",
         output.segments.len()
     );
-    println!(">>> \x1b[32m[SUCCESS]\x1b[0m File WebVTT: {:?}", output.vtt_path);
+    println!(
+        ">>> \x1b[32m[SUCCESS]\x1b[0m File WebVTT: {:?}",
+        output.vtt_path
+    );
 
     // =========================================================================
     // 5. Kiểm tra dữ liệu TaskWidget của cli_gui_form đã được đồng bộ
     // =========================================================================
-    if let Ok(w) = task_widget.lock() {
-        if let cli_gui_form::TaskState::Running {
+    if let Ok(w) = task_widget.lock()
+        && let cli_gui_form::TaskState::Running {
             current,
             total,
             duration,
             status,
             ..
         } = &w.state
-        {
-            println!(
-                "    \x1b[90m[CLI_GUI_FORM SYNC] TaskWidget State -> Current: {}/{} frames | Duration: {} | Status: {}\x1b[0m",
-                current, total, duration, status
-            );
-        }
+    {
+        println!(
+            "    \x1b[90m[CLI_GUI_FORM SYNC] TaskWidget State -> Current: {}/{} frames | Duration: {} | Status: {}\x1b[0m",
+            current, total, duration, status
+        );
     }
 
     Ok(())

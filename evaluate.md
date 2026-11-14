@@ -1,6 +1,6 @@
 # Kết quả kiểm chứng OCR
 
-Ngày chạy: 2026-11-14. Báo cáo này thay thế các số liệu lịch sử cũ; các chỉ số bên dưới được tính lại trên VTT hiện có bằng `tools/compare_subs.py`, không chuẩn hóa phồn/giản thể (`--norm none`).
+Ngày chạy: 2026-11-14. Báo cáo này thay thế các số liệu lịch sử cũ; các chỉ số bên dưới ghi lại lần đo 20 tập bằng `tools/compare_subs.py`, không chuẩn hóa phồn/giản thể (`--norm none`). Các VTT OCR của lần đo đó không còn trong working copy hiện tại; `final/` chỉ còn VTT của tập 001–004 và không phải bộ dữ liệu của bảng dưới đây.
 
 ## Subtitle: 20 tập
 
@@ -34,7 +34,7 @@ Ngày chạy: 2026-11-14. Báo cáo này thay thế các số liệu lịch sử
 
 ## Kiểm chứng lệnh trích xuất và ảnh caption evidence
 
-Đã chạy thành công:
+Đã chạy thành công trong lượt kiểm chứng ghi ở trên:
 
 ```powershell
 cargo run --release --example extract_and_merge -- 001 --caption-evidence
@@ -48,6 +48,8 @@ cargo run --release --example extract_and_merge -- 002 --caption-evidence
 
 Ảnh được ghi trong `output/caption_evidence/<episode>/run-<id>/`; một ảnh có thể đại diện đồng thời cho first/best hoặc best/last khi cùng chọn một frame. Cả hai lệnh bỏ qua VTT subtitle hợp lệ đã có, chạy lại caption để xuất evidence và hoàn tất bước merge.
 
+Thư mục `output/caption_evidence/` không có trong working copy hiện tại; phần duyệt bên dưới là kết quả lượt kiểm chứng trước, không thể mở lại ảnh trong checkout này.
+
 ### Duyệt ảnh
 
 - **001:** Đã xem ảnh first/best/last của cue 6. Manifest ghi `《大女儿-陆紫萱》`, thời gian 71.2–72.5 giây; frame 71.2, 71.4 và 72.4 giây đều cho thấy dòng chữ dọc `大女儿 陆紫萱` trên bia. Nội dung phù hợp cue và ảnh nằm trong khoảng thời gian cue; nghi vấn lệch timestamp của `ep01_06_danver.png` được giải tỏa trên evidence mới.
@@ -57,5 +59,7 @@ cargo run --release --example extract_and_merge -- 002 --caption-evidence
 ## Kiểm thử
 
 - `cargo test --workspace`: pass, gồm 54 unit tests và 1 doctest.
-- `python -m unittest tools.test_compare_subs`: pass (2 tests).
-- `python tools\compare_subs.py`: pass, đọc đủ 20 tập và in kết quả Unicode trên Windows.
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass, không có cảnh báo.
+- `cargo fmt --all -- --check`: pass.
+- `python -m unittest tools.test_compare_subs`: pass (5 tests).
+- `python tools\compare_subs.py`: lần chạy trước đã đọc đủ 20 tập; không thể tái chạy trong working copy hiện tại vì thiếu VTT OCR trong `output/`.

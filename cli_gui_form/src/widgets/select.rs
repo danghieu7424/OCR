@@ -7,11 +7,11 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph},
-    Frame,
 };
 
 /****
@@ -124,7 +124,11 @@ impl SelectWidget {
         self
     }
 
-    pub fn with_disabled_option(mut self, value: impl Into<String>, label: impl Into<String>) -> Self {
+    pub fn with_disabled_option(
+        mut self,
+        value: impl Into<String>,
+        label: impl Into<String>,
+    ) -> Self {
         self.options.push(SelectOption::disabled(value, label));
         self
     }
@@ -200,10 +204,10 @@ impl FormWidget for SelectWidget {
     }
 
     fn value(&self) -> FormValue {
-        if let Some(idx) = self.selected {
-            if let Some(opt) = self.options.get(idx) {
-                return FormValue::Select(idx, opt.value.clone());
-            }
+        if let Some(idx) = self.selected
+            && let Some(opt) = self.options.get(idx)
+        {
+            return FormValue::Select(idx, opt.value.clone());
         }
         FormValue::None
     }
@@ -231,17 +235,27 @@ impl FormWidget for SelectWidget {
         let (display_text, text_style) = if let Some(idx) = self.selected {
             if let Some(opt) = self.options.get(idx) {
                 let style = if self.focused {
-                    Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Theme::PRIMARY)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Theme::FG)
                 };
                 (opt.label.clone(), style)
             } else {
-                let ph = if self.placeholder.is_empty() { "Select an option..." } else { &self.placeholder };
+                let ph = if self.placeholder.is_empty() {
+                    "Select an option..."
+                } else {
+                    &self.placeholder
+                };
                 (ph.to_string(), Style::default().fg(Theme::NEUTRAL_300))
             }
         } else {
-            let ph = if self.placeholder.is_empty() { "Select an option..." } else { &self.placeholder };
+            let ph = if self.placeholder.is_empty() {
+                "Select an option..."
+            } else {
+                &self.placeholder
+            };
             (ph.to_string(), Style::default().fg(Theme::NEUTRAL_300))
         };
 
@@ -351,7 +365,11 @@ impl FormWidget for SelectWidget {
 
             // Tính toán trước độ rộng các thành phần cố định để bảo vệ scrollbar mép phải
             let prefix_w = 2; // Icons::POINTER_FILLED hoặc "  "
-            let check_w = if is_selected { Icons::CHECK.chars().count() + 1 } else { 0 };
+            let check_w = if is_selected {
+                Icons::CHECK.chars().count() + 1
+            } else {
+                0
+            };
             let disabled_w = if opt.disabled { 11 } else { 0 }; // " (disabled)"
             let fixed_w = prefix_w + check_w + disabled_w + scroll_col_width;
             let max_label_w = inner_w.saturating_sub(fixed_w);
@@ -359,17 +377,28 @@ impl FormWidget for SelectWidget {
 
             if is_highlighted {
                 // Mục đang được rê qua: con trỏ Icons::POINTER_FILLED và Primary BOLD
-                spans.push(Span::styled(Icons::POINTER_FILLED, Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    Icons::POINTER_FILLED,
+                    Style::default()
+                        .fg(Theme::PRIMARY)
+                        .add_modifier(Modifier::BOLD),
+                ));
                 let text_style = if opt.disabled {
-                    Style::default().fg(Theme::NEUTRAL_200).add_modifier(Modifier::DIM)
+                    Style::default()
+                        .fg(Theme::NEUTRAL_200)
+                        .add_modifier(Modifier::DIM)
                 } else {
-                    Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Theme::PRIMARY)
+                        .add_modifier(Modifier::BOLD)
                 };
                 spans.push(Span::styled(safe_label, text_style));
             } else {
                 spans.push(Span::raw("  "));
                 let text_style = if opt.disabled {
-                    Style::default().fg(Theme::NEUTRAL_200).add_modifier(Modifier::DIM)
+                    Style::default()
+                        .fg(Theme::NEUTRAL_200)
+                        .add_modifier(Modifier::DIM)
                 } else {
                     Style::default().fg(Theme::FG)
                 };
@@ -378,11 +407,19 @@ impl FormWidget for SelectWidget {
 
             // Biểu tượng checkmark nếu đã được chọn (chuẩn Icons::CHECK 1 cell)
             if is_selected {
-                spans.push(Span::styled(format!(" {}", Icons::CHECK.trim()), Style::default().fg(Theme::SUCCESS)));
+                spans.push(Span::styled(
+                    format!(" {}", Icons::CHECK.trim()),
+                    Style::default().fg(Theme::SUCCESS),
+                ));
             }
 
             if opt.disabled {
-                spans.push(Span::styled(" (disabled)", Style::default().fg(Theme::NEUTRAL_300).add_modifier(Modifier::DIM)));
+                spans.push(Span::styled(
+                    " (disabled)",
+                    Style::default()
+                        .fg(Theme::NEUTRAL_300)
+                        .add_modifier(Modifier::DIM),
+                ));
             }
 
             // Thanh cuộn ở mép phải của mỗi hàng
@@ -443,7 +480,9 @@ impl FormWidget for SelectWidget {
                 KeyCode::Down | KeyCode::Char('j') => {
                     if self.highlighted + 1 < self.options.len() {
                         self.highlighted += 1;
-                        if self.options[self.highlighted].disabled && self.highlighted + 1 < self.options.len() {
+                        if self.options[self.highlighted].disabled
+                            && self.highlighted + 1 < self.options.len()
+                        {
                             self.highlighted += 1;
                         }
                     } else {
@@ -472,16 +511,17 @@ impl FormWidget for SelectWidget {
                 }
                 KeyCode::PageDown => {
                     let step = self.max_visible_options;
-                    self.highlighted = (self.highlighted + step).min(self.options.len().saturating_sub(1));
+                    self.highlighted =
+                        (self.highlighted + step).min(self.options.len().saturating_sub(1));
                     self.adjust_scroll();
                     EventResult::Consumed
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    if let Some(opt) = self.options.get(self.highlighted) {
-                        if !opt.disabled {
-                            self.selected = Some(self.highlighted);
-                            self.close();
-                        }
+                    if let Some(opt) = self.options.get(self.highlighted)
+                        && !opt.disabled
+                    {
+                        self.selected = Some(self.highlighted);
+                        self.close();
                     }
                     EventResult::Consumed
                 }
@@ -519,12 +559,8 @@ mod tests {
 
     #[test]
     fn test_select_widget_basic_creation_and_value() {
-        let mut select = SelectWidget::new(
-            "env",
-            "Environment",
-            vec!["dev", "staging", "prod"],
-        )
-        .with_placeholder("Choose an environment...");
+        let mut select = SelectWidget::new("env", "Environment", vec!["dev", "staging", "prod"])
+            .with_placeholder("Choose an environment...");
 
         assert_eq!(select.value(), FormValue::None);
         assert_eq!(select.placeholder, "Choose an environment...");
@@ -532,10 +568,7 @@ mod tests {
 
         // Chọn index 1 ("staging")
         select.select_index(1);
-        assert_eq!(
-            select.value(),
-            FormValue::Select(1, "staging".to_string())
-        );
+        assert_eq!(select.value(), FormValue::Select(1, "staging".to_string()));
         assert_eq!(select.selected_option().unwrap().value, "staging");
     }
 
@@ -583,8 +616,8 @@ mod tests {
 
     #[test]
     fn test_select_widget_esc_cancels() {
-        let mut select = SelectWidget::new("tz", "Timezone", vec!["UTC", "GMT", "PST"])
-            .with_selected(0);
+        let mut select =
+            SelectWidget::new("tz", "Timezone", vec!["UTC", "GMT", "PST"]).with_selected(0);
 
         select.open();
         assert!(select.is_open());
@@ -604,8 +637,8 @@ mod tests {
     fn test_select_widget_dozens_of_options_scrolling_and_navigation() {
         // Tạo 50 options (ví dụ 50 bang/tiểu bang hoặc 50 quốc gia)
         let options: Vec<String> = (1..=50).map(|i| format!("Option {:02}", i)).collect();
-        let mut select = SelectWidget::new("fifty", "Dozens of Options", options)
-            .with_max_visible(6);
+        let mut select =
+            SelectWidget::new("fifty", "Dozens of Options", options).with_max_visible(6);
 
         select.open();
         assert!(select.is_open());
@@ -637,16 +670,24 @@ mod tests {
         select.highlighted = 12;
         let _ = select.handle_event(KeyEvent::from(KeyCode::Enter));
         assert!(!select.is_open());
-        assert_eq!(select.value(), FormValue::Select(12, "Option 13".to_string()));
+        assert_eq!(
+            select.value(),
+            FormValue::Select(12, "Option 13".to_string())
+        );
     }
 
     #[test]
     fn test_truncate_with_ellipsis_and_overflow_protection() {
         assert_eq!(truncate_with_ellipsis("Short", 10), "Short");
-        assert_eq!(truncate_with_ellipsis("Exactly10chars", 14), "Exactly10chars");
-        assert_eq!(truncate_with_ellipsis("Very Long Text That Exceeds Width", 10), "Very Long…");
+        assert_eq!(
+            truncate_with_ellipsis("Exactly10chars", 14),
+            "Exactly10chars"
+        );
+        assert_eq!(
+            truncate_with_ellipsis("Very Long Text That Exceeds Width", 10),
+            "Very Long…"
+        );
         assert_eq!(truncate_with_ellipsis("A", 1), "A");
         assert_eq!(truncate_with_ellipsis("ABC", 0), "");
     }
 }
-

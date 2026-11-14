@@ -3,11 +3,11 @@
 use crate::traits::{EventResult, FormValue, FormWidget};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 pub struct CheckboxWidget {
@@ -69,11 +69,19 @@ impl FormWidget for CheckboxWidget {
             let focus_style = Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD);
 
             Line::from(vec![
-                Span::styled("▸ ", Style::default().fg(crate::Theme::ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "▸ ",
+                    Style::default()
+                        .fg(crate::Theme::ACCENT)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(
                     box_str,
                     if self.checked {
-                        Style::default().bg(bg).fg(crate::Theme::SUCCESS).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .bg(bg)
+                            .fg(crate::Theme::SUCCESS)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         focus_style
                     },
@@ -84,7 +92,10 @@ impl FormWidget for CheckboxWidget {
             let label_style = Style::default().fg(crate::Theme::FG);
             Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled(box_str, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    box_str,
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(&self.label, label_style),
             ])
         };
@@ -106,8 +117,16 @@ impl FormWidget for CheckboxWidget {
         }
     }
 
-    fn focus(&mut self) { self.focused = true; }
-    fn blur(&mut self) { self.focused = false; }
-    fn is_focused(&self) -> bool { self.focused }
-    fn preferred_height(&self) -> u16 { 2 }
+    fn focus(&mut self) {
+        self.focused = true;
+    }
+    fn blur(&mut self) {
+        self.focused = false;
+    }
+    fn is_focused(&self) -> bool {
+        self.focused
+    }
+    fn preferred_height(&self) -> u16 {
+        2
+    }
 }

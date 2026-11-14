@@ -5,14 +5,14 @@ use cli_gui_form::{
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, style::Color, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend, style::Color};
 use std::{
     io::{self, stdout},
     sync::{
-        mpsc::{channel, Receiver, Sender},
         Arc, Mutex,
+        mpsc::{Receiver, Sender, channel},
     },
     thread,
     time::{Duration, Instant},
@@ -32,9 +32,21 @@ fn main() -> io::Result<()> {
 
     let mut form = FormManager::new();
 
-    form.add_widget(Box::new(InputWidget::new("user", "Username", InputMode::Text)));
-    form.add_widget(Box::new(InputWidget::new("pass", "Password", InputMode::Password)));
-    form.add_widget(Box::new(CheckboxWidget::new("remember", "Remember Me", false)));
+    form.add_widget(Box::new(InputWidget::new(
+        "user",
+        "Username",
+        InputMode::Text,
+    )));
+    form.add_widget(Box::new(InputWidget::new(
+        "pass",
+        "Password",
+        InputMode::Password,
+    )));
+    form.add_widget(Box::new(CheckboxWidget::new(
+        "remember",
+        "Remember Me",
+        false,
+    )));
     form.add_widget(Box::new(RadioWidget::new(
         "env",
         "Environment",
@@ -60,7 +72,12 @@ fn main() -> io::Result<()> {
     )));
     form.add_widget(Box::new(TaskShared(Arc::clone(&dynamic_task))));
 
-    form.add_widget(Box::new(ButtonWidget::new("submit", "SUBMIT", Color::Blue, Color::White)));
+    form.add_widget(Box::new(ButtonWidget::new(
+        "submit",
+        "SUBMIT",
+        Color::Blue,
+        Color::White,
+    )));
 
     let (tx, rx): (Sender<WorkerMessage>, Receiver<WorkerMessage>) = channel();
     thread::spawn(move || {
@@ -111,20 +128,20 @@ fn main() -> io::Result<()> {
             last_tick = Instant::now();
         }
 
-        if event::poll(target_frame_duration)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
-                    if key.code == KeyCode::Esc || is_ctrl_c {
-                        break;
-                    }
+        if event::poll(target_frame_duration)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            let is_ctrl_c =
+                key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+            if key.code == KeyCode::Esc || is_ctrl_c {
+                break;
+            }
 
-                    let res = form.handle_event(key);
-                    if res == EventResult::Submitted {
-                        submitted_values = Some(form.get_values());
-                        break;
-                    }
-                }
+            let res = form.handle_event(key);
+            if res == EventResult::Submitted {
+                submitted_values = Some(form.get_values());
+                break;
             }
         }
     }

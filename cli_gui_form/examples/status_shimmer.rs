@@ -4,9 +4,9 @@ use cli_gui_form::{EventResult, FormManager, ShimmerWidget};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     io::{self, stdout},
     sync::{Arc, Mutex},
@@ -98,15 +98,14 @@ fn main() -> io::Result<()> {
         })?;
 
         // Lắng nghe sự kiện phím (thoát bằng ESC hoặc Ctrl+C / Enter)
-        if event::poll(frame_interval)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c');
-                    if key.code == KeyCode::Esc || key.code == KeyCode::Enter || is_ctrl_c {
-                        break;
-                    }
-                }
+        if event::poll(frame_interval)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            let is_ctrl_c =
+                key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+            if key.code == KeyCode::Esc || key.code == KeyCode::Enter || is_ctrl_c {
+                break;
             }
         }
     }

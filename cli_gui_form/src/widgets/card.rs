@@ -2,11 +2,11 @@
 
 use crate::theme::Theme;
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 /****
@@ -87,7 +87,8 @@ impl CardWidget {
         status_text: impl Into<String>,
         status_color: Color,
     ) -> Self {
-        self.items.push(CardItem::new(label, status_icon, status_text, status_color));
+        self.items
+            .push(CardItem::new(label, status_icon, status_text, status_color));
         self
     }
 
@@ -98,7 +99,8 @@ impl CardWidget {
         status_text: impl Into<String>,
         status_color: Color,
     ) -> &mut Self {
-        self.items.push(CardItem::new(label, status_icon, status_text, status_color));
+        self.items
+            .push(CardItem::new(label, status_icon, status_text, status_color));
         self
     }
 
@@ -138,7 +140,9 @@ impl CardWidget {
             Span::styled(format!("{}{}", tl, h), border_style),
             Span::styled(
                 title_str,
-                Style::default().fg(self.title_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.title_color)
+                    .add_modifier(Modifier::BOLD),
             ),
         ];
         if remaining_border > 0 {
@@ -166,7 +170,7 @@ impl CardWidget {
 
         for item in &self.items {
             let mut row_spans = vec![Span::styled(v, border_style)];
-            
+
             // 2-space padding bên trái
             row_spans.push(Span::raw("  "));
 
@@ -201,17 +205,15 @@ impl CardWidget {
             // Status Text
             row_spans.push(Span::styled(
                 item.status_text.clone(),
-                Style::default().fg(item.status_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(item.status_color)
+                    .add_modifier(Modifier::BOLD),
             ));
             status_content_len += item.status_text.chars().count();
 
             // Khoảng trống còn lại trước viền phải
             let used_width = 2 + item.label.chars().count() + label_pad + status_content_len;
-            let right_pad = if inner_width > used_width {
-                inner_width - used_width
-            } else {
-                0
-            };
+            let right_pad = inner_width.saturating_sub(used_width);
 
             row_spans.push(Span::raw(" ".repeat(right_pad)));
             row_spans.push(Span::styled(v, border_style));
@@ -244,9 +246,24 @@ mod tests {
     #[test]
     fn test_card_widget_creation() {
         let card = CardWidget::new("card_deploy", "Deploy Status")
-            .with_item("Production", Some(crate::icons::Icons::CHECK.trim()), "Ready", Theme::SUCCESS)
-            .with_item("Preview", Some(crate::icons::Icons::RUN.trim()), "Building", Theme::ACCENT)
-            .with_item("Staging", Some(crate::icons::Icons::CHECK.trim()), "Ready", Theme::SUCCESS);
+            .with_item(
+                "Production",
+                Some(crate::icons::Icons::CHECK.trim()),
+                "Ready",
+                Theme::SUCCESS,
+            )
+            .with_item(
+                "Preview",
+                Some(crate::icons::Icons::RUN.trim()),
+                "Building",
+                Theme::ACCENT,
+            )
+            .with_item(
+                "Staging",
+                Some(crate::icons::Icons::CHECK.trim()),
+                "Ready",
+                Theme::SUCCESS,
+            );
 
         assert_eq!(card.items.len(), 3);
         assert_eq!(card.title, "Deploy Status");

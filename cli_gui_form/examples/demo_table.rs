@@ -4,15 +4,15 @@ use cli_gui_form::{Icons, Theme};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph, TableState},
-    Terminal,
 };
 use std::{
     io::{self, stdout},
@@ -41,7 +41,7 @@ fn main() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Dữ liệu mẫu theo chuẩn DESIGN.md mục 5. Tables
-    let items = vec![
+    let items = [
         DeploymentItem {
             name: "deploy-api",
             status_icon: Icons::SUCCESS,
@@ -93,10 +93,10 @@ fn main() -> io::Result<()> {
     table_state.select(Some(0));
 
     // Các cờ tùy chỉnh giao diện (Toggleable styles):
-    let mut is_rounded = false;       // Bật / tắt bo góc (BorderType::Rounded vs Plain)
+    let mut is_rounded = false; // Bật / tắt bo góc (BorderType::Rounded vs Plain)
     let mut show_horizontal_lines = false; // Bật / tắt đường kẻ ngang giữa các hàng
-    let mut show_column_borders = false;   // Bật / tắt đường kẻ dọc phân cách cột
-    let mut dash_mode: usize = 0;          // 0: Nét liền '─', 1: Hai nét '╌', 2: Ba nét '┄', 3: Bốn nét '┈'
+    let mut show_column_borders = false; // Bật / tắt đường kẻ dọc phân cách cột
+    let mut dash_mode: usize = 0; // 0: Nét liền '─', 1: Hai nét '╌', 2: Ba nét '┄', 3: Bốn nét '┈'
 
     let mut needs_render = true;
 
@@ -116,8 +116,16 @@ fn main() -> io::Result<()> {
 
                 // 1. Top Header H1 (Minimal, figlet-style / BOLD Primary)
                 let header_widget = Paragraph::new(Line::from(vec![
-                    Span::styled("  LINEAR / VERCEL TUI", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
-                    Span::styled(" ─ Deployments Dashboard", Style::default().fg(Theme::SECONDARY)),
+                    Span::styled(
+                        "  LINEAR / VERCEL TUI",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        " ─ Deployments Dashboard",
+                        Style::default().fg(Theme::SECONDARY),
+                    ),
                 ]))
                 .style(Style::default().bg(Theme::BG));
                 f.render_widget(header_widget, chunks[0]);
@@ -135,7 +143,12 @@ fn main() -> io::Result<()> {
                     .border_style(Style::default().fg(Theme::NEUTRAL_100))
                     .title(Line::from(vec![
                         Span::styled("─ ", Style::default().fg(Theme::NEUTRAL_100)),
-                        Span::styled("Services & Pipelines", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            "Services & Pipelines",
+                            Style::default()
+                                .fg(Theme::PRIMARY)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled(" ─", Style::default().fg(Theme::NEUTRAL_100)),
                     ]))
                     .style(Style::default().bg(Theme::BG));
@@ -145,7 +158,8 @@ fn main() -> io::Result<()> {
 
                 // 3. XÂY DỰNG TABLE GRID CHUẨN XÁC
                 let widths = [22, 16, 18, 14, 12];
-                let total_width: usize = widths.iter().sum::<usize>() + if show_column_borders { 4 } else { 0 };
+                let total_width: usize =
+                    widths.iter().sum::<usize>() + if show_column_borders { 4 } else { 0 };
 
                 let (c_top_left, c_top_right, c_bot_left, c_bot_right) = if is_rounded {
                     ("╭", "╮", "╰", "╯")
@@ -191,38 +205,73 @@ fn main() -> io::Result<()> {
                 // 1. Viền đỉnh của bảng (Top border) nếu có H-Line
                 if show_horizontal_lines {
                     let top_line = make_divider(c_top_left, c_tee_down, c_top_right, c_horiz);
-                    lines.push(Line::from(Span::styled(top_line, Style::default().fg(Theme::NEUTRAL_100))));
+                    lines.push(Line::from(Span::styled(
+                        top_line,
+                        Style::default().fg(Theme::NEUTRAL_100),
+                    )));
                 }
 
                 // 2. Hàng Header
                 let h_cells = [" Name", "Status", "Branch", "Commit", "Time"];
                 let mut header_spans: Vec<Span> = Vec::new();
                 if show_horizontal_lines {
-                    header_spans.push(Span::styled(c_vert, Style::default().fg(Theme::NEUTRAL_100)));
+                    header_spans.push(Span::styled(
+                        c_vert,
+                        Style::default().fg(Theme::NEUTRAL_100),
+                    ));
                 }
 
                 for (i, &title) in h_cells.iter().enumerate() {
                     let w = widths[i];
                     header_spans.push(Span::styled(
                         format!("{:<width$}", title, width = w),
-                        Style::default().fg(Theme::SECONDARY).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Theme::SECONDARY)
+                            .add_modifier(Modifier::BOLD),
                     ));
                     if show_column_borders && i < h_cells.len() - 1 {
-                        header_spans.push(Span::styled(c_vert, Style::default().fg(Theme::NEUTRAL_100)));
+                        header_spans.push(Span::styled(
+                            c_vert,
+                            Style::default().fg(Theme::NEUTRAL_100),
+                        ));
                     }
                 }
                 if show_horizontal_lines {
-                    header_spans.push(Span::styled(c_vert, Style::default().fg(Theme::NEUTRAL_100)));
+                    header_spans.push(Span::styled(
+                        c_vert,
+                        Style::default().fg(Theme::NEUTRAL_100),
+                    ));
                 }
                 lines.push(Line::from(header_spans));
 
                 // 3. Đường phân cách Header (Header Separator: luôn dùng ┼ cho mọi giao điểm cột dọc)
                 let header_sep = if show_horizontal_lines {
-                    make_divider(c_tee_right, if show_column_borders { c_cross } else { c_horiz }, c_tee_left, c_horiz)
+                    make_divider(
+                        c_tee_right,
+                        if show_column_borders {
+                            c_cross
+                        } else {
+                            c_horiz
+                        },
+                        c_tee_left,
+                        c_horiz,
+                    )
                 } else {
-                    make_divider("", if show_column_borders { c_cross } else { c_horiz }, "", c_horiz)
+                    make_divider(
+                        "",
+                        if show_column_borders {
+                            c_cross
+                        } else {
+                            c_horiz
+                        },
+                        "",
+                        c_horiz,
+                    )
                 };
-                lines.push(Line::from(Span::styled(header_sep, Style::default().fg(Theme::NEUTRAL_100))));
+                lines.push(Line::from(Span::styled(
+                    header_sep,
+                    Style::default().fg(Theme::NEUTRAL_100),
+                )));
 
                 // 4. Các hàng dữ liệu (Data Rows)
                 for (idx, item) in items.iter().enumerate() {
@@ -238,11 +287,16 @@ fn main() -> io::Result<()> {
                     let prefix = if is_selected { "▸ " } else { "  " };
                     let name_str = format!("{}{}", prefix, item.name);
                     let name_style = if is_selected {
-                        Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Theme::FG)
                     };
-                    row_spans.push(Span::styled(format!("{:<width$}", name_str, width = widths[0]), name_style));
+                    row_spans.push(Span::styled(
+                        format!("{:<width$}", name_str, width = widths[0]),
+                        name_style,
+                    ));
 
                     if show_column_borders {
                         row_spans.push(Span::styled(c_vert, row_border_style));
@@ -299,14 +353,20 @@ fn main() -> io::Result<()> {
                     // Đường kẻ ngang giữa các hàng dữ liệu (H-Line: áp dụng nét đứt ╌, ┄, ┈ hoặc ─)
                     if show_horizontal_lines && idx + 1 < items.len() {
                         let mid_sep = make_divider(c_tee_right, c_cross, c_tee_left, c_dash);
-                        lines.push(Line::from(Span::styled(mid_sep, Style::default().fg(Theme::NEUTRAL_100))));
+                        lines.push(Line::from(Span::styled(
+                            mid_sep,
+                            Style::default().fg(Theme::NEUTRAL_100),
+                        )));
                     }
                 }
 
                 // 5. Viền đáy của bảng
                 if show_horizontal_lines {
                     let bot_line = make_divider(c_bot_left, c_tee_up, c_bot_right, c_horiz);
-                    lines.push(Line::from(Span::styled(bot_line, Style::default().fg(Theme::NEUTRAL_100))));
+                    lines.push(Line::from(Span::styled(
+                        bot_line,
+                        Style::default().fg(Theme::NEUTRAL_100),
+                    )));
                 }
 
                 let paragraph = Paragraph::new(lines).style(Style::default().bg(Theme::BG));
@@ -320,17 +380,52 @@ fn main() -> io::Result<()> {
                     _ => "Solid (─)",
                 };
                 let status_line = Line::from(vec![
-                    Span::styled(" [B] ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("Border:{} ", if is_rounded { "Rounded" } else { "Plain" }), Style::default().fg(Theme::SECONDARY)),
+                    Span::styled(
+                        " [B] ",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("Border:{} ", if is_rounded { "Rounded" } else { "Plain" }),
+                        Style::default().fg(Theme::SECONDARY),
+                    ),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
-                    Span::styled(" [H] ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("H-Line:{} ", if show_horizontal_lines { "ON" } else { "OFF" }), Style::default().fg(Theme::SECONDARY)),
+                    Span::styled(
+                        " [H] ",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(
+                            "H-Line:{} ",
+                            if show_horizontal_lines { "ON" } else { "OFF" }
+                        ),
+                        Style::default().fg(Theme::SECONDARY),
+                    ),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
-                    Span::styled(" [V] ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("V-Line:{} ", if show_column_borders { "ON" } else { "OFF" }), Style::default().fg(Theme::SECONDARY)),
+                    Span::styled(
+                        " [V] ",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("V-Line:{} ", if show_column_borders { "ON" } else { "OFF" }),
+                        Style::default().fg(Theme::SECONDARY),
+                    ),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
-                    Span::styled(" [D] ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("Style:{} ", dash_label), Style::default().fg(Theme::SECONDARY)),
+                    Span::styled(
+                        " [D] ",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("Style:{} ", dash_label),
+                        Style::default().fg(Theme::SECONDARY),
+                    ),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
                     Span::styled(" ↑/↓: Navigate ", Style::default().fg(Theme::SECONDARY)),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
@@ -342,48 +437,47 @@ fn main() -> io::Result<()> {
             needs_render = false;
         }
 
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c');
-                    if key.code == KeyCode::Esc || is_ctrl_c {
-                        break;
-                    }
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            let is_ctrl_c =
+                key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+            if key.code == KeyCode::Esc || is_ctrl_c {
+                break;
+            }
 
-                    match key.code {
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            let curr = table_state.selected().unwrap_or(0);
-                            let next = if curr + 1 < items.len() { curr + 1 } else { 0 };
-                            table_state.select(Some(next));
-                            needs_render = true;
-                        }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            let curr = table_state.selected().unwrap_or(0);
-                            let prev = if curr > 0 { curr - 1 } else { items.len() - 1 };
-                            table_state.select(Some(prev));
-                            needs_render = true;
-                        }
-                        KeyCode::Char('b') | KeyCode::Char('B') => {
-                            is_rounded = !is_rounded;
-                            needs_render = true;
-                        }
-                        KeyCode::Char('h') | KeyCode::Char('H') => {
-                            show_horizontal_lines = !show_horizontal_lines;
-                            needs_render = true;
-                        }
-                        KeyCode::Char('v') | KeyCode::Char('V') => {
-                            show_column_borders = !show_column_borders;
-                            needs_render = true;
-                        }
-                        KeyCode::Char('d') | KeyCode::Char('D') => {
-                            // Chuyển đổi giữa 4 kiểu nét phân cách: ─ -> ╌ -> ┄ -> ┈
-                            dash_mode = (dash_mode + 1) % 4;
-                            needs_render = true;
-                        }
-                        _ => {}
-                    }
+            match key.code {
+                KeyCode::Down | KeyCode::Char('j') => {
+                    let curr = table_state.selected().unwrap_or(0);
+                    let next = if curr + 1 < items.len() { curr + 1 } else { 0 };
+                    table_state.select(Some(next));
+                    needs_render = true;
                 }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    let curr = table_state.selected().unwrap_or(0);
+                    let prev = if curr > 0 { curr - 1 } else { items.len() - 1 };
+                    table_state.select(Some(prev));
+                    needs_render = true;
+                }
+                KeyCode::Char('b') | KeyCode::Char('B') => {
+                    is_rounded = !is_rounded;
+                    needs_render = true;
+                }
+                KeyCode::Char('h') | KeyCode::Char('H') => {
+                    show_horizontal_lines = !show_horizontal_lines;
+                    needs_render = true;
+                }
+                KeyCode::Char('v') | KeyCode::Char('V') => {
+                    show_column_borders = !show_column_borders;
+                    needs_render = true;
+                }
+                KeyCode::Char('d') | KeyCode::Char('D') => {
+                    // Chuyển đổi giữa 4 kiểu nét phân cách: ─ -> ╌ -> ┄ -> ┈
+                    dash_mode = (dash_mode + 1) % 4;
+                    needs_render = true;
+                }
+                _ => {}
             }
         }
     }

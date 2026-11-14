@@ -6,11 +6,11 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
-    Frame,
 };
 
 pub struct ButtonWidget {
@@ -29,7 +29,12 @@ pub struct ButtonWidget {
 }
 
 impl ButtonWidget {
-    pub fn new(id: impl Into<String>, title: impl Into<String>, bg_color: Color, fg_color: Color) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        bg_color: Color,
+        fg_color: Color,
+    ) -> Self {
         Self {
             id: id.into(),
             title: title.into(),
@@ -137,7 +142,11 @@ impl ButtonWidget {
         let has_icon = icon_to_render.is_some();
         let effective_prefix = if has_icon {
             // Khi đã có icon, nút đóng khung/căn giữa không cần tiền tố; nút inline giữ lề 1 space
-            if self.bordered || self.centered { "" } else { " " }
+            if self.bordered || self.centered {
+                ""
+            } else {
+                " "
+            }
         } else {
             prefix
         };
@@ -228,9 +237,15 @@ impl FormWidget for ButtonWidget {
         }
     }
 
-    fn focus(&mut self) { self.focused = true; }
-    fn blur(&mut self) { self.focused = false; }
-    fn is_focused(&self) -> bool { self.focused }
+    fn focus(&mut self) {
+        self.focused = true;
+    }
+    fn blur(&mut self) {
+        self.focused = false;
+    }
+    fn is_focused(&self) -> bool {
+        self.focused
+    }
     fn preferred_height(&self) -> u16 {
         if self.bordered { 3 } else { 2 }
     }
@@ -291,11 +306,17 @@ mod tests {
         let line = btn.build_line();
         let spans = line.spans;
         // Do không có bordered/centered, spans[0] là prefix lề, spans[1] là icon, spans[2] là text
-        let icon_span = spans.iter().find(|s| s.content.contains('▶')).expect("Icon span must exist");
+        let icon_span = spans
+            .iter()
+            .find(|s| s.content.contains('▶'))
+            .expect("Icon span must exist");
         assert!(!icon_span.style.add_modifier.contains(Modifier::BOLD));
         assert!(icon_span.style.sub_modifier.contains(Modifier::BOLD));
 
-        let text_span = spans.iter().find(|s| s.content.contains("RUN JOB")).expect("Text span must exist");
+        let text_span = spans
+            .iter()
+            .find(|s| s.content.contains("RUN JOB"))
+            .expect("Text span must exist");
         assert!(text_span.style.add_modifier.contains(Modifier::BOLD));
     }
 }

@@ -1,21 +1,21 @@
 // --- PHÂN ĐOẠN: DEMO MINIMAL TUI VỚI CÁC THÀNH PHẦN THEO CHUẨN DESIGN.MD ---
 
 use cli_gui_form::{
-    ButtonWidget, CheckboxWidget, EventResult, FormManager, FormValue, FormWidget,
-    InputMode, InputWidget, RadioWidget, SpinnerType, TaskWidget, Theme,
+    ButtonWidget, CheckboxWidget, EventResult, FormManager, FormValue, FormWidget, InputMode,
+    InputWidget, RadioWidget, SpinnerType, TaskWidget, Theme,
 };
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
-    Terminal,
 };
 use std::{
     io::{self, stdout},
@@ -101,11 +101,7 @@ fn main() -> io::Result<()> {
     form.add_widget(Box::new(RadioWidget::new(
         "environment",
         "Deployment Target",
-        vec![
-            "Production".into(),
-            "Preview".into(),
-            "Development".into(),
-        ],
+        vec!["Production".into(), "Preview".into(), "Development".into()],
     )));
 
     // 4. TaskWidget với Spinner Thinking / Pulse
@@ -121,12 +117,18 @@ fn main() -> io::Result<()> {
     form.add_widget(Box::new(TaskShared(Arc::clone(&deploy_task))));
 
     // 5. Buttons (▸ prefix, Reverse video on focused)
-    form.add_widget(Box::new(
-        ButtonWidget::new("btn_deploy", "Deploy Now", Theme::BG, Theme::FG),
-    ));
-    form.add_widget(Box::new(
-        ButtonWidget::new("btn_cancel", "Cancel", Theme::BG, Theme::MUTED),
-    ));
+    form.add_widget(Box::new(ButtonWidget::new(
+        "btn_deploy",
+        "Deploy Now",
+        Theme::BG,
+        Theme::FG,
+    )));
+    form.add_widget(Box::new(ButtonWidget::new(
+        "btn_cancel",
+        "Cancel",
+        Theme::BG,
+        Theme::MUTED,
+    )));
 
     let tick_interval = Duration::from_millis(150); // Nhịp Pulse 150ms
     let mut last_tick = Instant::now();
@@ -140,21 +142,20 @@ fn main() -> io::Result<()> {
             tick_interval - elapsed
         };
 
-        if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c');
-                    if key.code == KeyCode::Esc || is_ctrl_c {
-                        break;
-                    }
+        if event::poll(timeout)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            let is_ctrl_c =
+                key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+            if key.code == KeyCode::Esc || is_ctrl_c {
+                break;
+            }
 
-                    let res = form.handle_event(key);
-                    needs_render = true;
-                    if res == EventResult::Submitted {
-                        break;
-                    }
-                }
+            let res = form.handle_event(key);
+            needs_render = true;
+            if res == EventResult::Submitted {
+                break;
             }
         }
 
@@ -182,8 +183,16 @@ fn main() -> io::Result<()> {
 
                 // Header H1: Minimal, BOLD + Primary
                 let header = Paragraph::new(Line::from(vec![
-                    Span::styled("  LINEAR / VERCEL TUI", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
-                    Span::styled(" ─ Service Configuration", Style::default().fg(Theme::SECONDARY)),
+                    Span::styled(
+                        "  LINEAR / VERCEL TUI",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        " ─ Service Configuration",
+                        Style::default().fg(Theme::SECONDARY),
+                    ),
                 ]))
                 .style(Style::default().bg(Theme::BG));
                 f.render_widget(header, chunks[0]);
@@ -193,7 +202,10 @@ fn main() -> io::Result<()> {
                     .borders(Borders::ALL)
                     .border_type(BorderType::Plain)
                     .border_style(Style::default().fg(Theme::NEUTRAL_100))
-                    .title(Span::styled("─ Deployment Settings ─", Style::default().fg(Theme::SECONDARY)))
+                    .title(Span::styled(
+                        "─ Deployment Settings ─",
+                        Style::default().fg(Theme::SECONDARY),
+                    ))
                     .style(Style::default().bg(Theme::BG));
 
                 let panel_inner = panel_block.inner(chunks[1]);
@@ -204,16 +216,27 @@ fn main() -> io::Result<()> {
 
                 // Status Bar (Single line at bottom, separated by " ─ ")
                 let status_line = Line::from(vec![
-                    Span::styled(" main ", Style::default().fg(Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        " main ",
+                        Style::default()
+                            .fg(Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
                     Span::styled(" Tab: Next ", Style::default().fg(Theme::SECONDARY)),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
                     Span::styled(" ↑/↓: Navigate ", Style::default().fg(Theme::SECONDARY)),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
-                    Span::styled(" Enter/Space: Select ", Style::default().fg(Theme::SECONDARY)),
+                    Span::styled(
+                        " Enter/Space: Select ",
+                        Style::default().fg(Theme::SECONDARY),
+                    ),
                     Span::styled("─", Style::default().fg(Theme::MUTED)),
                     Span::styled(" Esc: Exit ", Style::default().fg(Theme::SECONDARY)),
-                    Span::styled("                              ✓ System Ready ", Style::default().fg(Theme::SUCCESS)),
+                    Span::styled(
+                        "                              ✓ System Ready ",
+                        Style::default().fg(Theme::SUCCESS),
+                    ),
                 ]);
                 let status_bar = Paragraph::new(status_line).style(Style::default().bg(Theme::BG));
                 f.render_widget(status_bar, chunks[2]);

@@ -85,10 +85,10 @@ impl Tags {
 
     // Điều hướng & Cây thư mục (Navigation & Hierarchy)
     pub const POINTER: &'static str = "[>]"; // Con trỏ đang chọn / Active
-    pub const EXPAND: &'static str = "[+]";  // Thư mục đóng (bấm bung) / Thêm mới
+    pub const EXPAND: &'static str = "[+]"; // Thư mục đóng (bấm bung) / Thêm mới
     pub const COLLAPSE: &'static str = "[-]"; // Thư mục mở / Thu gọn
-    pub const PATH: &'static str = "[/]";    // Thư mục con / Phân cấp
-    pub const HOME: &'static str = "[~]";    // Thư mục Home / Vùng tạm
+    pub const PATH: &'static str = "[/]"; // Thư mục con / Phân cấp
+    pub const HOME: &'static str = "[~]"; // Thư mục Home / Vùng tạm
 
     // Trạng thái lựa chọn (Selection & Form Controls)
     pub const CHECKED: &'static str = "[x]"; // Checkbox: Đã chọn
@@ -110,7 +110,7 @@ impl Tags {
 
     // Media & Thao tác (Media & Navigation Chars)
     pub const PAUSE_CHAR: &'static str = "[=]"; // Tạm dừng media
-    pub const UP_CHAR: &'static str = "[^]";   // Nhảy lên đầu trang
+    pub const UP_CHAR: &'static str = "[^]"; // Nhảy lên đầu trang
     pub const DOWN_CHAR: &'static str = "[v]"; // Cuộn xuống cuối trang
     pub const RECORD_CHAR: &'static str = "[o]"; // Ghi âm / Nguồn bật
 
@@ -149,14 +149,20 @@ impl Tags {
     #[inline]
     pub fn color_for(tag: &str) -> Color {
         match tag {
-            Self::INFO | Self::INFO_CHAR | Self::LINK | Self::APIS | Self::USER => crate::Theme::ACCENT,
+            Self::INFO | Self::INFO_CHAR | Self::LINK | Self::APIS | Self::USER => {
+                crate::Theme::ACCENT
+            }
             Self::WARN | Self::ALERT_CHAR | Self::TIME | "[LOCK]" => crate::Theme::WARNING,
             Self::FAIL | Self::ERROR_CHAR | Self::KILL => crate::Theme::ERROR,
             Self::PASS | Self::DONE | Self::CHECKED => crate::Theme::SUCCESS,
-            Self::CONF | Self::CORE | Self::EXEC | Self::POINTER | Self::INIT => crate::Theme::PRIMARY,
+            Self::CONF | Self::CORE | Self::EXEC | Self::POINTER | Self::INIT => {
+                crate::Theme::PRIMARY
+            }
             Self::WAIT | Self::PAUS | Self::PAUSE_CHAR => crate::Theme::ORANGE,
             Self::AUDI | Self::SONG | Self::VOIC | Self::SYNC => crate::Theme::CYAN,
-            Self::DEVS | Self::NODE | Self::CERT | Self::PACK | Self::ARCH | Self::NETW => crate::Theme::PURPLE,
+            Self::DEVS | Self::NODE | Self::CERT | Self::PACK | Self::ARCH | Self::NETW => {
+                crate::Theme::PURPLE
+            }
             Self::PROC | Self::PIPE => crate::Theme::INDIGO,
             "[SKIP]" => crate::Theme::MUTED,
             _ => crate::Theme::SECONDARY,
@@ -172,12 +178,54 @@ mod tests {
     fn test_tag4_exact_length_guard() {
         // Guardrail: Toàn bộ Tag 4 ký tự BẮT BUỘC phải có độ dài chính xác 6 ký tự
         let all_tag4 = [
-            Tags::INFO, Tags::WARN, Tags::FAIL, Tags::PASS, Tags::DONE, Tags::WAIT, Tags::IDLE, Tags::BUSY,
-            Tags::PING, Tags::TIME, Tags::PROC, Tags::CONF, Tags::CORE, Tags::TOOL, Tags::DEVS, Tags::TEST,
-            Tags::INIT, Tags::EXIT, Tags::KILL, Tags::DIRS, Tags::FILE, Tags::DOCS, Tags::PACK, Tags::ARCH,
-            Tags::ROOT, Tags::MEDA, Tags::AUDI, Tags::RECD, Tags::IMAG, Tags::SONG, Tags::VOIC, Tags::EXEC,
-            Tags::PLAY, Tags::PAUS, Tags::STOP, Tags::NEXT, Tags::PREV, Tags::STEP, Tags::SYNC, Tags::NETW,
-            Tags::APIS, Tags::LINK, Tags::USER, Tags::AUTH, Tags::CERT, Tags::NODE, Tags::HOST, Tags::PORT,
+            Tags::INFO,
+            Tags::WARN,
+            Tags::FAIL,
+            Tags::PASS,
+            Tags::DONE,
+            Tags::WAIT,
+            Tags::IDLE,
+            Tags::BUSY,
+            Tags::PING,
+            Tags::TIME,
+            Tags::PROC,
+            Tags::CONF,
+            Tags::CORE,
+            Tags::TOOL,
+            Tags::DEVS,
+            Tags::TEST,
+            Tags::INIT,
+            Tags::EXIT,
+            Tags::KILL,
+            Tags::DIRS,
+            Tags::FILE,
+            Tags::DOCS,
+            Tags::PACK,
+            Tags::ARCH,
+            Tags::ROOT,
+            Tags::MEDA,
+            Tags::AUDI,
+            Tags::RECD,
+            Tags::IMAG,
+            Tags::SONG,
+            Tags::VOIC,
+            Tags::EXEC,
+            Tags::PLAY,
+            Tags::PAUS,
+            Tags::STOP,
+            Tags::NEXT,
+            Tags::PREV,
+            Tags::STEP,
+            Tags::SYNC,
+            Tags::NETW,
+            Tags::APIS,
+            Tags::LINK,
+            Tags::USER,
+            Tags::AUTH,
+            Tags::CERT,
+            Tags::NODE,
+            Tags::HOST,
+            Tags::PORT,
             Tags::PIPE,
         ];
 
@@ -197,11 +245,27 @@ mod tests {
     fn test_tag1_exact_length_guard() {
         // Guardrail: Toàn bộ Tag 1 ký tự BẮT BUỘC phải có độ dài chính xác 3 ký tự
         let all_tag1 = [
-            Tags::POINTER, Tags::EXPAND, Tags::COLLAPSE, Tags::PATH, Tags::HOME,
-            Tags::CHECKED, Tags::UNCHECKED, Tags::RADIO_ACTIVE, Tags::RADIO_INACTIVE,
-            Tags::INFO_CHAR, Tags::ALERT_CHAR, Tags::HELP_CHAR, Tags::ERROR_CHAR,
-            Tags::USER_CHAR, Tags::JOB_CHAR, Tags::PERCENT_CHAR, Tags::COMMAND_CHAR,
-            Tags::PAUSE_CHAR, Tags::UP_CHAR, Tags::DOWN_CHAR, Tags::RECORD_CHAR,
+            Tags::POINTER,
+            Tags::EXPAND,
+            Tags::COLLAPSE,
+            Tags::PATH,
+            Tags::HOME,
+            Tags::CHECKED,
+            Tags::UNCHECKED,
+            Tags::RADIO_ACTIVE,
+            Tags::RADIO_INACTIVE,
+            Tags::INFO_CHAR,
+            Tags::ALERT_CHAR,
+            Tags::HELP_CHAR,
+            Tags::ERROR_CHAR,
+            Tags::USER_CHAR,
+            Tags::JOB_CHAR,
+            Tags::PERCENT_CHAR,
+            Tags::COMMAND_CHAR,
+            Tags::PAUSE_CHAR,
+            Tags::UP_CHAR,
+            Tags::DOWN_CHAR,
+            Tags::RECORD_CHAR,
         ];
 
         for tag in all_tag1 {
@@ -218,8 +282,16 @@ mod tests {
 
     #[test]
     fn test_tags_format_and_span() {
-        assert_eq!(Tags::format(Tags::INFO, "System ready"), "[INFO] System ready");
-        let span = Tags::span(Tags::PASS, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
+        assert_eq!(
+            Tags::format(Tags::INFO, "System ready"),
+            "[INFO] System ready"
+        );
+        let span = Tags::span(
+            Tags::PASS,
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        );
         assert!(!span.style.add_modifier.contains(Modifier::BOLD));
         assert_eq!(span.content, "[PASS]");
     }

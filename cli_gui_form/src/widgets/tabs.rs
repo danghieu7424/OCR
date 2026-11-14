@@ -6,11 +6,11 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 /****
@@ -259,7 +259,10 @@ impl TabsWidget {
 
         // Kéo dài viền trên sang hết chiều rộng của Panel và đóng góc ╮
         if width > drawn_cols + 1 {
-            row2_spans.push(Span::styled("─".repeat(width - drawn_cols - 1), border_style));
+            row2_spans.push(Span::styled(
+                "─".repeat(width - drawn_cols - 1),
+                border_style,
+            ));
             row2_spans.push(Span::styled("╮", border_style));
         } else if width > drawn_cols {
             row2_spans.push(Span::styled("╮", border_style));
@@ -296,11 +299,9 @@ impl TabsWidget {
         let has_scroll = total_lines > body_height && body_height > 0;
         let (thumb_start, thumb_len) = if has_scroll {
             let t_len = ((body_height * body_height) / total_lines).max(1);
-            let t_start = if max_scroll > 0 {
-                (active_scroll * (body_height.saturating_sub(t_len))) / max_scroll
-            } else {
-                0
-            };
+            let t_start = (active_scroll * (body_height.saturating_sub(t_len)))
+                .checked_div(max_scroll)
+                .unwrap_or(0);
             (t_start, t_len)
         } else {
             (0, 0)
@@ -416,10 +417,16 @@ impl FormWidget for TabsWidget {
 
             if is_active {
                 // Active tab để trống đáy hoàn toàn
-                bottom_spans.push(Span::styled(" ".repeat(tab_len), Style::default().fg(Theme::NEUTRAL_100)));
+                bottom_spans.push(Span::styled(
+                    " ".repeat(tab_len),
+                    Style::default().fg(Theme::NEUTRAL_100),
+                ));
             } else {
                 // Inactive tab gạch ngang bằng độ dài chữ
-                bottom_spans.push(Span::styled("─".repeat(tab_len), Style::default().fg(Theme::NEUTRAL_100)));
+                bottom_spans.push(Span::styled(
+                    "─".repeat(tab_len),
+                    Style::default().fg(Theme::NEUTRAL_100),
+                ));
             }
 
             if idx < self.titles.len() - 1 {
@@ -433,7 +440,8 @@ impl FormWidget for TabsWidget {
         }
 
         let line_bottom = Line::from(bottom_spans);
-        let paragraph = Paragraph::new(vec![line_titles, line_bottom]).style(Style::default().bg(Theme::BG));
+        let paragraph =
+            Paragraph::new(vec![line_titles, line_bottom]).style(Style::default().bg(Theme::BG));
         frame.render_widget(paragraph, area);
     }
 

@@ -2,22 +2,22 @@
 members = [
     ".",
     "crates/ocr_shared",
-    "crates/OCR_Subtitles",
-    "crates/OCR_Captions",
-    "crates/OCR_Merge",
+    "crates/ocr_subtitles",
+    "crates/ocr_captions",
+    "crates/ocr_merge",
 ]
 
 [package]
-name = "OCR"
-version = "0.5.0"
+name = "ocr-core"
+version = "0.6.0"
 edition = "2024"
 
 [lib]
-name = "OCR"
+name = "ocr"
 path = "src/lib.rs"
 
 [[bin]]
-name = "OCR"
+name = "ocr-core"
 path = "src/main.rs"
 
 [[example]]
@@ -33,9 +33,9 @@ name = "merge_subtitles_captions"
 path = "examples/merge_subtitles_captions.rs"
 
 [dependencies]
-OCR_Subtitles = { path = "crates/OCR_Subtitles" }
-OCR_Captions = { path = "crates/OCR_Captions" }
-OCR_Merge = { path = "crates/OCR_Merge" }
+ocr_subtitles = { path = "crates/ocr_subtitles" }
+ocr_captions = { path = "crates/ocr_captions" }
+ocr_merge = { path = "crates/ocr_merge" }
 ocr_shared = { path = "crates/ocr_shared" }
 
 anyhow = "1.0"

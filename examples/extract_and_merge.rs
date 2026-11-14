@@ -6,15 +6,15 @@
 //!
 //! Cách chạy:
 //! - Cho một tập chỉ định (mặc định song song):
-//!     cargo run --release --example extract_and_merge -- 002
-//!     cargo run --release --example extract_and_merge -- input/第002集.mp4
+//!   cargo run --release --example extract_and_merge -- 002
+//!   cargo run --release --example extract_and_merge -- input/第002集.mp4
 //! - Xuất ảnh bằng chứng cho caption:
-//!     cargo run --release --example extract_and_merge -- 001 --caption-evidence
+//!   cargo run --release --example extract_and_merge -- 001 --caption-evidence
 //! - Chạy tuần tự (nếu muốn tiết kiệm CPU):
-//!     cargo run --release --example extract_and_merge -- 002 --sequential
+//!   cargo run --release --example extract_and_merge -- 002 --sequential
 //! - Cho toàn bộ video trong input/:
-//!     cargo run --release --example extract_and_merge -- all
-//!     cargo run --release --example extract_and_merge
+//!   cargo run --release --example extract_and_merge -- all
+//!   cargo run --release --example extract_and_merge
 
 use anyhow::{Context, Result, bail};
 use std::env;
@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
-use OCR::{
+use ocr::{
     CaptionExtractorConfig, OcrExtractorConfig, extract_captions, extract_hardcoded_subtitles,
     merge_vtt_files,
 };
@@ -39,7 +39,7 @@ fn download_file(url: &str, output: &Path) -> Result<()> {
     println!("    [DOWNLOAD] {}", url);
 
     let status = Command::new("curl.exe")
-        .args(&["-L", "--progress-bar", "-o", &output.to_string_lossy(), url])
+        .args(["-L", "--progress-bar", "-o", &output.to_string_lossy(), url])
         .status();
 
     match status {
@@ -58,7 +58,7 @@ fn download_file(url: &str, output: &Path) -> Result<()> {
                 output.to_string_lossy()
             );
             Command::new("powershell")
-                .args(&["-Command", &ps])
+                .args(["-Command", &ps])
                 .status()?;
             if output.exists() {
                 Ok(())
@@ -93,21 +93,22 @@ fn ensure_models(model_dir: &Path) -> Result<()> {
                 );
                 let _ = fs::create_dir_all(model_dir);
                 let status = Command::new("tar")
-                    .args(&[
+                    .args([
                         "-xf",
                         &zip.to_string_lossy(),
                         "-C",
                         &model_dir.to_string_lossy(),
                     ])
                     .status();
-                if let Ok(s) = status {
-                    if s.success() && det.exists() && rec.exists() && keys.exists() {
-                        println!(
-                            "    \x1b[32m[OK]\x1b[0m Giải nén thành công bộ mô hình PP-OCRv6!"
-                        );
-                        unzipped = true;
-                        break;
-                    }
+                if let Ok(s) = status
+                    && s.success()
+                    && det.exists()
+                    && rec.exists()
+                    && keys.exists()
+                {
+                    println!("    \x1b[32m[OK]\x1b[0m Giải nén thành công bộ mô hình PP-OCRv6!");
+                    unzipped = true;
+                    break;
                 }
             }
         }
@@ -148,17 +149,17 @@ fn is_valid_vtt(path: &Path) -> bool {
     if !path.exists() {
         return false;
     }
-    if let Ok(meta) = fs::metadata(path) {
-        if meta.len() < 20 {
-            return false;
-        }
+    if let Ok(meta) = fs::metadata(path)
+        && meta.len() < 20
+    {
+        return false;
     }
     fs::read_to_string(path)
         .map(|s| s.contains("-->"))
         .unwrap_or(false)
 }
 
-fn log_caption_review(output: &OCR::CaptionExtractorOutput) {
+fn log_caption_review(output: &ocr::CaptionExtractorOutput) {
     if let Some(dir) = &output.evidence_dir {
         println!("    [CAP: EVIDENCE] Ảnh kiểm chứng: {:?}", dir);
     }
@@ -367,7 +368,7 @@ fn main() -> Result<()> {
     let (filled_char, empty_char) = cli_gui_form::Icons::PROGRESS_CHARS_PARALLELOGRAM;
     let bar_width = 12usize;
 
-    OCR::on_progress(move |p| {
+    ocr::on_progress(move |p| {
         let total = p.total.max(1);
         let current = p.current.min(total);
         let ratio = (current as f32 / total as f32).clamp(0.0, 1.0);
@@ -416,19 +417,17 @@ fn main() -> Result<()> {
         // Quét toàn bộ input/ hoặc video_input/
         for dir in &["input", "video_input"] {
             let p = Path::new(dir);
-            if p.exists() {
-                if let Ok(entries) = fs::read_dir(p) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                            if ["mp4", "mkv", "avi", "mov", "ts", "flv"]
-                                .contains(&ext.to_lowercase().as_str())
-                            {
-                                if !videos.iter().any(|v| v.file_name() == path.file_name()) {
-                                    videos.push(path);
-                                }
-                            }
-                        }
+            if p.exists()
+                && let Ok(entries) = fs::read_dir(p)
+            {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(ext) = path.extension().and_then(|s| s.to_str())
+                        && ["mp4", "mkv", "avi", "mov", "ts", "flv"]
+                            .contains(&ext.to_lowercase().as_str())
+                        && !videos.iter().any(|v| v.file_name() == path.file_name())
+                    {
+                        videos.push(path);
                     }
                 }
             }

@@ -7,9 +7,9 @@ use cli_gui_form::{
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, style::Color, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend, style::Color};
 use std::{
     io::{self, stdout},
     sync::{Arc, Mutex},
@@ -72,17 +72,34 @@ fn main() -> io::Result<()> {
     let mut form = FormManager::new();
 
     // 1. Text Inputs
-    form.add_widget(Box::new(InputWidget::new("task_name", "Tên tiến trình", InputMode::Text)));
+    form.add_widget(Box::new(InputWidget::new(
+        "task_name",
+        "Tên tiến trình",
+        InputMode::Text,
+    )));
 
     // 2. Checkboxes (Tự động áp dụng Icons::CHECKBOX_ON '☑' và Icons::CHECKBOX_OFF '☐')
-    form.add_widget(Box::new(CheckboxWidget::new("auto_retry", "Tự động thử lại khi lỗi", true)));
-    form.add_widget(Box::new(CheckboxWidget::new("send_notify", "Gửi thông báo hoàn tất", false)));
+    form.add_widget(Box::new(CheckboxWidget::new(
+        "auto_retry",
+        "Tự động thử lại khi lỗi",
+        true,
+    )));
+    form.add_widget(Box::new(CheckboxWidget::new(
+        "send_notify",
+        "Gửi thông báo hoàn tất",
+        false,
+    )));
 
     // 3. Radio Options (Tự động áp dụng Icons::RADIO_ON '●' và Icons::RADIO_OFF '○')
     form.add_widget(Box::new(RadioWidget::new(
         "log_level",
         "Mức độ Log",
-        vec!["Debug".into(), "Info".into(), "Warning".into(), "Error".into()],
+        vec![
+            "Debug".into(),
+            "Info".into(),
+            "Warning".into(),
+            "Error".into(),
+        ],
     )));
 
     // 4. TaskWidget với SpinnerType::Pulse (Icons::THINKING_FRAMES)
@@ -99,12 +116,22 @@ fn main() -> io::Result<()> {
 
     // 5. Buttons với Icons từ bảng chuẩn: RUN (▶), STOP (■), SUCCESS (✔)
     form.add_widget(Box::new(
-        ButtonWidget::new("btn_start", "BẮT ĐẦU CHẠY", Icons::color_run(), Color::Black)
-            .with_icon(Icons::RUN),
+        ButtonWidget::new(
+            "btn_start",
+            "BẮT ĐẦU CHẠY",
+            Icons::color_run(),
+            Color::Black,
+        )
+        .with_icon(Icons::RUN),
     ));
     form.add_widget(Box::new(
-        ButtonWidget::new("btn_submit", "LƯU CẤU HÌNH", Icons::color_success(), Color::Black)
-            .with_icon(Icons::SUCCESS),
+        ButtonWidget::new(
+            "btn_submit",
+            "LƯU CẤU HÌNH",
+            Icons::color_success(),
+            Color::Black,
+        )
+        .with_icon(Icons::SUCCESS),
     ));
 
     let frame_interval = Duration::from_millis(16); // ~60 FPS
@@ -123,20 +150,19 @@ fn main() -> io::Result<()> {
             form.render(f.area(), f);
         })?;
 
-        if event::poll(frame_interval)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c');
-                    if key.code == KeyCode::Esc || is_ctrl_c {
-                        break;
-                    }
+        if event::poll(frame_interval)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            let is_ctrl_c =
+                key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+            if key.code == KeyCode::Esc || is_ctrl_c {
+                break;
+            }
 
-                    let res = form.handle_event(key);
-                    if res == EventResult::Submitted {
-                        break;
-                    }
-                }
+            let res = form.handle_event(key);
+            if res == EventResult::Submitted {
+                break;
             }
         }
     }

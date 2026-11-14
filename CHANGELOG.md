@@ -9,13 +9,13 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
-- `OCR_Captions`: tùy chọn xuất crop ảnh first/best/last có timestamp cho từng cue caption, kèm `manifest.tsv` và `warnings.tsv` cho confidence thấp hoặc thời lượng sát ngưỡng tối thiểu.
+- `ocr_captions`: tùy chọn xuất crop ảnh first/best/last có timestamp cho từng cue caption, kèm `manifest.tsv` và `warnings.tsv` cho confidence thấp hoặc thời lượng sát ngưỡng tối thiểu.
 - `tools/compare_subs.py`: nhận cả output `.subtitles.zh.vtt` và `.zh.vtt`; báo Conditional Character Accuracy trên cue đã căn và Overall CER có tính ký tự cue thiếu/thừa.
 - `examples/extract_and_merge.rs`: hỗ trợ trích xuất subtitle/caption song song bằng `std::thread::scope`, hiển thị tiến trình riêng và tùy chọn `--sequential`.
 
 ### Sửa
 
-- `crates/OCR_Merge`: Sửa lỗi thất thoát thiết lập vị trí WebVTT cue settings (`line:20%`, `position:...`, `align:...`) khi phân tích cú pháp và hợp nhất. Trường `settings: Option<String>` được bổ sung vào `VttCue` để bảo tồn nguyên vẹn 100% tọa độ hiển thị của caption (đặt ở phía trên màn hình `line:20%`), ngăn chặn hiện tượng caption bị hiển thị đè xuống dưới chân màn hình trùng với lời thoại.
+- `crates/ocr_merge`: Sửa lỗi thất thoát thiết lập vị trí WebVTT cue settings (`line:20%`, `position:...`, `align:...`) khi phân tích cú pháp và hợp nhất. Trường `settings: Option<String>` được bổ sung vào `VttCue` để bảo tồn nguyên vẹn 100% tọa độ hiển thị của caption (đặt ở phía trên màn hình `line:20%`), ngăn chặn hiện tượng caption bị hiển thị đè xuống dưới chân màn hình trùng với lời thoại.
 
 ### Thay đổi
 
@@ -29,6 +29,10 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 ### Gỡ bỏ
 
 - Xóa crate `OCR_LLM`, feature `llm`, API hiệu đính liên quan và example `proofread_subtitles`; workspace chỉ còn pipeline OCR thô và merge, không gọi mô hình ngôn ngữ.
+
+### Thay đổi phá vỡ tương thích
+
+- Đổi tên package gốc thành `ocr-core` và các package `OCR_Subtitles`, `OCR_Captions`, `OCR_Merge` thành `ocr_subtitles`, `ocr_captions`, `ocr_merge`; dự án phụ thuộc trực tiếp cần cập nhật khai báo crate.
 
 ## [0.5.0] — 2026-11-14
 

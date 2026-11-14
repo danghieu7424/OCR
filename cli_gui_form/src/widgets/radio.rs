@@ -3,11 +3,11 @@
 use crate::traits::{EventResult, FormValue, FormWidget};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 pub struct RadioWidget {
@@ -36,7 +36,11 @@ impl FormWidget for RadioWidget {
     }
 
     fn value(&self) -> FormValue {
-        let opt_name = self.options.get(self.selected_index).cloned().unwrap_or_default();
+        let opt_name = self
+            .options
+            .get(self.selected_index)
+            .cloned()
+            .unwrap_or_default();
         FormValue::Select(self.selected_index, opt_name)
     }
 
@@ -47,7 +51,9 @@ impl FormWidget for RadioWidget {
             Span::styled(
                 format!("{}: ", self.label),
                 if self.focused {
-                    Style::default().fg(crate::Theme::PRIMARY).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(crate::Theme::PRIMARY)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(crate::Theme::SECONDARY)
                 },
@@ -102,10 +108,18 @@ impl FormWidget for RadioWidget {
         }
     }
 
-    fn focus(&mut self) { self.focused = true; }
-    fn blur(&mut self) { self.focused = false; }
-    fn is_focused(&self) -> bool { self.focused }
-    fn preferred_height(&self) -> u16 { 2 }
+    fn focus(&mut self) {
+        self.focused = true;
+    }
+    fn blur(&mut self) {
+        self.focused = false;
+    }
+    fn is_focused(&self) -> bool {
+        self.focused
+    }
+    fn preferred_height(&self) -> u16 {
+        2
+    }
 }
 
 #[cfg(test)]

@@ -1,19 +1,31 @@
-# OCR - Hardcoded Subtitle and Caption Extractor
+# ocr-core - Hardcoded Subtitle and Caption Extractor
 
-Thư viện Rust dùng DBNet và PP-OCRv6 ONNX để phát hiện, trích xuất phụ đề cứng và caption trong video sang WebVTT. Pipeline mặc định giữ nguyên văn bản OCR thô, không hiệu đính nội dung.
+Thư viện Rust dùng DBNet và PP-OCRv6 ONNX để phát hiện, trích xuất phụ đề cứng và caption trong video sang WebVTT. Pipeline chỉ xuất văn bản OCR thô rồi merge, không tự hiệu đính nội dung.
 
-Mặc định hiện tại được tối ưu cho video tiếng Trung có chữ cứng tương đối sắc nét. Chất lượng thay đổi theo độ phân giải, font, hiệu ứng, vị trí chữ và model/dictionary; kết quả cần được đối chiếu với video đầu vào.
+Model PP-OCRv6 và từ điển mặc định được tối ưu cho chữ cứng tiếng Trung tương đối sắc nét. Chất lượng thay đổi theo độ phân giải, font, hiệu ứng, vị trí chữ và model/dictionary; kết quả cần được đối chiếu với video đầu vào.
 
 ## Phạm vi và giới hạn
 
-- `OCR_Subtitles` dùng model PP-OCRv6 và mặc định quét vùng gần đáy khung hình (Y 85–100%, X 5–95%). Cần đổi ROI nếu subtitle nằm ở vị trí khác.
-- `OCR_Captions` mặc định quét vùng Y 10–80%, X 0–100%, phù hợp với profile caption của bộ dữ liệu hiện tại. ROI rộng cũng có thể chứa watermark hoặc chữ trong cảnh.
+- `ocr_subtitles` dùng model PP-OCRv6 và mặc định quét vùng gần đáy khung hình (Y 85–100%, X 5–95%). Cần đổi profile ROI nếu subtitle nằm ở vị trí khác.
+- `ocr_captions` mặc định quét vùng Y 10–80%, X 0–100%, phù hợp với profile caption của bộ dữ liệu hiện tại. ROI rộng cũng có thể chứa watermark hoặc chữ trong cảnh.
 - Model và từ điển hiện tại nhắm đến tiếng Trung; không cam kết hỗ trợ mọi ngôn ngữ, font hoặc video.
+- Pipeline giữ nguyên VTT OCR thô, không tự sửa nội dung. Merge chỉ sắp xếp và kết hợp cue WebVTT.
+- Ảnh `--caption-evidence` hiện đã được tạo và duyệt thực tế trên 2/20 tập (001–002); chưa có xác nhận hình ảnh cho các tập còn lại.
 - Không có cam kết tỷ lệ chính xác chung cho mọi video. Hãy đánh giá trên VTT tham chiếu đã kiểm chứng và xem các cue có cảnh báo bằng ảnh.
+
+## Kiến trúc workspace
+
+| Crate | Trách nhiệm |
+|---|---|
+| `ocr-core` (`lib: ocr`) | API công khai, CLI và điều phối các crate |
+| `ocr_subtitles` | OCR subtitle; DBNet/PP-OCRv6, vùng mặc định Y 85–100% |
+| `ocr_captions` | OCR caption; vùng mặc định Y 10–80%, xuất ảnh evidence tùy chọn |
+| `ocr_merge` | Đọc, sắp xếp, merge và serialize WebVTT, bảo toàn cue settings |
+| `ocr_shared` | Kiểu dữ liệu và tiện ích dùng chung |
 
 ## Pipeline OCR thô
 
-Trích xuất subtitle và caption song song, sau đó merge trực tiếp hai VTT. Nội dung OCR không bị sửa bởi LLM, glossary hoặc fuzzy matching:
+Trích xuất subtitle và caption song song, sau đó merge trực tiếp hai VTT. Không có bước sửa nội dung OCR:
 
 ```powershell
 cargo run --release --example extract_and_merge -- 001
@@ -43,10 +55,29 @@ python tools\compare_subs.py
 
 1. **FFmpeg & FFprobe**: Cần được cài đặt sẵn và thêm vào `PATH` hệ thống.
 2. **Rust Toolchain**: Rust 2024 Edition.
-3. **Mô hình AI ONNX**: Đặt trong thư mục `models/ocr/`:
+3. **MSVC Build Tools trên Windows**: Cài workload C++ của Visual Studio/Build Tools. Mở `cmd.exe`, nạp môi trường compiler trước khi chạy Cargo (giữ các lệnh trong cùng cửa sổ):
+   ```cmd
+   call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+   ```
+   Nếu cài Visual Studio ở vị trí/edition khác, thay bằng đường dẫn `vcvars64.bat` tương ứng.
+4. **Mô hình ONNX**: Đặt trong thư mục `models/ocr/`:
    - `det.onnx`: DBNet Text Detection.
    - `rec.onnx`: PP-OCRv6 Text Recognition.
    - `keys.txt`: Từ điển ký tự tương ứng.
+
+## Kiểm thử và đối chiếu
+
+Chạy các lệnh sau từ thư mục gốc. Trên Windows, gọi chúng trong `cmd.exe` sau khi nạp `vcvars64.bat` như hướng dẫn trên:
+
+```cmd
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+python -m unittest tools.test_compare_subs
+python tools\compare_subs.py
+```
+
+`compare_subs.py` mặc định so nguyên văn (`--norm none`); Conditional Character Accuracy tính trên cue đã căn, còn Overall CER tính cả ký tự thuộc cue thiếu/thừa.
 
 ---
 
@@ -54,17 +85,17 @@ python tools\compare_subs.py
 
 ### 1. Dùng như Thư viện Rust (`--lib`)
 
-Thêm `OCR` vào `Cargo.toml` của dự án bạn:
+Thêm `ocr-core` vào `Cargo.toml` của dự án bạn:
 ```toml
 [dependencies]
-OCR = { path = "../OCR" }
+ocr-core = { path = "../OCR" }
 ```
 
 Mã nguồn trích xuất phụ đề:
 ```rust
 use std::path::Path;
 use anyhow::Result;
-use OCR::{extract_hardcoded_subtitles, OcrExtractorConfig};
+use ocr::{extract_hardcoded_subtitles, OcrExtractorConfig};
 
 fn main() -> Result<()> {
     // 1. Cấu hình thư mục chứa mô hình (chứa thư mục con `ocr/` gồm det.onnx, rec.onnx, keys.txt)
@@ -114,13 +145,13 @@ let task_widget = Arc::new(Mutex::new(TaskWidget::new_loading(
 )));
 
 // Gắn widget trực tiếp vào hệ thống sự kiện tiến trình của OCR
-OCR::attach_cli_gui_task(Arc::clone(&task_widget));
+ocr::attach_cli_gui_task(Arc::clone(&task_widget));
 ```
 
 #### Cách B: Lắng nghe qua Callback tùy biến
 ```rust
 // Nhận sự kiện cập nhật tiến trình khung hình (progress)
-OCR::on_progress(|p| {
+ocr::on_progress(|p| {
     println!(
         "[{}] {}/{} {} (Thời gian: {}, Hoàn thành: {})",
         p.title, p.current, p.total, p.unit, p.elapsed, p.detail
@@ -128,12 +159,12 @@ OCR::on_progress(|p| {
 });
 
 // Nhận sự kiện chuyển bước (step)
-OCR::on_step(|step| {
+ocr::on_step(|step| {
     println!(">>> {}", step);
 });
 
 // Nhận log nội bộ engine
-OCR::on_log(|log| {
+ocr::on_log(|log| {
     println!("    {}", log);
 });
 ```

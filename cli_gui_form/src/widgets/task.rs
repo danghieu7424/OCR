@@ -3,11 +3,11 @@
 use crate::traits::{EventResult, FormWidget};
 use crossterm::event::KeyEvent;
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 const SPINNER_FRAMES_DOTS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -123,6 +123,10 @@ impl TaskWidget {
     }
 
     /// 2. Khởi tạo ở chế độ thuần Progress (thay thế hoàn toàn cho ProgressWidget)
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The public constructor exposes each progress field"
+    )]
     pub fn new_progress(
         id: impl Into<String>,
         label: impl Into<String>,
@@ -233,7 +237,9 @@ impl FormWidget for TaskWidget {
 
     fn render(&self, area: Rect, frame: &mut Frame) {
         let label_style = if self.focused {
-            Style::default().fg(crate::Theme::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(crate::Theme::PRIMARY)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(crate::Theme::SECONDARY)
         };
@@ -256,16 +262,31 @@ impl FormWidget for TaskWidget {
                 let (filled_char, empty_char) = self.progress_style.chars();
                 let line1 = Line::from(vec![
                     Span::styled("  ", Style::default()),
-                    Span::styled(format!("{} ", spinner_char), Style::default().fg(self.color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("{} ", spinner_char),
+                        Style::default().fg(self.color).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(format!("{}: ", self.label), label_style),
-                    Span::styled(empty_char.repeat(left_empty), Style::default().fg(crate::Theme::MUTED)),
-                    Span::styled(filled_char.repeat(active_len), Style::default().fg(self.color).add_modifier(Modifier::BOLD)),
-                    Span::styled(empty_char.repeat(right_empty), Style::default().fg(crate::Theme::MUTED)),
+                    Span::styled(
+                        empty_char.repeat(left_empty),
+                        Style::default().fg(crate::Theme::MUTED),
+                    ),
+                    Span::styled(
+                        filled_char.repeat(active_len),
+                        Style::default().fg(self.color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        empty_char.repeat(right_empty),
+                        Style::default().fg(crate::Theme::MUTED),
+                    ),
                 ]);
 
                 // DESIGN.md: Tránh italic, dùng Muted / Secondary với Icons::BRANCH (thụt lề 2 spaces + 2-cell branch icon)
                 let line2 = Line::from(vec![
-                    Span::styled(format!("    {}", crate::Icons::BRANCH), Style::default().fg(crate::Theme::MUTED)),
+                    Span::styled(
+                        format!("    {}", crate::Icons::BRANCH),
+                        Style::default().fg(crate::Theme::MUTED),
+                    ),
                     Span::styled(message, Style::default().fg(crate::Theme::SECONDARY)),
                 ]);
 
@@ -290,14 +311,30 @@ impl FormWidget for TaskWidget {
                 let line1 = Line::from(vec![
                     Span::styled("    ", Style::default()), // Căn lề thụt đầu dòng 4 spaces (2 indent + 2 icon width)
                     Span::styled(format!("{}: ", self.label), label_style),
-                    Span::styled(filled_char.repeat(filled_len), Style::default().fg(crate::Theme::ACCENT).add_modifier(Modifier::BOLD)),
-                    Span::styled(empty_char.repeat(empty_len), Style::default().fg(crate::Theme::MUTED)),
-                    Span::styled(format!(" {:>3}%", percent), Style::default().fg(crate::Theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        filled_char.repeat(filled_len),
+                        Style::default()
+                            .fg(crate::Theme::ACCENT)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        empty_char.repeat(empty_len),
+                        Style::default().fg(crate::Theme::MUTED),
+                    ),
+                    Span::styled(
+                        format!(" {:>3}%", percent),
+                        Style::default()
+                            .fg(crate::Theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(metric_text, Style::default().fg(crate::Theme::SECONDARY)),
                 ]);
 
                 let line2 = Line::from(vec![
-                    Span::styled(format!("    {}", crate::Icons::BRANCH), Style::default().fg(crate::Theme::MUTED)),
+                    Span::styled(
+                        format!("    {}", crate::Icons::BRANCH),
+                        Style::default().fg(crate::Theme::MUTED),
+                    ),
                     Span::styled(status, Style::default().fg(crate::Theme::SECONDARY)),
                 ]);
 
@@ -310,10 +347,18 @@ impl FormWidget for TaskWidget {
         EventResult::Ignored
     }
 
-    fn focus(&mut self) { self.focused = true; }
-    fn blur(&mut self) { self.focused = false; }
-    fn is_focused(&self) -> bool { self.focused }
-    fn preferred_height(&self) -> u16 { 3 }
+    fn focus(&mut self) {
+        self.focused = true;
+    }
+    fn blur(&mut self) {
+        self.focused = false;
+    }
+    fn is_focused(&self) -> bool {
+        self.focused
+    }
+    fn preferred_height(&self) -> u16 {
+        3
+    }
 }
 
 #[cfg(test)]
@@ -324,7 +369,10 @@ mod tests {
     fn test_spinner_type_frames() {
         assert_eq!(SpinnerType::Dots.frames()[0], "⠋");
         assert_eq!(SpinnerType::Braille6.frames().len(), 6);
-        assert_eq!(SpinnerType::Braille6.frames(), &["⠋", "⠙", "⠸", "⠴", "⠦", "⠇"]);
+        assert_eq!(
+            SpinnerType::Braille6.frames(),
+            &["⠋", "⠙", "⠸", "⠴", "⠦", "⠇"]
+        );
         assert_eq!(SpinnerType::Pulse.frames(), &["·", "•", "●", "•", "·", " "]);
         assert_eq!(SpinnerType::Moon.frames(), &["◐", "◒", "◑", "◓"]);
         assert_eq!(SpinnerType::Arc.frames(), &["◜", "◝", "◞", "◟"]);
@@ -339,8 +387,9 @@ mod tests {
 
     #[test]
     fn test_task_loading_tick_with_pulse() {
-        let mut widget = TaskWidget::new_loading("task", "Thinking", "Please wait...", Color::Magenta)
-            .with_spinner_type(SpinnerType::Pulse);
+        let mut widget =
+            TaskWidget::new_loading("task", "Thinking", "Please wait...", Color::Magenta)
+                .with_spinner_type(SpinnerType::Pulse);
 
         assert_eq!(widget.spinner_type, SpinnerType::Pulse);
         if let TaskState::Loading { frame_idx, .. } = widget.state {
@@ -355,8 +404,9 @@ mod tests {
 
     #[test]
     fn test_task_loading_tick_with_moon() {
-        let mut widget = TaskWidget::new_loading("task_moon", "Syncing", "Moon spinner...", Color::Cyan)
-            .with_spinner_type(SpinnerType::Moon);
+        let mut widget =
+            TaskWidget::new_loading("task_moon", "Syncing", "Moon spinner...", Color::Cyan)
+                .with_spinner_type(SpinnerType::Moon);
 
         assert_eq!(widget.spinner_type, SpinnerType::Moon);
         if let TaskState::Loading { frame_idx, .. } = widget.state {
@@ -371,8 +421,17 @@ mod tests {
 
     #[test]
     fn test_task_progress_style_builder() {
-        let widget = TaskWidget::new_progress("task_p", "WASM", 10, 20, "kb", "1s", "Compiling", Color::Green)
-            .with_progress_style(ProgressStyle::Parallelogram);
+        let widget = TaskWidget::new_progress(
+            "task_p",
+            "WASM",
+            10,
+            20,
+            "kb",
+            "1s",
+            "Compiling",
+            Color::Green,
+        )
+        .with_progress_style(ProgressStyle::Parallelogram);
 
         assert_eq!(widget.progress_style, ProgressStyle::Parallelogram);
     }

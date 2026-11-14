@@ -3,10 +3,10 @@
 use crate::traits::{EventResult, FormValue, FormWidget};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     widgets::{Block, BorderType, Borders, Padding, Paragraph},
-    Frame,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -96,7 +96,9 @@ impl FormWidget for InputWidget {
                 InputMode::Password => "*".repeat(self.value.len()),
             };
             let style = if self.focused {
-                Style::default().fg(crate::Theme::PRIMARY).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(crate::Theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(crate::Theme::FG)
             };
@@ -121,9 +123,7 @@ impl FormWidget for InputWidget {
             .padding(Padding::horizontal(1))
             .title(title_formatted);
 
-        let paragraph = Paragraph::new(display_text)
-            .block(block)
-            .style(text_style);
+        let paragraph = Paragraph::new(display_text).block(block).style(text_style);
 
         frame.render_widget(paragraph, area);
     }
@@ -219,8 +219,8 @@ mod tests {
 
     #[test]
     fn test_input_typing_and_backspace() {
-        let mut input = InputWidget::new("db", "Database", InputMode::Text)
-            .with_placeholder("postgres");
+        let mut input =
+            InputWidget::new("db", "Database", InputMode::Text).with_placeholder("postgres");
 
         assert_eq!(input.value, "");
 

@@ -14,7 +14,7 @@ impl Theme {
     // ----------------------------------------------------
     // 1. SEMANTIC ROLES (Màu theo ngữ nghĩa)
     // ----------------------------------------------------
-    
+
     // Background: #0a0a0a (ANSI 232)
     pub const BG: Color = Color::Rgb(0x0a, 0x0a, 0x0a);
 
@@ -175,17 +175,23 @@ impl Theme {
     // Mỗi tuple gồm: (blur_bg, blur_fg, focused_bg, focused_fg)
     // ----------------------------------------------------
     /// Preset: Invert High-Contrast (Linear / Apple Dark Mode: Nền đen chữ xám -> Hover nền trắng chữ đen)
-    pub const BTN_INVERT: (Color, Color, Color, Color) = (Self::BG, Self::SECONDARY, Self::PRIMARY, Self::BG);
+    pub const BTN_INVERT: (Color, Color, Color, Color) =
+        (Self::BG, Self::SECONDARY, Self::PRIMARY, Self::BG);
     /// Preset: Solid Vercel Blue (Nền xanh chữ trắng -> Hover nền trắng chữ xanh)
-    pub const BTN_ACCENT: (Color, Color, Color, Color) = (Self::ACCENT, Self::WHITE, Self::PRIMARY, Self::ACCENT);
+    pub const BTN_ACCENT: (Color, Color, Color, Color) =
+        (Self::ACCENT, Self::WHITE, Self::PRIMARY, Self::ACCENT);
     /// Preset: AI Violet Neural (Nền tím chữ trắng -> Hover nền trắng chữ tím)
-    pub const BTN_PURPLE: (Color, Color, Color, Color) = (Self::PURPLE, Self::WHITE, Self::PRIMARY, Self::PURPLE);
+    pub const BTN_PURPLE: (Color, Color, Color, Color) =
+        (Self::PURPLE, Self::WHITE, Self::PRIMARY, Self::PURPLE);
     /// Preset: Emerald Success (Nền đen chữ xanh ngọc -> Hover nền xanh ngọc chữ đen)
-    pub const BTN_EMERALD: (Color, Color, Color, Color) = (Self::BG, Self::EMERALD, Self::EMERALD, Self::BLACK);
+    pub const BTN_EMERALD: (Color, Color, Color, Color) =
+        (Self::BG, Self::EMERALD, Self::EMERALD, Self::BLACK);
     /// Preset: Minimal Ghost (GitHub CLI: Nền đen chữ xám -> Hover nền đen chữ xanh Accent)
-    pub const BTN_GHOST: (Color, Color, Color, Color) = (Self::BG, Self::SECONDARY, Self::BG, Self::ACCENT);
+    pub const BTN_GHOST: (Color, Color, Color, Color) =
+        (Self::BG, Self::SECONDARY, Self::BG, Self::ACCENT);
     /// Preset: Amber Warning (Nền đen chữ cam -> Hover nền cam chữ đen)
-    pub const BTN_AMBER: (Color, Color, Color, Color) = (Self::BG, Self::ORANGE, Self::ORANGE, Self::BLACK);
+    pub const BTN_AMBER: (Color, Color, Color, Color) =
+        (Self::BG, Self::ORANGE, Self::ORANGE, Self::BLACK);
 }
 
 #[cfg(test)]

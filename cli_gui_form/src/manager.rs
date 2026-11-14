@@ -2,7 +2,7 @@
 
 use crate::traits::{EventResult, FormValue, FormWidget};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use ratatui::{layout::Rect, Frame};
+use ratatui::{Frame, layout::Rect};
 use std::collections::HashMap;
 
 pub struct FormManager {
@@ -44,14 +44,18 @@ impl FormManager {
     }
 
     pub fn focus_next(&mut self) {
-        if self.widgets.is_empty() { return; }
+        if self.widgets.is_empty() {
+            return;
+        }
         self.widgets[self.current_focus].blur();
         self.current_focus = (self.current_focus + 1) % self.widgets.len();
         self.widgets[self.current_focus].focus();
     }
 
     pub fn focus_prev(&mut self) {
-        if self.widgets.is_empty() { return; }
+        if self.widgets.is_empty() {
+            return;
+        }
         self.widgets[self.current_focus].blur();
         if self.current_focus == 0 {
             self.current_focus = self.widgets.len() - 1;
@@ -62,7 +66,9 @@ impl FormManager {
     }
 
     pub fn render(&mut self, area: Rect, frame: &mut Frame) {
-        if self.widgets.is_empty() { return; }
+        if self.widgets.is_empty() {
+            return;
+        }
 
         let mut widget_positions: Vec<(u16, u16)> = Vec::new();
         let mut running_y: u16 = 0;
@@ -110,12 +116,11 @@ impl FormManager {
 
                 widget.render(widget_area, frame);
 
-                if widget.is_focused() {
-                    if let Some((cx, cy)) = widget.cursor_position(widget_area) {
-                        if cy < area.y + area.height {
-                            frame.set_cursor_position((cx, cy));
-                        }
-                    }
+                if widget.is_focused()
+                    && let Some((cx, cy)) = widget.cursor_position(widget_area)
+                    && cy < area.y + area.height
+                {
+                    frame.set_cursor_position((cx, cy));
                 }
             }
         }

@@ -13,9 +13,9 @@
 //!   quét mọi video trong `input/`, bỏ qua tập đã có VTT hợp lệ (checkpoint/resume).
 //! - Một tập: `cargo run --release --example extract_captions -- 002`
 
-use OCR::{CaptionExtractorConfig, CaptionRoi, extract_captions};
 use anyhow::Result;
 use cli_gui_form::TaskWidget;
+use ocr::{CaptionExtractorConfig, CaptionRoi, extract_captions};
 use ratatui::style::Color;
 use std::io::{self, Write};
 use std::path::Path;
@@ -30,7 +30,7 @@ fn download_file(url: &str, output: &Path) -> Result<()> {
     println!("    [DOWNLOAD] {}", url);
 
     let status = Command::new("curl.exe")
-        .args(&["-L", "--progress-bar", "-o", &output.to_string_lossy(), url])
+        .args(["-L", "--progress-bar", "-o", &output.to_string_lossy(), url])
         .status();
 
     match status {
@@ -49,7 +49,7 @@ fn download_file(url: &str, output: &Path) -> Result<()> {
                 output.to_string_lossy()
             );
             Command::new("powershell")
-                .args(&["-Command", &ps])
+                .args(["-Command", &ps])
                 .status()?;
             if output.exists() {
                 Ok(())
@@ -86,18 +86,21 @@ fn ensure_models(model_dir: &Path) -> Result<()> {
             );
             let _ = std::fs::create_dir_all(model_dir);
             let status = Command::new("tar")
-                .args(&[
+                .args([
                     "-xf",
                     &zip.to_string_lossy(),
                     "-C",
                     &model_dir.to_string_lossy(),
                 ])
                 .status();
-            if let Ok(s) = status {
-                if s.success() && det.exists() && rec.exists() && keys.exists() {
-                    println!("    \x1b[32m[OK]\x1b[0m Giải nén thành công bộ mô hình PP-OCRv6!");
-                    return Ok(());
-                }
+            if let Ok(s) = status
+                && s.success()
+                && det.exists()
+                && rec.exists()
+                && keys.exists()
+            {
+                println!("    \x1b[32m[OK]\x1b[0m Giải nén thành công bộ mô hình PP-OCRv6!");
+                return Ok(());
             }
         }
     }
@@ -185,12 +188,12 @@ fn main() -> Result<()> {
         "Đang chuẩn bị...",
         Color::Yellow,
     )));
-    OCR::attach_cli_gui_task(Arc::clone(&task_widget));
+    ocr::attach_cli_gui_task(Arc::clone(&task_widget));
 
     let (filled, empty) = cli_gui_form::Icons::PROGRESS_CHARS_PARALLELOGRAM;
     let bar_w = 25usize;
 
-    OCR::on_progress(move |p| {
+    ocr::on_progress(move |p| {
         let total = p.total.max(1);
         let cur = p.current.min(total);
         let ratio = (cur as f32 / total as f32).clamp(0.0, 1.0);
@@ -212,7 +215,7 @@ fn main() -> Result<()> {
         let _ = io::stdout().flush();
     });
 
-    OCR::on_step(|step| {
+    ocr::on_step(|step| {
         println!("\n    \x1b[34m[STEP]\x1b[0m {}", step);
     });
 
@@ -264,8 +267,8 @@ fn extract_and_report(
         println!(
             "  {:2}. {} --> {} | {}",
             i + 1,
-            OCR::CaptionSegment::format_vtt_timestamp(seg.start_sec),
-            OCR::CaptionSegment::format_vtt_timestamp(seg.end_sec),
+            ocr::CaptionSegment::format_vtt_timestamp(seg.start_sec),
+            ocr::CaptionSegment::format_vtt_timestamp(seg.end_sec),
             seg.text
         );
     }

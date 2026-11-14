@@ -4,9 +4,9 @@ use cli_gui_form::{EventResult, FormManager, FormWidget, SpinnerType, TaskWidget
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, style::Color, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend, style::Color};
 use std::{
     io::{self, stdout},
     sync::{Arc, Mutex},
@@ -103,8 +103,14 @@ fn main() -> io::Result<()> {
         .with_spinner_type(SpinnerType::Dots),
     ));
 
-    form.add_widget(Box::new(TaskShared::new("ai_thinking", Arc::clone(&thinking_task))));
-    form.add_widget(Box::new(TaskShared::new("data_loading", Arc::clone(&default_task))));
+    form.add_widget(Box::new(TaskShared::new(
+        "ai_thinking",
+        Arc::clone(&thinking_task),
+    )));
+    form.add_widget(Box::new(TaskShared::new(
+        "data_loading",
+        Arc::clone(&default_task),
+    )));
 
     let frame_interval = Duration::from_millis(16); // ~60 FPS
     let mut last_pulse_tick = Instant::now();
@@ -135,15 +141,14 @@ fn main() -> io::Result<()> {
         })?;
 
         // Bắt sự kiện phím thoát (ESC, Enter, Ctrl+C)
-        if event::poll(frame_interval)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    let is_ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c');
-                    if key.code == KeyCode::Esc || key.code == KeyCode::Enter || is_ctrl_c {
-                        break;
-                    }
-                }
+        if event::poll(frame_interval)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            let is_ctrl_c =
+                key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
+            if key.code == KeyCode::Esc || key.code == KeyCode::Enter || is_ctrl_c {
+                break;
             }
         }
     }

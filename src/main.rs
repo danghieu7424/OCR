@@ -1,5 +1,5 @@
 // src/main.rs
-use OCR::{extract_hardcoded_subtitles, OcrExtractorConfig};
+use ocr::{OcrExtractorConfig, extract_hardcoded_subtitles};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -22,21 +22,21 @@ fn init_logger(log_path: &Path) -> anyhow::Result<()> {
 
 fn log_msg(msg: &str) {
     println!("{}", msg);
-    if let Ok(mut lock) = LOG_FILE.lock() {
-        if let Some(ref mut f) = *lock {
-            let _ = writeln!(f, "{}", msg);
-            let _ = f.flush();
-        }
+    if let Ok(mut lock) = LOG_FILE.lock()
+        && let Some(ref mut f) = *lock
+    {
+        let _ = writeln!(f, "{}", msg);
+        let _ = f.flush();
     }
 }
 
 fn log_err(msg: &str) {
     eprintln!("{}", msg);
-    if let Ok(mut lock) = LOG_FILE.lock() {
-        if let Some(ref mut f) = *lock {
-            let _ = writeln!(f, "{}", msg);
-            let _ = f.flush();
-        }
+    if let Ok(mut lock) = LOG_FILE.lock()
+        && let Some(ref mut f) = *lock
+    {
+        let _ = writeln!(f, "{}", msg);
+        let _ = f.flush();
     }
 }
 
@@ -92,7 +92,9 @@ fn main() -> anyhow::Result<()> {
         .collect();
 
     if video_paths.is_empty() {
-        return Err(anyhow::anyhow!("Không tìm thấy file video nào trong thư mục input!"));
+        return Err(anyhow::anyhow!(
+            "Không tìm thấy file video nào trong thư mục input!"
+        ));
     }
 
     // Sắp xếp danh sách video theo thứ tự tên file (第001集, 第002集, ...)
@@ -107,16 +109,24 @@ fn main() -> anyhow::Result<()> {
     }
     let model_dir = PathBuf::from("models");
 
-    let mut config = OcrExtractorConfig::default();
-    config.fps = 10;
-    config.accuracy_mode = true;
+    let config = OcrExtractorConfig {
+        fps: 10,
+        accuracy_mode: true,
+        ..OcrExtractorConfig::default()
+    };
 
     log_println!(
         "    [INFO] Mode: {} | FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%]\n",
-        if config.accuracy_mode { "ACCURACY" } else { "NORMAL" },
+        if config.accuracy_mode {
+            "ACCURACY"
+        } else {
+            "NORMAL"
+        },
         config.fps,
-        config.roi.y_min * 100.0, config.roi.y_max * 100.0,
-        config.roi.x_min * 100.0, config.roi.x_max * 100.0,
+        config.roi.y_min * 100.0,
+        config.roi.y_max * 100.0,
+        config.roi.x_min * 100.0,
+        config.roi.x_max * 100.0,
     );
 
     // Kiểm tra xem output đã chạy tới tệp nào để resume khi chạy lại
@@ -171,12 +181,21 @@ fn main() -> anyhow::Result<()> {
         let output_vtt_path = output_dir.join(format!("{}.zh.vtt", video_stem));
 
         // Kiểm tra nếu file output đã tồn tại và hợp lệ thì bỏ qua (tiếp tục từ file chưa chạy)
-        if output_vtt_path.exists() && fs::metadata(&output_vtt_path).map(|m| m.len() > 0).unwrap_or(false) {
+        if output_vtt_path.exists()
+            && fs::metadata(&output_vtt_path)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false)
+        {
             continue;
         }
 
         log_println!("--------------------------------------------------");
-        log_println!(">>>  [{}/{}] Đang xử lý: {:?}", idx + 1, total_videos, video_path);
+        log_println!(
+            ">>>  [{}/{}] Đang xử lý: {:?}",
+            idx + 1,
+            total_videos,
+            video_path
+        );
 
         match extract_hardcoded_subtitles(video_path, &output_vtt_path, &model_dir, &config) {
             Ok(result) => {

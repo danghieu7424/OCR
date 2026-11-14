@@ -2,6 +2,9 @@ target/
 video_input/
 ocr_frames/
 logs/
+graphify-out/
+scratch/
+__pycache__/
 
 Cargo.lock
 *.vtt

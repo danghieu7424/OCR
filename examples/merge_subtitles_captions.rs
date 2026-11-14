@@ -5,8 +5,8 @@
 //!   cargo run --release --example merge_subtitles_captions -- 002
 //!   cargo run --release --example merge_subtitles_captions -- all
 
-use OCR::merge_vtt_files;
 use anyhow::Result;
+use ocr::merge_vtt_files;
 use std::env;
 use std::path::PathBuf;
 
