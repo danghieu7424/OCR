@@ -1,8 +1,8 @@
 {
   "Cargo.toml": {
-    "mtime": 1794642717.7247176,
-    "seen": 1794643033.4224806,
-    "ast_hash": "fa16e52a726e610c5bee4e351b9bb3ee",
+    "mtime": 1794644245.4934855,
+    "seen": 1794644786.205369,
+    "ast_hash": "9f25f76ce59dd17862d4cb61c1c3d057",
     "semantic_hash": ""
   },
   "cli_gui_form/Cargo.toml": {
@@ -222,9 +222,9 @@
     "semantic_hash": ""
   },
   "src/lib.rs": {
-    "mtime": 1794642630.5524316,
-    "seen": 1794643033.4224806,
-    "ast_hash": "b8ba08a04a43528403e8caa2adb58981",
+    "mtime": 1794644385.5733526,
+    "seen": 1794644786.205369,
+    "ast_hash": "e606bc0223a5f1bae33af3cc8f196d27",
     "semantic_hash": ""
   },
   "src/main.rs": {
@@ -276,9 +276,9 @@
     "semantic_hash": ""
   },
   "evaluate.md": {
-    "mtime": 1794641438.9778807,
-    "seen": 1794641826.1450045,
-    "ast_hash": "d2e735bcf1103a6e4ba44012a70c2b42",
+    "mtime": 1794643610.08609,
+    "seen": 1794644786.205369,
+    "ast_hash": "a85099ab777625f03e44f62a103beb59",
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
@@ -306,9 +306,9 @@
     "semantic_hash": ""
   },
   "examples/proofread_subtitles.rs": {
-    "mtime": 1794642751.3088703,
-    "seen": 1794643033.4224806,
-    "ast_hash": "29f55007136c6d3485be7b3665e07a25",
+    "mtime": 1794644462.327396,
+    "seen": 1794644786.205369,
+    "ast_hash": "a01134e69b77d90ecce3323e45f1a767",
     "semantic_hash": ""
   },
   "src/glossary.rs": {
@@ -318,9 +318,15 @@
     "semantic_hash": ""
   },
   "src/proofread.rs": {
-    "mtime": 1794642602.6414514,
-    "seen": 1794643033.4224806,
-    "ast_hash": "0e136a19f337f2267a0b4e748e1b0b57",
+    "mtime": 1794644371.1713185,
+    "seen": 1794644786.205369,
+    "ast_hash": "e8584c66318b37e58835142fdb717e82",
+    "semantic_hash": ""
+  },
+  "src/ollama.rs": {
+    "mtime": 1794644451.2209365,
+    "seen": 1794644786.205369,
+    "ast_hash": "b97e8093278e465f231205f56815ef36",
     "semantic_hash": ""
   }
 }

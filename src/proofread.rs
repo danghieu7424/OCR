@@ -13,18 +13,21 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::glossary::EntityGlossary;
+use crate::ollama::OllamaManager;
 
 /// Cấu hình hiệu đính ngữ cảnh
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProofreadConfig {
     /// Endpoint OpenAI-compatible của Qwen2.5-VL-3B (vd: "http://localhost:11434/v1" hoặc "http://localhost:8000/v1")
     pub endpoint: Option<String>,
-    /// Tên mô hình (vd: "qwen2.5-vl:3b" hoặc "Qwen2.5-VL-3B-Instruct")
+    /// Tên mô hình (vd: "qwen2.5vl:3b" hoặc "qwen2.5-vl:3b")
     pub model_name: String,
     /// API key (nếu có)
     pub api_key: Option<String>,
     /// Bật bộ luật sửa lỗi ngữ cảnh trực tiếp (chạy 0ms trên CPU)
     pub enable_rule_engine: bool,
+    /// Tự động kết nối/quản lý Ollama từ Rust
+    pub use_ollama: bool,
 }
 
 impl Default for ProofreadConfig {
@@ -32,9 +35,12 @@ impl Default for ProofreadConfig {
         Self {
             endpoint: std::env::var("OCR_LLM_ENDPOINT").ok(),
             model_name: std::env::var("OCR_LLM_MODEL")
-                .unwrap_or_else(|_| "qwen2.5-vl:3b".to_string()),
+                .unwrap_or_else(|_| "qwen2.5vl:3b".to_string()),
             api_key: std::env::var("OCR_LLM_API_KEY").ok(),
             enable_rule_engine: true,
+            use_ollama: std::env::var("OCR_USE_OLLAMA")
+                .map(|v| v == "1" || v == "true")
+                .unwrap_or(false),
         }
     }
 }
@@ -50,11 +56,29 @@ pub struct ProofreadSummary {
 /// Bộ hiệu đính phụ đề
 pub struct Proofreader {
     pub config: ProofreadConfig,
+    pub ollama: Option<OllamaManager>,
 }
 
 impl Proofreader {
     pub fn new(config: ProofreadConfig) -> Self {
-        Self { config }
+        let ollama = if config.use_ollama {
+            OllamaManager::init_or_setup(&config.model_name).ok()
+        } else {
+            None
+        };
+        Self { config, ollama }
+    }
+
+    /// Khởi tạo Proofreader với thư viện Ollama Rust (tự khởi động daemon, tự pull model)
+    pub fn with_ollama(model_name: &str) -> Result<Self> {
+        let manager = OllamaManager::init_or_setup(model_name)?;
+        let mut config = ProofreadConfig::default();
+        config.model_name = model_name.to_string();
+        config.use_ollama = true;
+        Ok(Self {
+            config,
+            ollama: Some(manager),
+        })
     }
 
     pub fn with_default_config() -> Self {
@@ -78,7 +102,16 @@ impl Proofreader {
             text = g.normalize_sentence(&text);
         }
 
-        // 2. Thử gọi Qwen2.5-VL qua API nếu có cấu hình endpoint
+        // 2. Thử gọi qua Ollama Rust Client nếu đã được khởi tạo
+        if let Some(ref ollama) = self.ollama {
+            if let Ok(llm_out) = ollama.proofread_sentence_sync(&text, context_history, glossary) {
+                if !llm_out.trim().is_empty() {
+                    return llm_out.trim().to_string();
+                }
+            }
+        }
+
+        // 3. Thử gọi Qwen2.5-VL qua API endpoint nếu có cấu hình
         if let Some(ref ep) = self.config.endpoint {
             if let Ok(llm_out) = self.call_qwen_api(ep, &text, context_history, glossary) {
                 if !llm_out.trim().is_empty() {
@@ -87,7 +120,7 @@ impl Proofreader {
             }
         }
 
-        // 3. Fallback: Bộ luật ngữ cảnh tích hợp (Rule Engine chạy tức thì trên CPU)
+        // 4. Fallback: Bộ luật ngữ cảnh tích hợp (Rule Engine chạy tức thì trên CPU)
         if self.config.enable_rule_engine {
             text = self.apply_builtin_rules(&text, context_history);
         }
