@@ -7,6 +7,7 @@ scratch/
 __pycache__/
 ocr-cli/*
 !ocr-cli/USE.MD
+input/
 
 Cargo.lock
 *.vtt

@@ -251,24 +251,7 @@ pub fn sanitize_ocr_text(raw: &str) -> String {
         return String::new();
     }
 
-    let mut chars: Vec<char> = trimmed.chars().collect();
-
-    // Sửa lỗi gạch ngang hoặc dash đầu dòng thành chữ '一' (số Một) nếu theo sau là chữ Hán
-    if !chars.is_empty() && (chars[0] == '-' || chars[0] == '—' || chars[0] == '–') {
-        if chars.len() > 1 {
-            let next_c = chars[1];
-            if ('\u{4e00}'..='\u{9fff}').contains(&next_c) {
-                chars[0] = '一';
-            } else {
-                chars.remove(0);
-            }
-        } else {
-            return String::new();
-        }
-    }
-
-    let s: String = chars.into_iter().collect();
-    let cleaned = s
+    let cleaned = trimmed
         .trim_matches(|c: char| {
             c.is_whitespace()
                 || c == '-'
@@ -340,6 +323,47 @@ pub fn sanitize_ocr_text(raw: &str) -> String {
 
     // Giữ nguyên 100% ký tự nhận diện chuẩn từ AI mô hình, tuyệt đối không hardcode thay thế
     final_chars.into_iter().collect()
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::sanitize_ocr_text;
+
+    #[test]
+    fn leading_dash_is_removed_without_inserting_a_han_character() {
+        assert_eq!(
+            sanitize_ocr_text("-还只是比你强一点点"),
+            "还只是比你强一点点"
+        );
+        assert_eq!(
+            sanitize_ocr_text("一还只是比你强一点点"),
+            "一还只是比你强一点点"
+        );
+    }
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::{has_stable_detection_track, select_best_subtitle_text};
+
+    #[test]
+    fn temporal_voting_prefers_the_higher_confidence_character() {
+        let texts = vec!["参".to_string(), "爹".to_string(), "参".to_string()];
+        let confidence = [0.2, 0.95, 0.2];
+        assert_eq!(select_best_subtitle_text(&texts, &confidence), "爹");
+    }
+
+    #[test]
+    fn single_character_requires_a_stable_detected_region() {
+        assert!(has_stable_detection_track(&[
+            Some((10.0, 10.0, 30.0, 30.0)),
+            Some((11.0, 10.0, 31.0, 30.0)),
+        ]));
+        assert!(!has_stable_detection_track(&[
+            Some((10.0, 10.0, 30.0, 30.0)),
+            Some((60.0, 60.0, 80.0, 80.0)),
+        ]));
+    }
 }
 
 /****
@@ -460,39 +484,57 @@ fn is_same_subtitle(s1: &str, s2: &str) -> bool {
  * 1. Khắc phục triệt để lỗi rụng ký tự nét mỏng ở mép (như chữ '一' trong "一定是错觉").
  * 2. Ưu tiên câu hoàn chỉnh, đúng ngữ nghĩa có chung hậu tố/tiền tố (như "爹爹我们走" > "珍我们走" / "多爹我们走").
  ****/
-fn select_best_subtitle_text(texts: &[String]) -> String {
+fn select_best_subtitle_text(texts: &[String], weights: &[f32]) -> String {
     if texts.is_empty() {
         return String::new();
     }
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for t in texts {
-        *counts.entry(t.clone()).or_insert(0) += 1;
+    let default_weights;
+    let weights = if texts.len() != weights.len()
+        || !weights
+            .iter()
+            .any(|weight| weight.is_finite() && *weight > 0.0)
+    {
+        default_weights = vec![1.0; texts.len()];
+        default_weights.as_slice()
+    } else {
+        weights
+    };
+
+    let mut counts: HashMap<String, (usize, f32)> = HashMap::new();
+    for (text, weight) in texts.iter().zip(weights) {
+        let entry = counts.entry(text.clone()).or_default();
+        entry.0 += 1;
+        entry.1 += if weight.is_finite() {
+            weight.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
     }
 
     let total = texts.len();
     let mut best_text = String::new();
     let mut best_score = -1.0f32;
 
-    for (cand, &count) in &counts {
+    for (cand, &(count, weight)) in &counts {
         let cand_len = cand.chars().count();
-        let mut score = count as f32;
+        let mut score = weight;
 
         // Nếu ứng viên này xuất hiện ít nhất 20% số frame hoặc >= 3 lần:
         if count >= 3 || (total <= 5 && count >= 2) || (count as f32 / total as f32) >= 0.20 {
-            for (other, &other_cnt) in &counts {
+            for (other, &(_, other_weight)) in &counts {
                 if cand != other {
                     if cand.contains(other) {
                         // other là chuỗi con bị rụng nét (ví dụ: "定是错觉" trong "一定是错觉")
-                        score += other_cnt as f32 * 0.95;
+                        score += other_weight * 0.95;
                     } else if cand_len > other.chars().count()
                         && common_suffix_len(cand, other) >= 2
                     {
                         // other có chung đuôi nhưng bị mờ nét đầu (ví dụ: "珍我们走" so với "爹爹我们走")
-                        score += other_cnt as f32 * 0.50;
+                        score += other_weight * 0.50;
                     }
                 }
             }
-            score += cand_len as f32 * 0.15;
+            score += cand_len as f32 * 0.15 * weight / count as f32;
         }
 
         if score > best_score {
@@ -504,12 +546,41 @@ fn select_best_subtitle_text(texts: &[String]) -> String {
     if best_text.is_empty() {
         counts
             .into_iter()
-            .max_by_key(|(_, c)| *c)
-            .map(|(t, _)| t)
+            .max_by(
+                |(text_a, (count_a, weight_a)), (text_b, (count_b, weight_b))| {
+                    weight_a
+                        .total_cmp(weight_b)
+                        .then_with(|| count_a.cmp(count_b))
+                        .then_with(|| text_a.cmp(text_b))
+                },
+            )
+            .map(|(text, _)| text)
             .unwrap_or_default()
     } else {
         best_text
     }
+}
+
+fn bounds_iou(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> f64 {
+    let intersection_w = (a.2.min(b.2) - a.0.max(b.0)).max(0.0);
+    let intersection_h = (a.3.min(b.3) - a.1.max(b.1)).max(0.0);
+    let intersection = intersection_w * intersection_h;
+    let area_a = (a.2 - a.0).max(0.0) * (a.3 - a.1).max(0.0);
+    let area_b = (b.2 - b.0).max(0.0) * (b.3 - b.1).max(0.0);
+    let union = area_a + area_b - intersection;
+    if union > 0.0 {
+        intersection / union
+    } else {
+        0.0
+    }
+}
+
+fn has_stable_detection_track(bounds: &[Option<(f64, f64, f64, f64)>]) -> bool {
+    bounds.windows(2).any(|pair| {
+        pair[0]
+            .zip(pair[1])
+            .is_some_and(|(a, b)| bounds_iou(a, b) >= 0.25)
+    })
 }
 
 pub fn extract_hardcoded_subtitles(
@@ -672,8 +743,12 @@ pub fn extract_hardcoded_subtitles(
     let half_dt = dt * 0.5;
     let mut frame_idx = 0usize;
 
-    // Bộ sưu tập kết quả nhận diện từng frame: (frame_idx, timestamp, text)
-    let mut frame_records: Vec<(usize, f64, String)> = Vec::new();
+    struct SubtitleFrameRecord {
+        text: String,
+        confidence: f32,
+        bounds: Option<(f64, f64, f64, f64)>,
+    }
+    let mut frame_records: Vec<SubtitleFrameRecord> = Vec::new();
     let total_frames_estimated = (total_duration_sec * config.fps as f64) as usize;
 
     ocr_shared::tui_events::emit_log(format!(
@@ -696,16 +771,29 @@ pub fn extract_hardcoded_subtitles(
         det_time += t_det.elapsed();
 
         let t_rec = std::time::Instant::now();
-        let text = if let Some((raw_patch, w, h)) = patch {
-            ocr_engine
-                .recognize_patch(&raw_patch, w, h)
-                .unwrap_or_default()
+        let (text, confidence, bounds) = if let Some(patch) = patch {
+            (
+                ocr_engine
+                    .recognize_patch(&patch.bytes, patch.width, patch.height)
+                    .unwrap_or_default(),
+                patch.confidence,
+                Some(patch.bounds),
+            )
         } else {
-            String::new()
+            (String::new(), 0.0, None)
         };
         rec_time += t_rec.elapsed();
 
-        frame_records.push((frame_idx - 1, timestamp, text));
+        if std::env::var_os("OCR_SUB_DEBUG").is_some() && !text.is_empty() {
+            eprintln!(
+                "[FRAME] t={timestamp:.2}s conf={confidence:.3} bounds={bounds:?} text={text:?}"
+            );
+        }
+        frame_records.push(SubtitleFrameRecord {
+            text,
+            confidence,
+            bounds,
+        });
 
         #[expect(
             clippy::manual_is_multiple_of,
@@ -741,7 +829,10 @@ pub fn extract_hardcoded_subtitles(
     ));
 
     // Bước 2: Lọc nhiễu cục bộ (Local Temporal Denoising)
-    let mut smoothed_text: Vec<String> = frame_records.iter().map(|(_, _, t)| t.clone()).collect();
+    let mut smoothed_text: Vec<String> = frame_records
+        .iter()
+        .map(|record| record.text.clone())
+        .collect();
 
     // 1-frame dropout fill: A, "", A -> A, A, A (do hiệu ứng chớp tắt hoặc nén frame)
     for i in 1..total_frames.saturating_sub(1) {
@@ -821,6 +912,8 @@ pub fn extract_hardcoded_subtitles(
         start_frame: usize,
         end_frame: usize,
         texts: Vec<String>,
+        confidences: Vec<f32>,
+        bounds: Vec<Option<(f64, f64, f64, f64)>>,
     }
 
     let mut raw_segments: Vec<RawSegment> = Vec::new();
@@ -834,10 +927,12 @@ pub fn extract_hardcoded_subtitles(
         } else {
             match current_seg.as_mut() {
                 Some(seg) => {
-                    let dominant = select_best_subtitle_text(&seg.texts);
+                    let dominant = select_best_subtitle_text(&seg.texts, &seg.confidences);
                     if is_same_subtitle(&dominant, text) {
                         seg.end_frame = i;
                         seg.texts.push(text.clone());
+                        seg.confidences.push(frame_records[i].confidence);
+                        seg.bounds.push(frame_records[i].bounds);
                     } else {
                         // Chuyển sang câu phụ đề tiếp theo (back-to-back subtitle)
                         let old = current_seg
@@ -845,6 +940,8 @@ pub fn extract_hardcoded_subtitles(
                                 start_frame: i,
                                 end_frame: i,
                                 texts: vec![text.clone()],
+                                confidences: vec![frame_records[i].confidence],
+                                bounds: vec![frame_records[i].bounds],
                             })
                             .unwrap();
                         raw_segments.push(old);
@@ -855,6 +952,8 @@ pub fn extract_hardcoded_subtitles(
                         start_frame: i,
                         end_frame: i,
                         texts: vec![text.clone()],
+                        confidences: vec![frame_records[i].confidence],
+                        bounds: vec![frame_records[i].bounds],
                     });
                 }
             }
@@ -880,7 +979,7 @@ pub fn extract_hardcoded_subtitles(
         }
 
         // Smart Majority Voting: ưu tiên câu hoàn chỉnh ký tự hơn (cứu chữ '一' ở đầu/cuối câu)
-        let best_text = select_best_subtitle_text(&seg.texts);
+        let best_text = select_best_subtitle_text(&seg.texts, &seg.confidences);
 
         let char_count = best_text.chars().count();
         if char_count == 0 {
@@ -910,7 +1009,7 @@ pub fn extract_hardcoded_subtitles(
             let is_cjk = best_text
                 .chars()
                 .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
-            if !is_cjk || duration < 0.10 {
+            if !is_cjk || duration < 0.10 || !has_stable_detection_track(&seg.bounds) {
                 continue;
             }
         } else if duration < 0.10 {

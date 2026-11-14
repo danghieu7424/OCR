@@ -161,6 +161,69 @@ struct TextBox {
     confidence: f32,
 }
 
+fn retain_caption_candidate(
+    ink_ok: bool,
+    shape_ok: bool,
+    scene_ok: bool,
+    confidence: f32,
+    min_confidence: f32,
+) -> bool {
+    ink_ok && shape_ok && (scene_ok || confidence < min_confidence)
+}
+
+fn crop_rgb_rows(rgb_bytes: &[u8], width: usize, top: usize, height: usize) -> Vec<u8> {
+    let row_bytes = width * 3;
+    rgb_bytes
+        .chunks_exact(row_bytes)
+        .skip(top)
+        .take(height)
+        .flatten()
+        .copied()
+        .collect()
+}
+
+fn restore_clipped_vertical_boxes(
+    mut roi_boxes: Vec<TextBox>,
+    expanded_boxes: &[TextBox],
+    y_offset: f64,
+) -> Vec<TextBox> {
+    let mut restored = vec![false; roi_boxes.len()];
+    for index in 0..roi_boxes.len() {
+        let roi_box = roi_boxes[index].clone();
+        let edge_margin = (roi_box.height * 0.25).max(3.0);
+        if !roi_box.is_vertical || roi_box.min_y > edge_margin {
+            continue;
+        }
+
+        let mut aligned_box = roi_box;
+        aligned_box.min_y += y_offset;
+        aligned_box.max_y += y_offset;
+        aligned_box.center_y += y_offset;
+
+        if let Some(expanded_box) = expanded_boxes.iter().find(|expanded_box| {
+            boxes_overlap(&aligned_box, expanded_box)
+                && is_same_caption_observation(
+                    &aligned_box.text,
+                    &expanded_box.text,
+                    std::slice::from_ref(&aligned_box),
+                    std::slice::from_ref(*expanded_box),
+                )
+        }) {
+            roi_boxes[index] = expanded_box.clone();
+            restored[index] = true;
+        }
+    }
+
+    for (index, text_box) in roi_boxes.iter_mut().enumerate() {
+        if !restored[index] {
+            text_box.min_y += y_offset;
+            text_box.max_y += y_offset;
+            text_box.center_y += y_offset;
+        }
+    }
+    roi_boxes
+}
+
 /// Fingerprint cho watermark detection: vị trí trung bình + text
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct RegionKey {
@@ -174,6 +237,7 @@ fn detect_and_recognize(
     rgb_bytes: &[u8],
     width: usize,
     height: usize,
+    timestamp: f64,
     vertical_threshold: f32,
     min_confidence: f32,
 ) -> Result<Vec<TextBox>> {
@@ -185,7 +249,7 @@ fn detect_and_recognize(
     let mut boxes = Vec::new();
 
     for result in &results {
-        if result.confidence < min_confidence {
+        if result.confidence < min_confidence * 0.5 {
             continue;
         }
 
@@ -247,11 +311,17 @@ fn detect_and_recognize(
         }
 
         let shape_ok = shape_matches_text(w, h, &caption_text);
-        let accept = ink_ok && shape_ok && scene_ok;
+        let accept = retain_caption_candidate(
+            ink_ok,
+            shape_ok,
+            scene_ok,
+            result.confidence,
+            min_confidence,
+        );
 
         if std::env::var_os("OCR_CAP_DEBUG").is_some() {
             eprintln!(
-                "[BOX] ({:.0},{:.0})-({:.0},{:.0}) w={:.0} h={:.0} '{}' conf={:.2} ink={} shape={} scene={} | lum_med={:.0} dark={:.2} sat_med={:.2} sat_p90={:.2} sat_hi={:.2}",
+                "[BOX] t={timestamp:.2}s ({:.0},{:.0})-({:.0},{:.0}) w={:.0} h={:.0} '{}' conf={:.2} ink={} shape={} scene={} | lum_med={:.0} dark={:.2} sat_med={:.2} sat_p90={:.2} sat_hi={:.2}",
                 min_x,
                 min_y,
                 max_x,
@@ -472,8 +542,26 @@ fn retry_vertical_missing_chars(
     results
         .iter()
         .map(|r| sanitize_caption_text(&r.text))
-        .filter(|t| t.chars().count() == expected_chars && t.starts_with(known))
-        .max_by_key(|t| t.chars().count())
+        .filter(|t| t.chars().count() == expected_chars && preserves_known_char_order(known, t))
+        .max_by(|a, b| {
+            let confidence = |text: &str| {
+                results
+                    .iter()
+                    .find(|result| sanitize_caption_text(&result.text) == text)
+                    .map(|result| result.confidence)
+                    .unwrap_or_default()
+            };
+            confidence(a).total_cmp(&confidence(b))
+        })
+}
+
+fn preserves_known_char_order(known: &str, candidate: &str) -> bool {
+    let mut candidate_chars = candidate.chars();
+    known.chars().all(|known_char| {
+        candidate_chars
+            .by_ref()
+            .any(|candidate_char| candidate_char == known_char)
+    })
 }
 
 fn sanitize_caption_text(raw: &str) -> String {
@@ -695,6 +783,60 @@ fn is_same_caption(s1: &str, s2: &str) -> bool {
     }
 }
 
+fn boxes_overlap(a: &TextBox, b: &TextBox) -> bool {
+    let intersection_w = (a.max_x.min(b.max_x) - a.min_x.max(b.min_x)).max(0.0);
+    let intersection_h = (a.max_y.min(b.max_y) - a.min_y.max(b.min_y)).max(0.0);
+    let intersection = intersection_w * intersection_h;
+    let union = a.width * a.height + b.width * b.height - intersection;
+    union > 0.0 && intersection / union >= 0.25
+}
+
+fn is_same_caption_observation(s1: &str, s2: &str, boxes1: &[TextBox], boxes2: &[TextBox]) -> bool {
+    if is_same_caption(s1, s2) {
+        return true;
+    }
+    if s1.is_empty()
+        || s2.is_empty()
+        || levenshtein_distance(s1, s2) > 1
+        || boxes1.is_empty()
+        || boxes2.is_empty()
+    {
+        return false;
+    }
+    boxes1
+        .iter()
+        .any(|box1| boxes2.iter().any(|box2| boxes_overlap(box1, box2)))
+}
+
+fn has_confident_caption_anchor(
+    candidate: &str,
+    candidate_boxes: &[TextBox],
+    frame_idx: usize,
+    strong_records: &[String],
+    strong_boxes: &[Vec<TextBox>],
+    max_gap: usize,
+) -> bool {
+    let start = frame_idx.saturating_sub(max_gap);
+    let end = frame_idx
+        .saturating_add(max_gap)
+        .saturating_add(1)
+        .min(strong_records.len());
+    (start..end).any(|anchor_idx| {
+        anchor_idx != frame_idx
+            && is_same_caption_observation(
+                candidate,
+                &strong_records[anchor_idx],
+                candidate_boxes,
+                &strong_boxes[anchor_idx],
+            )
+            && candidate_boxes.iter().any(|candidate_box| {
+                strong_boxes[anchor_idx]
+                    .iter()
+                    .any(|anchor_box| boxes_overlap(candidate_box, anchor_box))
+            })
+    })
+}
+
 fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     let c1: Vec<char> = s1.chars().collect();
     let c2: Vec<char> = s2.chars().collect();
@@ -723,34 +865,65 @@ fn caption_key(s: &str) -> String {
     s.chars().filter(|c| *c != '-').collect()
 }
 
-fn select_best_caption(texts: &[String]) -> String {
+fn expected_vertical_char_count(boxes: &[TextBox]) -> Option<usize> {
+    let expected: usize = boxes
+        .iter()
+        .filter(|text_box| text_box.is_vertical && text_box.width > 0.0)
+        .map(|text_box| (text_box.height / text_box.width).ceil() as usize)
+        .sum();
+    (expected > 0).then_some(expected)
+}
+
+fn select_best_caption(texts: &[String], weights: &[f32], expected_chars: Option<usize>) -> String {
     if texts.is_empty() {
         return String::new();
     }
+    let default_weights;
+    let weights = if texts.len() != weights.len() {
+        default_weights = vec![1.0; texts.len()];
+        default_weights.as_slice()
+    } else {
+        weights
+    };
 
     // Gom các biến thể chỉ khác nhau ở dấu nối cột (vd: "大女儿-陆紫萱" và
     // "大女儿陆紫萱") về cùng một nhóm để bầu chọn ổn định, và ưu tiên biến
     // thể có dấu nối (giữ đúng thứ tự cột trái → phải).
-    let mut groups: HashMap<String, (usize, String)> = HashMap::new();
-    for t in texts.iter().filter(|t| !t.is_empty()) {
+    let mut groups: HashMap<String, (f32, usize, String)> = HashMap::new();
+    for (t, weight) in texts.iter().zip(weights).filter(|(t, _)| !t.is_empty()) {
         let key = caption_key(t);
-        let entry = groups.entry(key).or_insert((0, t.clone()));
-        entry.0 += 1;
-        if (t.contains('-') && !entry.1.contains('-'))
-            || t.chars().count() > entry.1.chars().count()
+        let entry = groups.entry(key).or_insert((0.0, 0, t.clone()));
+        entry.0 += if weight.is_finite() {
+            weight.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        entry.1 += 1;
+        if (t.contains('-') && !entry.2.contains('-'))
+            || t.chars().count() > entry.2.chars().count()
         {
-            entry.1 = t.clone();
+            entry.2 = t.clone();
         }
     }
 
     groups
         .into_iter()
-        .max_by(|(k1, (c1, t1)), (k2, (c2, t2))| {
-            c1.cmp(c2)
+        .max_by(|(k1, (w1, c1, t1)), (k2, (w2, c2, t2))| {
+            let geometry_order = expected_chars
+                .map(|expected| {
+                    k2.chars()
+                        .count()
+                        .abs_diff(expected)
+                        .cmp(&k1.chars().count().abs_diff(expected))
+                })
+                .unwrap_or(std::cmp::Ordering::Equal);
+            geometry_order
+                .then_with(|| w1.total_cmp(w2))
+                .then_with(|| c1.cmp(c2))
                 .then_with(|| t1.chars().count().cmp(&t2.chars().count()))
                 .then_with(|| k2.cmp(k1))
         })
-        .map(|(_, (_, t))| t)
+        .map(|(_, (_, _, t))| t)
         .unwrap_or_default()
 }
 
@@ -1070,22 +1243,26 @@ pub fn extract_captions(
 
     let crop_w =
         (((src_w as f32 * (config.roi.x_max - config.roi.x_min)).round() as usize) / 2) * 2;
-    let crop_h =
+    let roi_crop_h =
         (((src_h as f32 * (config.roi.y_max - config.roi.y_min)).round() as usize) / 2) * 2;
     let crop_x = (((src_w as f32 * config.roi.x_min).round() as usize) / 2) * 2;
-    let crop_y = (((src_h as f32 * config.roi.y_min).round() as usize) / 2) * 2;
+    let roi_crop_y = (((src_h as f32 * config.roi.y_min).round() as usize) / 2) * 2;
+    let crop_h = roi_crop_h + roi_crop_y;
+    let crop_y = 0;
+    let roi_y_offset = roi_crop_y;
 
     let vf_filter = format!(
         "fps={},crop={}:{}:{}:{}",
         config.fps, crop_w, crop_h, crop_x, crop_y
     );
     ocr_shared::tui_events::emit_log(format!(
-        "   {} ROI: {}x{} @ ({},{}) | {}",
+        "   {} ROI: {}x{} @ ({},{}) (OCR region y offset {}) | {}",
         "[CAPTION]".name_utils().violed(),
         crop_w,
         crop_h,
         crop_x,
         crop_y,
+        roi_y_offset,
         vf_filter
     ));
 
@@ -1132,14 +1309,32 @@ pub fn extract_captions(
         let ts = frame_idx as f64 * dt;
         frame_idx += 1;
 
-        let boxes = detect_and_recognize(
+        let roi_buf = crop_rgb_rows(&buf, crop_w, roi_y_offset, roi_crop_h);
+        let roi_boxes = detect_and_recognize(
             &ocr_engine,
-            &buf,
+            &roi_buf,
             crop_w,
-            crop_h,
+            roi_crop_h,
+            ts,
             config.vertical_aspect_threshold,
             config.min_confidence,
         )?;
+        let boxes = if roi_boxes.iter().any(|text_box| {
+            text_box.is_vertical && text_box.min_y <= (text_box.height * 0.25).max(3.0)
+        }) {
+            let expanded_boxes = detect_and_recognize(
+                &ocr_engine,
+                &buf,
+                crop_w,
+                crop_h,
+                ts,
+                config.vertical_aspect_threshold,
+                config.min_confidence,
+            )?;
+            restore_clipped_vertical_boxes(roi_boxes, &expanded_boxes, roi_y_offset as f64)
+        } else {
+            restore_clipped_vertical_boxes(roi_boxes, &[], roi_y_offset as f64)
+        };
 
         all_frame_boxes.push(boxes);
         timestamps.push(ts);
@@ -1186,14 +1381,41 @@ pub fn extract_captions(
     // ===== PHASE 3: Ghép caption text (đã lọc watermark) =====
     let mut records: Vec<String> = Vec::with_capacity(total);
     let mut filtered_frame_boxes: Vec<Vec<TextBox>> = Vec::with_capacity(total);
+    let mut weak_records: Vec<String> = Vec::with_capacity(total);
+    let mut weak_frame_boxes: Vec<Vec<TextBox>> = Vec::with_capacity(total);
     for frame_boxes in &all_frame_boxes {
         let filtered: Vec<TextBox> = frame_boxes
             .iter()
             .filter(|b| !is_watermark(b, &watermarks, crop_w as f64, crop_h as f64))
             .cloned()
             .collect();
-        records.push(assemble_caption(&filtered, column_x_tol));
-        filtered_frame_boxes.push(filtered);
+        let (strong, weak): (Vec<TextBox>, Vec<TextBox>) = filtered
+            .into_iter()
+            .partition(|b| b.confidence >= config.min_confidence);
+        records.push(assemble_caption(&strong, column_x_tol));
+        weak_records.push(assemble_caption(&weak, column_x_tol));
+        filtered_frame_boxes.push(strong);
+        weak_frame_boxes.push(weak);
+    }
+
+    let strong_records = records.clone();
+    let strong_frame_boxes = filtered_frame_boxes.clone();
+    let boundary_lookaround = (config.fps as usize).div_ceil(2).max(1);
+    for frame_idx in 0..total {
+        if weak_records[frame_idx].is_empty()
+            || !has_confident_caption_anchor(
+                &weak_records[frame_idx],
+                &weak_frame_boxes[frame_idx],
+                frame_idx,
+                &strong_records,
+                &strong_frame_boxes,
+                boundary_lookaround,
+            )
+        {
+            continue;
+        }
+        records[frame_idx] = weak_records[frame_idx].clone();
+        filtered_frame_boxes[frame_idx] = weak_frame_boxes[frame_idx].clone();
     }
 
     // ===== PHASE 4: Temporal denoising =====
@@ -1248,9 +1470,18 @@ pub fn extract_captions(
         start: usize,
         end: usize,
         texts: Vec<String>,
+        weights: Vec<f32>,
     }
     let mut raw_segs: Vec<RawSeg> = Vec::new();
     let mut cur: Option<RawSeg> = None;
+    let frame_confidence = |frame_idx: usize| {
+        let boxes = &filtered_frame_boxes[frame_idx];
+        if boxes.is_empty() {
+            0.0
+        } else {
+            boxes.iter().map(|b| b.confidence).sum::<f32>() / boxes.len() as f32
+        }
+    };
 
     for (i, t) in records.iter().enumerate() {
         if t.is_empty() {
@@ -1260,16 +1491,27 @@ pub fn extract_captions(
         } else {
             match cur.as_mut() {
                 Some(seg) => {
-                    let dom = select_best_caption(&seg.texts);
-                    if is_same_caption(&dom, t) {
+                    let dom = select_best_caption(
+                        &seg.texts,
+                        &seg.weights,
+                        expected_vertical_char_count(&filtered_frame_boxes[seg.start]),
+                    );
+                    if is_same_caption_observation(
+                        &dom,
+                        t,
+                        &filtered_frame_boxes[seg.end],
+                        &filtered_frame_boxes[i],
+                    ) {
                         seg.end = i;
                         seg.texts.push(t.clone());
+                        seg.weights.push(frame_confidence(i));
                     } else {
                         let old = cur
                             .replace(RawSeg {
                                 start: i,
                                 end: i,
                                 texts: vec![t.clone()],
+                                weights: vec![frame_confidence(i)],
                             })
                             .unwrap();
                         raw_segs.push(old);
@@ -1280,6 +1522,7 @@ pub fn extract_captions(
                         start: i,
                         end: i,
                         texts: vec![t.clone()],
+                        weights: vec![frame_confidence(i)],
                     });
                 }
             }
@@ -1298,13 +1541,25 @@ pub fn extract_captions(
         if seg.end.saturating_sub(seg.start) + 1 < min_frames.max(1) {
             continue;
         }
-        let best = select_best_caption(&seg.texts);
+        let best = select_best_caption(
+            &seg.texts,
+            &seg.weights,
+            expected_vertical_char_count(&filtered_frame_boxes[seg.start]),
+        );
         if best.is_empty() {
             continue;
         }
 
         let confidence_values: Vec<f32> = (seg.start..=seg.end)
-            .filter(|&i| !records[i].is_empty() && is_same_caption(&best, &records[i]))
+            .filter(|&i| {
+                !records[i].is_empty()
+                    && is_same_caption_observation(
+                        &best,
+                        &records[i],
+                        &filtered_frame_boxes[seg.start],
+                        &filtered_frame_boxes[i],
+                    )
+            })
             .flat_map(|i| filtered_frame_boxes[i].iter().map(|b| b.confidence))
             .collect();
         let confidence = if confidence_values.is_empty() {
@@ -1439,6 +1694,12 @@ mod evidence_tests {
     use super::*;
 
     #[test]
+    fn caption_roi_crop_uses_the_configured_full_frame_offset() {
+        let frame: Vec<u8> = (0..24).collect();
+        assert_eq!(crop_rgb_rows(&frame, 2, 1, 2), frame[6..18].to_vec());
+    }
+
+    #[test]
     fn evidence_crop_is_padded_and_clamped_to_frame() {
         let image = RgbImage::new(100, 80);
         let text_box = TextBox {
@@ -1457,5 +1718,172 @@ mod evidence_tests {
 
         let crop = crop_caption_boxes(&image, &[text_box]).unwrap();
         assert_eq!((crop.width(), crop.height()), (28, 36));
+    }
+
+    #[cfg(test)]
+    mod vertical_retry_tests {
+        use super::preserves_known_char_order;
+
+        #[test]
+        fn vertical_retry_can_restore_missing_first_or_middle_characters() {
+            assert!(preserves_known_char_order("帝境中期", "大帝境中期"));
+            assert!(preserves_known_char_order(
+                "临城城主肖清逸",
+                "魔临城城主肖清逸"
+            ));
+            assert!(!preserves_known_char_order("帝境中期", "帝境中末"));
+        }
+    }
+
+    #[cfg(test)]
+    mod boundary_hysteresis_tests {
+        use super::{
+            TextBox, expected_vertical_char_count, has_confident_caption_anchor,
+            is_same_caption_observation, restore_clipped_vertical_boxes, retain_caption_candidate,
+            select_best_caption,
+        };
+
+        fn text_box(min_x: f64, confidence: f32) -> TextBox {
+            TextBox {
+                min_x,
+                min_y: 10.0,
+                max_x: min_x + 40.0,
+                max_y: 90.0,
+                width: 40.0,
+                height: 80.0,
+                center_x: min_x + 20.0,
+                center_y: 50.0,
+                is_vertical: true,
+                text: "张三姓名".to_string(),
+                confidence,
+            }
+        }
+
+        #[test]
+        fn weak_caption_edge_needs_a_nearby_matching_box() {
+            let candidate = text_box(102.0, 0.65);
+            let mut strong_records = vec![String::new(), "张三姓名".to_string()];
+            let mut strong_boxes = vec![Vec::new(), vec![text_box(100.0, 0.95)]];
+
+            assert!(has_confident_caption_anchor(
+                "张三姓名",
+                std::slice::from_ref(&candidate),
+                0,
+                &strong_records,
+                &strong_boxes,
+                1,
+            ));
+
+            strong_boxes[1] = vec![text_box(300.0, 0.95)];
+            assert!(!has_confident_caption_anchor(
+                "张三姓名",
+                std::slice::from_ref(&candidate),
+                0,
+                &strong_records,
+                &strong_boxes,
+                1,
+            ));
+
+            strong_records[1].clear();
+            strong_boxes[1] = vec![text_box(100.0, 0.95)];
+            assert!(!has_confident_caption_anchor(
+                "张三姓名",
+                std::slice::from_ref(&candidate),
+                0,
+                &strong_records,
+                &strong_boxes,
+                1,
+            ));
+        }
+
+        #[test]
+        fn short_caption_variants_join_only_when_their_boxes_overlap() {
+            let first = text_box(100.0, 0.99);
+            let next = text_box(102.0, 0.85);
+            let distant = text_box(300.0, 0.85);
+            assert!(is_same_caption_observation(
+                "何旬",
+                "何訇",
+                std::slice::from_ref(&first),
+                std::slice::from_ref(&next),
+            ));
+            assert!(!is_same_caption_observation(
+                "何旬",
+                "何訇",
+                std::slice::from_ref(&first),
+                std::slice::from_ref(&distant),
+            ));
+        }
+
+        #[test]
+        fn caption_consensus_uses_per_frame_confidence() {
+            let texts = vec!["何旬".to_string(), "何訇".to_string(), "何訇".to_string()];
+            assert_eq!(
+                select_best_caption(&texts, &[0.99, 0.85, 0.9], Some(2)),
+                "何訇"
+            );
+        }
+
+        #[test]
+        fn weak_scene_edge_is_eligible_for_spatiotemporal_hysteresis() {
+            assert!(retain_caption_candidate(true, true, false, 0.6, 0.8));
+            assert!(!retain_caption_candidate(true, true, false, 0.9, 0.8));
+            assert!(!retain_caption_candidate(false, true, false, 0.6, 0.8));
+        }
+
+        #[test]
+        fn vertical_box_geometry_prefers_complete_length_candidates() {
+            let mut five_char_box = text_box(100.0, 0.95);
+            five_char_box.width = 40.0;
+            five_char_box.height = 200.0;
+            assert_eq!(expected_vertical_char_count(&[five_char_box]), Some(5));
+
+            let texts = vec!["临城城主".to_string(), "魔临城城主".to_string()];
+            assert_eq!(
+                select_best_caption(&texts, &[0.99, 0.6], Some(5)),
+                "魔临城城主"
+            );
+        }
+
+        #[test]
+        fn clipped_vertical_caption_uses_full_frame_box_and_preserves_roi_offsets() {
+            let mut clipped = text_box(100.0, 0.9);
+            clipped.min_y = 0.0;
+            clipped.max_y = 80.0;
+            clipped.height = 80.0;
+            clipped.center_y = 40.0;
+            clipped.text = "帝境中期".to_string();
+
+            let mut full = text_box(100.0, 0.8);
+            full.min_y = 5.0;
+            full.max_y = 165.0;
+            full.height = 160.0;
+            full.center_y = 85.0;
+            full.text = "大帝境中期".to_string();
+
+            let mut unaffected = text_box(300.0, 0.95);
+            unaffected.is_vertical = false;
+            unaffected.min_y = 10.0;
+            unaffected.max_y = 30.0;
+            unaffected.height = 20.0;
+            unaffected.center_y = 20.0;
+
+            let mut unmatched = text_box(500.0, 0.8);
+            unmatched.min_y = 0.0;
+            unmatched.max_y = 60.0;
+            unmatched.height = 60.0;
+            unmatched.center_y = 30.0;
+            unmatched.text = "名字".to_string();
+
+            let restored =
+                restore_clipped_vertical_boxes(vec![clipped, unaffected, unmatched], &[full], 50.0);
+
+            assert_eq!(restored[0].text, "大帝境中期");
+            assert_eq!(restored[0].min_y, 5.0);
+            assert_eq!(restored[1].min_y, 60.0);
+            assert_eq!(restored[1].max_y, 80.0);
+            assert_eq!(restored[2].text, "名字");
+            assert_eq!(restored[2].min_y, 50.0);
+        }
     }
 }

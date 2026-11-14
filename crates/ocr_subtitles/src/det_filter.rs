@@ -3,6 +3,15 @@ use anyhow::{Context, Result};
 use image::{DynamicImage, RgbImage, imageops::FilterType};
 use pure_onnx_ocr::{OcrEngine, OcrEngineBuilder};
 
+#[derive(Debug, Clone)]
+pub struct DetectedPatch {
+    pub bytes: Vec<u8>,
+    pub width: usize,
+    pub height: usize,
+    pub confidence: f32,
+    pub bounds: (f64, f64, f64, f64),
+}
+
 pub fn create_det_engine(
     det_model_path: &str,
     rec_model_path: &str,
@@ -34,7 +43,7 @@ pub fn extract_patch_with_det(
     rgb_bytes: &[u8],
     width: usize,
     height: usize,
-) -> Result<Option<(Vec<u8>, usize, usize)>> {
+) -> Result<Option<DetectedPatch>> {
     let img_buf = RgbImage::from_raw(width as u32, height as u32, rgb_bytes.to_vec())
         .ok_or_else(|| anyhow::anyhow!("Không thể tạo RgbImage"))?;
     let dynamic_img = DynamicImage::ImageRgb8(img_buf);
@@ -73,7 +82,16 @@ pub fn extract_patch_with_det(
         }
 
         let center_y = (b_min_y + b_max_y) / 2.0;
-        valid_boxes.push((b_min_x, b_min_y, b_max_x, b_max_y, center_y, h, w * h));
+        valid_boxes.push((
+            b_min_x,
+            b_min_y,
+            b_max_x,
+            b_max_y,
+            center_y,
+            h,
+            w * h,
+            result.confidence,
+        ));
     }
 
     if valid_boxes.is_empty() {
@@ -95,18 +113,22 @@ pub fn extract_patch_with_det(
     let mut group_max_x = f64::MIN;
     let mut group_max_y = f64::MIN;
 
-    for &(b_min_x, b_min_y, b_max_x, b_max_y, cy, _, _) in &valid_boxes {
+    let mut group_confidence_weight = 0.0;
+    let mut group_area = 0.0;
+    for &(b_min_x, b_min_y, b_max_x, b_max_y, cy, _, area, confidence) in &valid_boxes {
         if (cy - anchor_cy).abs() < y_threshold {
             group_min_x = group_min_x.min(b_min_x);
             group_min_y = group_min_y.min(b_min_y);
             group_max_x = group_max_x.max(b_max_x);
             group_max_y = group_max_y.max(b_max_y);
+            group_confidence_weight += confidence * area as f32;
+            group_area += area;
         }
     }
 
-    // Bước 4: Cắt ảnh với Padding an toàn để không xén nét chữ đầu/cuối (như chữ 一)
-    let pad_x = 16.0;
-    let pad_y = 8.0;
+    // Scale padding with glyph height to avoid surrounding scene pixels dominating
+    // single-character recognition while still protecting line-edge strokes.
+    let (pad_x, pad_y) = crop_padding(anchor_h);
 
     let crop_x = (group_min_x - pad_x).max(0.0) as u32;
     let crop_y = (group_min_y - pad_y).max(0.0) as u32;
@@ -133,5 +155,29 @@ pub fn extract_patch_with_det(
     let resized = roi.resize_exact(target_w, target_h, FilterType::Lanczos3);
     let patch_bytes = resized.to_rgb8().into_raw();
 
-    Ok(Some((patch_bytes, target_w as usize, target_h as usize)))
+    Ok(Some(DetectedPatch {
+        bytes: patch_bytes,
+        width: target_w as usize,
+        height: target_h as usize,
+        confidence: group_confidence_weight / group_area as f32,
+        bounds: (group_min_x, group_min_y, group_max_x, group_max_y),
+    }))
+}
+
+fn crop_padding(text_height: f64) -> (f64, f64) {
+    (
+        (text_height * 0.12).clamp(2.0, 16.0),
+        (text_height * 0.08).clamp(2.0, 8.0),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::crop_padding;
+
+    #[test]
+    fn crop_padding_scales_with_text_and_respects_limits() {
+        assert_eq!(crop_padding(35.0), (4.2, 2.8000000000000003));
+        assert_eq!(crop_padding(200.0), (16.0, 8.0));
+    }
 }
