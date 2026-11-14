@@ -21,6 +21,7 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
   - Hỗ trợ cờ CLI `--fast` hoặc `--no-llm` (và biến môi trường `OCR_USE_LLM=0`) trong `examples/proofread_subtitles.rs` giúp hoàn tất hiệu đính 100+ câu trong **0.01 giây** trên CPU khi không muốn chờ LLM.
   - Thêm phương thức `Proofreader::with_fast_mode()` và `Proofreader::set_llm_enabled()`.
 - Example `examples/merge_subtitles_captions.rs`: công cụ CLI ghép nối tự động phụ đề lời thoại và chú thích cho 20 tập.
+- Example `examples/extract_and_merge.rs`: pipeline trọn gói tự động từ đầu đến cuối (trích xuất Subtitle + Caption + Fast Proofread không LLM + Merge WebVTT) cho 1 tập chỉ định hoặc toàn bộ video trong `input/`.
 
 ### Thay đổi
 

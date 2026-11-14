@@ -37,6 +37,10 @@ path = "examples/proofread_subtitles.rs"
 name = "merge_subtitles_captions"
 path = "examples/merge_subtitles_captions.rs"
 
+[[example]]
+name = "extract_and_merge"
+path = "examples/extract_and_merge.rs"
+
 [dependencies]
 OCR_Subtitles = { path = "crates/OCR_Subtitles" }
 OCR_Captions = { path = "crates/OCR_Captions" }

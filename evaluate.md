@@ -824,3 +824,156 @@ Ran push to origin main
   ```
 
 Kết quả đã kiểm chứng thực tế: Tập 2 đã hiệu đính thành công **18/108 câu** và ghi ra file [第002集.refined.zh.vtt](file:///c:/DATA/OCR/output/第002集.refined.zh.vtt). Toàn bộ thay đổi đã được kiểm tra unit test, cập nhật [CHANGELOG.md](file:///c:/DATA/OCR/CHANGELOG.md), chạy `graphify update .` và push lên nhánh `main`.
+
+---
+
+---
+
+Ran list all files in src
+Analyzed Cargo.toml:L1-39
+Analyzed lib.rs:L1-50
+Analyzed main.rs:L1-60
+Ran search for cli_gui_form references
+Analyzed shared.rs:L1-160
+Analyzed shared.rs:L160-214
+Ran check if crates dir exists
+Ran create crates directory structure
+Created Cargo.toml
+Analyzed shared.rs:L1-214
+Created lib.rs
+Created Cargo.toml
+Analyzed mod.rs:L1-50
+Ran copy files to OCR_Subtitles
+Analyzed lib.rs:L20-35
+Ran find crate::shared in OCR_Subtitles
+Edited lib.rs
+Edited lib.rs
+Edited lib.rs
+Ran check crate::shared in OCR_Subtitles
+Created Cargo.toml
+Ran copy caption.rs to OCR_Captions
+Ran find crate::shared in OCR_Captions
+Edited lib.rs
+Edited lib.rs
+Ran check crate::shared in OCR_Captions
+Created Cargo.toml
+Ran copy files to OCR_LLM
+Ran find crate::shared in OCR_LLM
+Edited ollama.rs
+Edited ollama.rs
+Analyzed proofread.rs:L20-100
+Edited proofread.rs
+Edited proofread.rs
+Analyzed proofread.rs:L135-165
+Edited proofread.rs
+Created lib.rs
+Created Cargo.toml
+Created lib.rs
+Writing Cargo.toml
+Edited Cargo.toml
+Edited lib.rs
+Ran clean up old redundant files in src
+Ran list src contents
+Analyzed proofread_subtitles.rs:L1-60
+Edited proofread_subtitles.rs
+Created merge_subtitles_captions.rs
+Ran check workspace compilation · Exited with code 1
+Edited Cargo.toml
+Ran find crate::ocr in OCR_Captions
+Editing lib.rs
+Analyzed lib.rs:L1-10
+Edited lib.rs
+Edited lib.rs
+Analyzed lib.rs:L1-5
+Edited lib.rs
+Edited lib.rs
+Edited lib.rs
+Ran check entire workspace
+Ran run workspace tests
+Checked task Run workspace tests
+Checked task Run workspace tests
+Analyzed task-2325.log:L1-7
+Checked task Run workspace tests
+Checked task Run workspace tests
+Checked task Run workspace tests
+Ran test proofread_subtitles in fast mode
+Checked task Test proofread_subtitles in fast mode
+Checked task Test proofread_subtitles in fast mode
+Ran test merge_subtitles_captions example
+Analyzed 第002集.merged.zh.vtt:L1-40
+Analyzed CHANGELOG.md:L8-25
+Edited Cargo.toml
+Edited Cargo.toml
+Edited Cargo.toml
+Edited Cargo.toml
+Edited Cargo.toml
+Edited Cargo.toml
+Edited CHANGELOG.md
+Ran run graphify update
+Checked task Run graphify update
+Ran check git status
+Ran stage all workspace changes
+Ran commit workspace restructuring
+Ran push workspace changes to main
+
+Đã hoàn thành cấu trúc lại toàn bộ dự án thành hệ sinh thái **Cargo Workspace** đa crate chuyên biệt và bổ sung tính năng **bật/tắt LLM linh hoạt** đúng theo yêu cầu của bạn.
+
+---
+
+### 1. Kiến trúc Crates mới trong Workspace (`crates/`):
+
+Mã nguồn rải rác trong `src/` trước đây đã được phân tách sạch sẽ thành 4 crate nghiệp vụ độc lập + 1 crate chia sẻ:
+
+| Crate               | Đường dẫn                                                        | Chức năng chính                                                                                                                                                      |
+| :------------------ | :--------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`OCR_Subtitles`** | [crates/OCR_Subtitles](file:///c:/DATA/OCR/crates/OCR_Subtitles) | Trích xuất phụ đề lời thoại (vùng dưới màn hình, PP-OCRv4/v5 ONNX, DBNet Text Detection, Temporal Voting). **Giữ nguyên 100% thuật toán ổn định hiện tại.**          |
+| **`OCR_Captions`**  | [crates/OCR_Captions](file:///c:/DATA/OCR/crates/OCR_Captions)   | Trích xuất chú thích nhân vật/công pháp (vùng trên/trái màn hình, hỗ trợ chữ dọc và ngang). **Giữ nguyên 100% logic lọc box hiện tại.**                              |
+| **`OCR_LLM`**       | [crates/OCR_LLM](file:///c:/DATA/OCR/crates/OCR_LLM)             | Tầng hậu xử lý thông minh: kết nối Qwen2.5-VL-3B qua `ollama-rs`, từ điển thực thể động `EntityGlossary` và bộ lọc khử nhiễu thuật toán.                             |
+| **`OCR_Merge`**     | [crates/OCR_Merge](file:///c:/DATA/OCR/crates/OCR_Merge)         | Ghép nối (merge) file `.zh.vtt` (lời thoại) và `.captions.zh.vtt` (chú thích) thành file `.merged.zh.vtt` hoàn chỉnh, tự động sắp xếp theo mốc thời gian tuyến tính. |
+| **`ocr_shared`**    | [crates/ocr_shared](file:///c:/DATA/OCR/crates/ocr_shared)       | Cấu trúc dùng chung: TUI events, điều phối luồng CPU, định dạng console.                                                                                             |
+
+Thư mục gốc [src/](file:///c:/DATA/OCR/src) hiện chỉ còn [src/lib.rs](file:///c:/DATA/OCR/src/lib.rs) (re-export toàn bộ API để tương thích ngược 100%) và [src/main.rs](file:///c:/DATA/OCR/src/main.rs).
+
+---
+
+### 2. Bật / Tắt LLM (Giải quyết vấn đề chạy chậm trên CPU):
+
+Khi chạy mô hình Qwen2.5-VL trên CPU, mỗi câu mất ~1.2 giây nên cả tập sẽ mất 1–2 phút. Do đó hệ thống đã bổ sung **chế độ Siêu Nhanh (Fast Mode)**:
+
+- **Chạy siêu nhanh không cần LLM (0.01 giây/tập)**:
+  Thêm cờ `--fast` hoặc `--no-llm` (hoặc đặt biến môi trường `$env:OCR_USE_LLM="0"`). Hệ thống sẽ chỉ dùng `EntityGlossary` và bộ lọc khử nhiễu:
+
+  ```powershell
+  cargo run --release --example proofread_subtitles -- 002 --fast
+  # hoặc cho toàn bộ 20 tập:
+  cargo run --release --example proofread_subtitles -- all --fast
+  ```
+
+  _(Đã kiểm chứng: Tập 002 quét xong toàn bộ 108 câu trong **0.05 giây**)_
+
+- **Chạy có LLM (khi cần phân tích ngữ cảnh sâu sắc)**:
+  ```powershell
+  cargo run --release --example proofread_subtitles -- 002
+  ```
+
+---
+
+### 3. Crate `OCR_Merge` ghép Subtitle và Caption:
+
+Đã tạo example [examples/merge_subtitles_captions.rs](file:///c:/DATA/OCR/examples/merge_subtitles_captions.rs) để bạn ghép tự động:
+
+```powershell
+cargo run --release --example merge_subtitles_captions -- 002
+# hoặc chạy ghép toàn bộ 20 tập:
+cargo run --release --example merge_subtitles_captions -- all
+```
+
+Kết quả kiểm chứng tập 2: Đã ghép thành công **114 câu** (108 câu lời thoại + 6 câu chú thích nhân vật) theo đúng thứ tự thời gian vào [output/第002集.merged.zh.vtt](file:///c:/DATA/OCR/output/第002集.merged.zh.vtt).
+
+---
+
+### 4. Kiểm chứng và Git Sync:
+
+- Đã chạy kiểm tra toàn bộ workspace: `cargo test --workspace` $\to$ **Toàn bộ 49 unit tests đều PASS**.
+- Cập nhật [CHANGELOG.md](file:///c:/DATA/OCR/CHANGELOG.md) lên phiên bản `v0.5.0`.
+- Chạy `graphify update .` đồng bộ kiến trúc đồ thị và đã push commit sạch sẽ lên nhánh `main`.
