@@ -45,8 +45,8 @@ Binary `ocr-cli` nhận một video hoặc quét không đệ quy một folder v
 
 ```powershell
 cargo build --release --bin ocr-cli
-cargo run --release --bin ocr-cli -- input\第001集.mp4 --output output
-cargo run --release --bin ocr-cli -- input --output output --caption-evidence
+cargo run --release --bin ocr-cli -- --input input\第001集.mp4 --output output
+cargo run --release --bin ocr-cli -- -i input -o output --caption-evidence
 ```
 
 `--caption-evidence` xuất ảnh first/best/last cho cue subtitle (crop ROI subtitle) và caption (crop detector caption), kèm manifest cho từng loại. Không bật cờ thì không tạo ảnh evidence. Các tùy chọn sau điều chỉnh riêng profile trích xuất và vị trí hiển thị trong file merge; ROI dùng thứ tự `Y_MIN,Y_MAX,X_MIN,X_MAX`, giá trị tỷ lệ từ `0` đến `1`:

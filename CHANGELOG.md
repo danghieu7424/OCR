@@ -9,7 +9,7 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
-- Binary `ocr-cli`: trích xuất subtitle/caption từ một video hoặc quét một cấp trong folder, merge ra thư mục chỉ định, giữ hai VTT thô trong `.tmp_<tên>` cạnh video; hỗ trợ ROI, line overrides và ảnh evidence cho cả hai loại cue.
+- Binary `ocr-cli`: trích xuất subtitle/caption từ một video hoặc quét một cấp trong folder, hỗ trợ input positional hoặc `-i/--input`, output qua `-o/--output`; giữ hai VTT thô trong `.tmp_<tên>` cạnh video và hỗ trợ ROI, line overrides cùng ảnh evidence cho cả hai loại cue.
 - `ocr_captions`: tùy chọn xuất crop ảnh first/best/last có timestamp cho từng cue caption, kèm `manifest.tsv` và `warnings.tsv` cho confidence thấp hoặc thời lượng sát ngưỡng tối thiểu.
 - `tools/compare_subs.py`: nhận cả output `.subtitles.zh.vtt` và `.zh.vtt`; báo Conditional Character Accuracy trên cue đã căn và Overall CER có tính ký tự cue thiếu/thừa.
 - `examples/extract_and_merge.rs`: hỗ trợ trích xuất subtitle/caption song song bằng `std::thread::scope`, hiển thị tiến trình riêng và tùy chọn `--sequential`.

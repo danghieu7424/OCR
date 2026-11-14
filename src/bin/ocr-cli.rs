@@ -29,9 +29,11 @@ fn usage() -> &'static str {
     "OCR-only video extractor and WebVTT merger\n\
 \n\
 Usage:\n\
-  ocr-cli <input-file-or-folder> --output <folder> [options]\n\
+  ocr-cli --input <file-or-folder> --output <folder> [options]\n\
+  ocr-cli -i <file-or-folder> -o <folder> [options]\n\
 \n\
 Options:\n\
+  -i, --input <file-or-folder>   Input video file or non-recursive folder\n\
   -o, --output <folder>          Destination for merged VTT files (required)\n\
       --models <folder>          Model directory containing ocr/{det.onnx,rec.onnx,keys.txt} (default: models)\n\
       --caption-evidence         Export first/best/last evidence images for subtitles and captions\n\
@@ -42,7 +44,8 @@ Options:\n\
   -h, --help                     Show this help\n\
 \n\
 Each video gets a sibling .tmp_<stem> directory containing subtitles.zh.vtt and\n\
-captions.zh.vtt. Input folders are scanned non-recursively."
+captions.zh.vtt. Input folders are scanned non-recursively. A positional input\n\
+is also accepted for backwards compatibility."
 }
 
 fn parse_roi(value: &str, label: &str) -> Result<(f32, f32, f32, f32)> {
@@ -66,8 +69,7 @@ fn parse_roi(value: &str, label: &str) -> Result<(f32, f32, f32, f32)> {
     Ok((values[0], values[1], values[2], values[3]))
 }
 
-fn parse_args() -> Result<Option<CliArgs>> {
-    let mut args = env::args().skip(1);
+fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliArgs>> {
     let mut input = None;
     let mut output = None;
     let mut models = PathBuf::from("models");
@@ -86,6 +88,15 @@ fn parse_args() -> Result<Option<CliArgs>> {
             "-o" | "--output" => {
                 output = Some(PathBuf::from(
                     args.next().context("--output cần đường dẫn thư mục")?,
+                ));
+            }
+            "-i" | "--input" => {
+                if input.is_some() {
+                    bail!("Chỉ nhận một input; không kết hợp --input với positional input.");
+                }
+                input = Some(PathBuf::from(
+                    args.next()
+                        .context("--input cần đường dẫn file hoặc folder")?,
                 ));
             }
             "--models" => {
@@ -138,6 +149,10 @@ fn parse_args() -> Result<Option<CliArgs>> {
         subtitle_roi,
         caption_roi,
     }))
+}
+
+fn parse_args() -> Result<Option<CliArgs>> {
+    parse_args_from(env::args().skip(1))
 }
 
 fn video_files(input: &Path) -> Result<Vec<PathBuf>> {
@@ -476,5 +491,29 @@ mod tests {
         assert!(parse_roi("0.9,0.8,0,1", "test").is_err());
         assert!(parse_roi("0,1,0,1,0", "test").is_err());
         assert!(parse_roi("NaN,1,0,1", "test").is_err());
+    }
+
+    #[test]
+    fn input_and_output_accept_long_and_short_flags() {
+        let args = [
+            "--input",
+            "videos",
+            "-o",
+            "merged",
+            "--subtitle-line",
+            "85%",
+        ]
+        .map(str::to_string);
+        let parsed = parse_args_from(args.into_iter()).unwrap().unwrap();
+        assert_eq!(parsed.input, PathBuf::from("videos"));
+        assert_eq!(parsed.output, PathBuf::from("merged"));
+        assert_eq!(parsed.subtitle_line.as_deref(), Some("85%"));
+
+        let positional = ["videos", "--output", "merged"].map(str::to_string);
+        assert!(parse_args_from(positional.into_iter()).unwrap().is_some());
+
+        let conflicting =
+            ["--input", "videos", "other.mp4", "--output", "merged"].map(str::to_string);
+        assert!(parse_args_from(conflicting.into_iter()).is_err());
     }
 }
