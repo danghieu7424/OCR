@@ -1,202 +1,47 @@
-Để đạt mức **chuẩn tuyệt đối từng từ (100.00%)** phục vụ dịch thuật mà không bị dịch sai ngữ cảnh, bản thân mô hình OCR độc lập (dù là PaddleOCR v5 hay v6) **vẫn có giới hạn vật lý** khi gặp:
+# Lộ trình OCR thuần
 
-- Nền chuyển động phức tạp (hiệu ứng chưởng pháp, bùa chú, cháy nổ che khuất nét chữ).
-- Các chữ Hán có cấu tạo cực kỳ giống nhau (như `爹` vs `参`, `嗯` vs `涵`, `己` vs `已`).
+## Nguyên tắc
 
-Để giải quyết triệt để vấn đề này trong công nghiệp sản xuất phụ đề, có **3 giải pháp chuẩn** bạn có thể áp dụng:
+- Pipeline mặc định chỉ trích xuất subtitle/caption và merge bằng `OCR_Merge`.
+- VTT OCR thô là dữ liệu chuẩn của pipeline; không tự sửa bằng LLM, glossary hay fuzzy matching.
+- Không thay đổi thuật toán lõi của `OCR_Subtitles` và `OCR_Captions` trong các hạng mục dưới đây.
+- Đánh giá theo video và VTT tham chiếu đã kiểm chứng; không suy rộng một điểm số thành bảo đảm cho mọi đầu vào.
 
----
+## Hiện trạng
 
-### 1. Dùng LLM Hậu xử lý (Post-processing Context Correction)
+- `OCR_Subtitles` dùng PP-OCRv6, mặc định quét vùng gần đáy khung hình; profile ROI cần đổi nếu subtitle nằm ở vị trí khác.
+- `OCR_Captions` mặc định quét Y 10–80% và X 0–100%; vùng rộng có thể chứa chữ trong cảnh và watermark.
+- `extract_and_merge` chạy hai OCR song song, giữ VTT thô riêng và merge trực tiếp.
+- `--caption-evidence` xuất crop first/best/last có timestamp, manifest và danh sách cảnh báo theo confidence/thời lượng.
+- Comparator hỗ trợ `.subtitles.zh.vtt` và `.zh.vtt`, báo riêng Conditional Character Accuracy và Overall CER.
 
-Đây là cách các hệ thống dịch thuật và làm sub hiện đại đang dùng hiệu quả nhất:
+## Các bước tiếp theo
 
-- **Cách làm**: Đưa toàn bộ dòng phụ đề thô vừa OCR xong qua một LLM nhẹ (chuyên tiếng Trung) với vai trò **"Hiệu đính ngữ cảnh" (Proofreading)** trước khi nạp vào máy dịch.
-- **Hiệu quả**:
-  - LLM hiểu ngữ pháp và câu chuyện: Thấy câu _"娘亲参參"_ hoặc _"参以前的武器给你"_, nó sẽ tự biết chữ `参` ở đây phải là `爹` (_"娘亲爹爹"_, _"爹以前的武器给你"_).
-  - Thấy _"自已"_ nó sẽ tự sửa thành _"自己"_, thấy chữ rơi rụng hay nhầm âm sẽ được nắn lại chuẩn ngữ cảnh 100% trước khi đem đi dịch sang tiếng Việt.
+### 1. Kiểm chứng VTT và cảnh báo
 
----
+- Dùng `input/` làm ground truth chỉ khi VTT đã được người dùng kiểm tra.
+- Với từng bộ video, lưu lệnh chạy, ROI, model/dictionary, phiên bản và thống kê.
+- Duyệt ảnh evidence của cue caption bị cảnh báo và các sai lệch timestamp; không thay dữ liệu thô trong bước này.
+- Giữ riêng biến thể chính tả/phồn-giản thể với lỗi OCR; chuẩn hóa chỉ được dùng như một góc nhìn đánh giá tùy chọn.
 
-### 2. Tận dụng từ điển danh từ riêng & Nhân vật (Glossary / Entity Dictionary)
+### 2. Cải thiện căn chỉnh đa khung hình có trọng số confidence
 
-Trong phim hoạt hình / tu tiên:
+- Nghiên cứu căn chỉnh chuỗi giữa các frame theo thời gian, dùng confidence OCR làm trọng số.
+- So sánh với kết quả hiện tại trên tập kiểm chứng cố định; đo CER, cue thiếu/thừa và sai số timestamp.
+- Chỉ triển khai nếu cải thiện được tập giữ lại mà không làm giảm khả năng giữ cue ngắn.
+- Không dùng majority vote theo chỉ số ký tự khi các frame có độ dài/căn chỉnh khác nhau.
 
-- Tên nhân vật, công pháp, địa danh là thứ **tuyệt đối không được sai** vì sai 1 chữ máy dịch sẽ dịch ra nghĩa kỳ quặc (ví dụ: `何訇`, `陆清安`, `九狱弑仙剑`, `无垢帝位`).
-- **Cách làm**: Lập một bảng từ điển danh từ riêng của bộ phim (Glossary). Sau khi OCR xong, chạy thuật toán so khớp gần đúng (Fuzzy match) với danh sách nhân vật/địa danh:
-  - Nếu OCR ra `陆安` hay `防安` trong khoảng thời gian có mặt nhân vật $\rightarrow$ tự động map về chuẩn `陆清安`.
-  - Nếu OCR ra `帝境中期` ở tập 8 $\rightarrow$ map về `大帝境中期`.
-  - Bộ từ điển này cũng dùng để khóa từ khi nạp vào model dịch, đảm bảo tên nhân vật đồng nhất từ tập 1 đến tập 100.
+### 3. Mở rộng profile đầu vào có kiểm soát
 
----
+- Thu thập ví dụ cho các vị trí subtitle/caption, độ phân giải và font khác nhau.
+- Ghi rõ model, ngôn ngữ, ROI và ngưỡng đã được kiểm chứng cho từng profile.
+- Nếu video nằm ngoài profile hỗ trợ, yêu cầu chọn ROI/cấu hình hoặc duyệt thủ công thay vì hứa hẹn độ chính xác.
 
-### 3. Cơ chế "Bỏ phiếu đa khung hình" (Multi-frame Temporal Voting)
+## Chỉ số chấp nhận
 
-- **Cách làm**: Thay vì chỉ lấy kết quả của 1 frame đại diện trong cụm, ta gom kết quả OCR của tất cả các frame trong khoảng thời gian dòng sub đó xuất hiện (ví dụ xuất hiện 1.5 giây ở 10fps là có 15 frame).
-- **Hiệu quả**:
-  - Ở frame bị hiệu ứng bùa chú che, chữ có thể bị đọc nhòe thành `挡一` hay `星 挡住`.
-  - Nhưng ở 10 frame còn lại khi hiệu ứng tan bớt, nó đọc đúng là `挡住`.
-  - Bằng cách phân tích tần suất từng ký tự trên toàn bộ 15 frame đó, hệ thống sẽ tự động ghép lại thành câu hoàn chỉnh và loại bỏ hoàn toàn các ký tự bị che khuất tạm thời.
+- **Conditional Character Accuracy**: chỉ trên các cặp cue đã căn; luôn kèm số ký tự và số cặp.
+- **Overall CER**: gồm lỗi trên cue đã căn và toàn bộ ký tự cue thiếu/thừa; mẫu số là tổng ký tự tham chiếu.
+- **Cue coverage**: số cue tham chiếu, OCR, cặp đã căn, thiếu và thừa.
+- **Caption review**: độ khớp chữ, ảnh evidence đã duyệt và sai số đầu/cuối cue.
 
----
-
-### Tóm lại quy trình chuẩn để dịch hoàn hảo:
-
-1. **Tầng 1 (OCR hiện tại)**: Đã làm rất tốt việc bóc tách và định vị mốc thời gian chuẩn xác đến từng mili-giây (~99.8%).
-2. **Tầng 2 (Glossary + LLM Proofreader)**: Tự động nắn lại các chữ nhầm ngữ cảnh và chuẩn hóa danh từ riêng.
-3. **Tầng 3 (Dịch thuật)**: Đưa bản phụ đề đã sạch 100% vào pipeline dịch tiếng Việt.
-
----
-
----
-
-Dưới đây là câu trả lời chi tiết và thực tế cho 3 thắc mắc của bạn (không can thiệp code):
-
----
-
-### 1. Về LLM Hậu xử lý (Chạy thuần CPU, cực nhẹ, đọc tốt tiếng Trung và nhận được ảnh - VLM)
-
-Nếu bạn chạy **thuần CPU**, các mô hình Vision-Language (VLM) lớn sẽ rất chậm (vài giây đến hàng chục giây 1 ảnh). Để vừa nhẹ, vừa thông minh, lại tối ưu CPU, bạn nên chọn các dòng sau:
-
-1. **Qwen2.5-VL-3B-Instruct (hoặc bản siêu nhẹ 1.5B sắp/mới ra mắt - định dạng GGUF / ONNX / OpenVINO)**:
-   - **Lý do**: Đây là "ông vua" tiếng Trung hiện nay từ Alibaba. Khả năng nhận diện chữ Hán cách điệu, chữ viết tay, thư pháp và hiểu ngữ cảnh văn hóa/tu tiên của dòng Qwen là số 1 thế giới ở phân khúc nhỏ.
-   - **Tốc độ CPU**: Bản `Qwen2-VL-2B` hoặc `Qwen2.5-VL-3B` lượng tử hóa 4-bit (`q4_k_m`) chạy qua `llama.cpp` chỉ tốn khoảng 2–3 GB RAM, CPU 8–12 core xử lý rất mượt.
-2. **Moondream2 (1.86B parameters)**:
-   - Cực kỳ nhẹ, thiết kế chuyên biệt để chạy CPU và biên nhúng (Edge). Nhận diện ảnh nhanh, tuy nhiên tiếng Trung cổ/tu tiên sẽ không sâu bằng dòng Qwen.
-3. **Chiến lược tối ưu tốc độ CPU**:
-   - **Không nạp toàn bộ ảnh phim**: Không đưa cả ảnh 1080p vào VLM.
-   - **Chỉ nạp box crop**: Chỉ crop đúng vùng chữ bị nghi ngờ hoặc đưa văn bản thô + ảnh crop của duy nhất chữ đó vào cho mô hình "nhìn lại" để xác nhận, tốc độ trên CPU sẽ tăng gấp 5–10 lần.
-
----
-
-### 2. Tự động hóa tạo Danh từ riêng / Nhân vật (Glossary hoàn toàn tự động)
-
-Bạn **không cần gõ tay** danh sách này. Trong phim hoạt hình Trung Quốc (donghua), cấu trúc phim có một đặc tính tuyệt vời để tự động hóa:
-
-1. **Khai thác chính module Caption bạn vừa hoàn thiện**:
-   - Mọi nhân vật chính, địa danh lớn khi xuất hiện lần đầu đều có **thanh đen chú thích tên** (Name plate).
-   - Ví dụ: `《陆清安》`, `《林清雪》`, `《徐清莹》`, `《大女儿-陆紫萱》`, `《九狱弑仙剑》`...
-   - Hệ thống chỉ cần tự động gom tất cả các dòng nằm trong cặp ngoặc `《...》` của 20 tập lại $\rightarrow$ Bạn đã có ngay **90% bảng Danh từ riêng chuẩn xác nhất** của toàn bộ bộ phim mà không tốn 1 giây gõ tay.
-2. **Dùng NER tự động (Named Entity Recognition - Nhận diện thực thể tên người/địa danh)**:
-   - Chạy một mô hình NER tiếng Trung siêu nhẹ (như `jieba` gắn nhãn từ loại `nr` - tên người, `ns` - địa danh, hoặc mô hình bert-chinese nhỏ ~50MB).
-   - Quét qua toàn bộ phụ đề đã OCR, lọc ra các cụm từ xuất hiện lặp lại nhiều lần mang danh xưng (như `...帝`, `...城`, `...剑`) để đưa vào bảng từ điển ưu tiên.
-
----
-
-### 3. Về cơ chế "Bỏ phiếu đa khung hình" (Multi-frame Temporal Voting) trong code của bạn
-
-Đúng như bạn nhớ, **trong code của bạn đã có nền tảng vững chắc của cơ chế này**, thể hiện rõ qua lịch sử `CHANGELOG.md` và kiến trúc hiện tại:
-
-1. **Trong `src/caption.rs`**:
-   - Đã áp dụng cơ chế gom cụm thời gian (`RawSeg`), sau đó dùng hàm `select_best_caption(&seg.texts)` để **đếm tần suất và chọn ra chuỗi văn bản chiếm đa số phiếu** trên toàn bộ các frame mà caption đó tồn tại.
-   - Đây chính là lý do vì sao chữ `陆清安` dù có frame bị nhiễu thành `陆安` hay `防安`, kết quả cuối cùng vẫn ra chuẩn xác `陆清安` vì dạng đúng chiếm đa số phiếu.
-2. **Trong `src/OCR/mod.rs` (Subtitle)**:
-   - Đã có phân đoạn thời gian (`cluster_records`), thuật toán làm mịn (`temporal_smooth`), lấp chỗ trống 1–2 frame (`dropout fill`), và so khớp tương đồng chuỗi (`is_same_subtitle` bằng khoảng cách Levenshtein).
-   - Điểm khác biệt duy nhất: Code phụ đề hiện tại đang chọn chuỗi có độ dài tốt nhất/ổn định nhất của cụm. Trong nhật ký `evaluate.md`, agent trước cũng đã ghi chú: _Nếu sau này muốn cứu những ca chữ bị che khuất tạm thời trên nền bùa chú như `挡住`, hướng đi chuẩn là nâng cấp bầu phiếu ký tự con theo cửa sổ lân cận $\pm 0.5\text{s}$ như cách Caption đang làm._
-
----
-
----
-
-Analyzed plan.md:L1-95
-Analyzed graphify.md:L1-60
-Analyzed graphify.md:L1-10
-
-Theo đúng nguyên tắc **"1. Think Before Coding"** trong [graphify.md](file:///c:/DATA/OCR/.agents/rules/graphify.md) (_nêu rõ các giả định, làm rõ phương án trước khi triển khai, không đoán mò_), tôi đã tổng hợp thành kế hoạch cụ thể dưới đây và cập nhật vào [plan.md](file:///c:/DATA/OCR/plan.md):
-
----
-
-### Kế hoạch triển khai (Plan) cho 3 mục
-
-#### 1. Mục 1: Tích hợp Qwen2.5-VL-3B-Instruct (Hậu xử lý trên CPU)
-
-- **Vấn đề trên CPU**: Mô hình Vision-Language 3B nếu nạp cả video hoặc chạy toàn bộ từng frame sẽ rất nặng (khoảng 3–5 giây/ảnh trên CPU).
-- **Giải pháp tối ưu**:
-  - Không chạy VLM cho toàn bộ frame. Chỉ kích hoạt Qwen2.5-VL cho những đoạn **"nghi ngờ"**:
-    - Độ tin cậy OCR thấp (`confidence < 0.85`),
-    - Hoặc câu văn bị đứt gãy / chứa ký tự hiếm / bất thường ngữ pháp.
-  - Chỉ crop duy nhất hộp chữ (crop box nhỏ) kèm câu văn thô và prompt ngắn cho Qwen2.5-VL xác nhận lại.
-  - Sử dụng runtime nhẹ tương thích CPU (như llama.cpp GGUF Q4_K_M hoặc ONNX Runtime GenAI).
-
-#### 2. Mục 2: Tự động tạo Entity Glossary từ Caption
-
-- **Nguyên lý**:
-  - Module `caption` đã bóc tách chính xác toàn bộ danh xưng nhân vật, địa danh, công pháp (các thẻ `《...》`).
-  - Tự động quét các file `.captions.zh.vtt` của toàn bộ các tập, trích xuất danh sách thực thể chuẩn (ví dụ: `陆清安`, `何訇`, `陆紫萱`, `九狱弑仙剑`, `大帝境中期`...).
-- **Ứng dụng**:
-  - Dùng bảng thực thể này để tự động kiểm tra và hiệu đính phụ đề (subtitle) sau OCR: nếu phát hiện biến thể mờ/thiếu như `防安` / `陆安` $\rightarrow$ nắn về `陆清安`.
-
-#### 3. Mục 3: Nâng cấp Bỏ phiếu đa khung hình (Temporal Voting cho Subtitle)
-
-- **Phạm vi an toàn**: Tuân thủ luật cấm sửa lung tung, chỉ bổ sung thuật toán chọn câu trong cụm thời gian.
-- **Nguyên lý**:
-  - Khi một cụm phụ đề kéo dài $N$ khung hình (ví dụ 10–15 frame): Thay vì chỉ lấy chuỗi dài nhất của 1 frame đơn lẻ, hệ thống gom tất cả kết quả nhận diện của từng frame và bỏ phiếu tần suất theo từng vị trí ký tự (character-level majority voting).
-  - Giúp loại bỏ hoàn toàn các khung hình bị bùa chú/tia sáng lóe che khuất tạm thời (cứu các ca như `挡住`).
-
----
-
-### Xác nhận trước khi bắt đầu
-
-Để đảm bảo đúng ý bạn và không làm phức tạp hóa hệ thống:
-
-1. Bạn muốn tích hợp module này dưới dạng **một công cụ hậu xử lý độc lập** (CLI script / tool trong `tools/` nhận file VTT + video rồi sửa lại), hay **tích hợp trực tiếp thành một cờ/tùy chọn (flag) trong pipeline Rust**?
-2. Về mô hình Qwen2.5-VL-3B-Instruct: Bạn đã có sẵn file model trọng số GGUF/HuggingFace cục bộ trên máy chưa, hay muốn viết lệnh tự động tải bản lượng tử hóa GGUF?
-
----
-
----
-
-Ran search static variables in crates
-Analyzed lib.rs:L85-150
-Analyzed extract_and_merge.rs:L110-160
-Analyzed extract_and_merge.rs:L161-230
-
-**Hoàn toàn ĐƯỢC và RẤT NÊN LÀM!** Việc chạy song song Subtitle và Caption sẽ giúp giảm đáng kể tổng thời gian xử lý mỗi tập phim.
-
----
-
-### 1. Phân tích tính khả thi kỹ thuật
-
-```mermaid
-flowchart TD
-    V["Video Input (MP4/MKV)"]
-
-    subgraph Parallel ["Xử lý song song (std::thread::scope)"]
-        S["Thread 1: OCR Subtitles<br/>(FFmpeg + ONNX ROI dưới)"]
-        C["Thread 2: OCR Captions<br/>(FFmpeg + ONNX ROI trên/trái)"]
-    end
-
-    V --> S
-    V --> C
-
-    S --> P["Hậu xử lý & Hiệu đính<br/>(Fast Mode 0.01s, học Glossary từ Caption)"]
-    C --> P
-    P --> M["Ghép nối WebVTT (.merged.zh.vtt)<br/>(0.00s)"]
-```
-
-| Tiêu chí              | Đánh giá                   | Chi tiết                                                                                                                                                           |
-| --------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Thread Safety**     | ✅ **100% An toàn**        | Cả 2 crate `OCR_Subtitles` và `OCR_Captions` hoàn toàn độc lập, không chia sẻ bất kỳ mutable state nào. Mỗi thread tự tạo ONNX Runtime `Session` riêng.            |
-| **File I/O**          | ✅ **Không xung đột**      | FFmpeg mở file video ở chế độ Read-Only, 2 process FFmpeg đọc cùng lúc không bị lock file. Output ghi ra 2 file riêng (`.subtitles.zh.vtt` và `.captions.zh.vtt`). |
-| **Tốc độ (Speedup)**  | 🚀 **Nhanh hơn ~40%**      | Thay vì tuần tự $T_{\text{tổng}} = T_{\text{sub}} + T_{\text{cap}}$, chạy song song chỉ còn $T_{\text{tổng}} = \max(T_{\text{sub}}, T_{\text{cap}})$.              |
-| **Yêu cầu phụ thuộc** | ✅ **Không cần crate mới** | Dùng sẵn `std::thread::scope` có sẵn trong thư viện chuẩn Rust (`std`).                                                                                            |
-
----
-
-### 2. Các điểm cần lưu ý khi chạy song song
-
-1. **Tải CPU / Luồng**:
-   - 2 tiến trình FFmpeg và 2 phiên ONNX cùng chạy sẽ đẩy CPU lên mức cao hơn (rất tối ưu cho CPU 8 – 16 cores trở lên).
-2. **Terminal Log**:
-   - Cần gắn tiền tố rõ ràng như `[SUB]` và `[CAP]` để log tiến trình không bị lẫn lộn khi 2 luồng cùng in ra màn hình.
-3. **Thứ tự hoàn thành**:
-   - Sau khi cả 2 thread `join()` xong, Bước 3 (học `EntityGlossary` từ file Caption vừa xong để hiệu đính Subtitle) và Bước 4 (Merge) sẽ tiếp tục chạy như bình thường mà không bị ảnh hưởng.
-
----
-
-### 3. Bạn có muốn cập nhật luôn tính năng này không?
-
-Nếu bạn đồng ý, tôi có thể:
-
-- Cập nhật trực tiếp [examples/extract_and_merge.rs](file:///c:/DATA/OCR/examples/extract_and_merge.rs) sử dụng `std::thread::scope` để chạy song song Subtitle + Caption.
-- Hoặc thêm cờ CLI `--parallel` (mặc định bật) để bạn có thể linh hoạt chọn chạy song song hoặc tuần tự khi cần.
+Mọi điểm số cần ghi rõ tập video, chuẩn hóa bật/tắt và cách căn cue. Không dùng kết quả của một series làm cam kết cho video bất kỳ.

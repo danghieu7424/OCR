@@ -1,16 +1,16 @@
 //! Example: Hiệu đính phụ đề (Proofread) kết hợp Entity Glossary & Qwen2.5-VL Context Engine
 //!
-//! Chạy với LLM (mặc định):
-//!   cargo run --release --example proofread_subtitles -- 002
+//! Chạy công cụ riêng này với feature tùy chọn `llm`:
+//!   cargo run --release --features llm --example proofread_subtitles -- 002
 //!
-//! Chạy siêu nhanh Fast Mode (tắt LLM, chỉ dùng Entity Glossary & Sanitizer, 0.00s/câu):
-//!   cargo run --release --example proofread_subtitles -- 002 --fast
-//!   cargo run --release --example proofread_subtitles -- all --fast
+//! Chạy Fast Mode (vẫn cần feature `llm` vì dùng crate OCR_LLM):
+//!   cargo run --release --features llm --example proofread_subtitles -- 002 --fast
+//!   cargo run --release --features llm --example proofread_subtitles -- all --fast
 
+use OCR::{EntityGlossary, Proofreader};
 use anyhow::Result;
 use std::env;
 use std::path::PathBuf;
-use OCR::{EntityGlossary, Proofreader};
 
 fn main() -> Result<()> {
     println!(">>> [PROOFREADER] Hậu xử lý & Hiệu đính ngữ cảnh phụ đề WebVTT\n");
@@ -51,13 +51,22 @@ fn main() -> Result<()> {
     // 2. Khởi tạo Proofreader (hỗ trợ bật/tắt LLM)
     let proofreader = if use_fast_mode {
         println!(">>> [2/3] Chế độ SIÊU NHANH (Fast Mode: Đã TẮT LLM để tiết kiệm thời gian)...");
-        println!("    \x1b[32m[FAST MODE]\x1b[0m Sử dụng Entity Glossary & Bộ lọc khử nhiễu (tốc độ 0.00s/câu)");
+        println!(
+            "    \x1b[32m[FAST MODE]\x1b[0m Sử dụng Entity Glossary & Bộ lọc khử nhiễu (tốc độ 0.00s/câu)"
+        );
         Proofreader::with_fast_mode()
     } else {
-        println!(">>> [2/3] Khởi tạo Proofreader (Tự động kích hoạt Ollama & mô hình Qwen2.5-VL)...");
-        println!("    \x1b[33m[MẸO]\x1b[0m Thêm cờ `--fast` hoặc `--no-llm` để chạy tức thì không cần đợi LLM.");
+        println!(
+            ">>> [2/3] Khởi tạo Proofreader (Tự động kích hoạt Ollama & mô hình Qwen2.5-VL)..."
+        );
+        println!(
+            "    \x1b[33m[MẸO]\x1b[0m Thêm cờ `--fast` hoặc `--no-llm` để chạy tức thì không cần đợi LLM."
+        );
         let model = std::env::var("OCR_LLM_MODEL").unwrap_or_else(|_| "qwen2.5vl:3b".to_string());
-        println!("    [OLLAMA] Đang kết nối tới mô hình `{}` qua ollama-rs...", model);
+        println!(
+            "    [OLLAMA] Đang kết nối tới mô hình `{}` qua ollama-rs...",
+            model
+        );
 
         match Proofreader::with_ollama(&model) {
             Ok(p) => {

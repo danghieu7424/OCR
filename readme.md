@@ -1,12 +1,41 @@
-# OCR - Industrial-Grade Hardcoded Subtitle Extractor
+# OCR - Hardcoded Subtitle and Caption Extractor
 
-Thư viện và công cụ Rust chuẩn công nghiệp dùng để phát hiện và trích xuất phụ đề cứng (Hardcoded Subtitles) từ video sang định dạng WebVTT (`.zh.vtt`).
+Thư viện Rust dùng DBNet và PP-OCRv6 ONNX để phát hiện, trích xuất phụ đề cứng và caption trong video sang WebVTT. Pipeline mặc định giữ nguyên văn bản OCR thô, không hiệu đính nội dung.
 
-Được xây dựng trên nền tảng **ONNX Runtime**, **DBNet Text Detection**, **PP-OCRv6 CTC Recognition**, kết hợp máy trạng thái thời gian (**Temporal State Machine**) và thuật toán đối sánh chuỗi thông minh (Levenshtein + Prefix/Suffix Sequence Matching) đạt độ chính xác >99%:
-- **Bảo toàn 100% Sub 1 ký tự**: Nhận diện chuẩn xác các từ đơn lẻ ngắn (`爹`, `嗯`, `姐`, `哼`, `啊`).
-- **Chống gộp cụm & rụng câu**: Phân tách chuẩn xác các câu thoại nói nhanh liền kề.
-- **Khử nhiễu nhấp nháy**: Triệt tiêu hiện tượng chữ nháy nét, vệt sáng kiếm quang hoặc typo 1-frame.
-- **Tự động bù thời gian**: Tinh chỉnh mốc thời gian bắt đầu (`-50ms`) đồng bộ tuyệt đối với khẩu hình và âm thanh.
+Mặc định hiện tại được tối ưu cho video tiếng Trung có chữ cứng tương đối sắc nét. Chất lượng thay đổi theo độ phân giải, font, hiệu ứng, vị trí chữ và model/dictionary; kết quả cần được đối chiếu với video đầu vào.
+
+## Phạm vi và giới hạn
+
+- `OCR_Subtitles` dùng model PP-OCRv6 và mặc định quét vùng gần đáy khung hình (Y 85–100%, X 5–95%). Cần đổi ROI nếu subtitle nằm ở vị trí khác.
+- `OCR_Captions` mặc định quét vùng Y 10–80%, X 0–100%, phù hợp với profile caption của bộ dữ liệu hiện tại. ROI rộng cũng có thể chứa watermark hoặc chữ trong cảnh.
+- Model và từ điển hiện tại nhắm đến tiếng Trung; không cam kết hỗ trợ mọi ngôn ngữ, font hoặc video.
+- Không có cam kết tỷ lệ chính xác chung cho mọi video. Hãy đánh giá trên VTT tham chiếu đã kiểm chứng và xem các cue có cảnh báo bằng ảnh.
+
+## Pipeline OCR thô
+
+Trích xuất subtitle và caption song song, sau đó merge trực tiếp hai VTT. Nội dung OCR không bị sửa bởi LLM, glossary hoặc fuzzy matching:
+
+```powershell
+cargo run --release --example extract_and_merge -- 001
+```
+
+Kết quả nằm trong `output/`: `.subtitles.zh.vtt`, `.captions.zh.vtt` và `.merged.zh.vtt`. Để xuất crop ảnh bằng chứng cho cue caption:
+
+```powershell
+cargo run --release --example extract_and_merge -- 001 --caption-evidence
+```
+
+Ảnh first/best/last cùng timestamp, `manifest.tsv` và `warnings.tsv` được lưu dưới `output/caption_evidence/<episode>/run-<id>/`. Ngưỡng cảnh báo confidence và thời lượng là chỉ dấu để duyệt, không phải xác suất hiệu chỉnh.
+
+## Đối chiếu VTT
+
+Script đọc được cả output mới `.subtitles.zh.vtt` và tên cũ `.zh.vtt`. Mặc định không cần cài gói chuẩn hóa:
+
+```powershell
+python tools\compare_subs.py
+```
+
+`Conditional Character Accuracy` chỉ tính các cặp cue đã căn; `Overall CER` tính thêm ký tự của cue thiếu và thừa. Tùy chọn `--norm t2s` dùng để so sánh phồn thể/giản thể, cần cài `zhconv` riêng và không sửa file trong `input/`.
 
 ---
 
@@ -46,11 +75,11 @@ fn main() -> Result<()> {
         (Path::new("."), "root_fallback")
     };
 
-    // 2. Cấu hình trích xuất (đã tinh chỉnh mặc định tối ưu)
+    // 2. Cấu hình trích xuất; điều chỉnh ROI theo vị trí subtitle của video
     let mut config = OcrExtractorConfig::default();
     config.fps = 10;                // Tốc độ quét 10 fps
     config.accuracy_mode = true;    // Chế độ nhận diện chính xác cao
-    // config.roi.y_min = 0.85;     // Mặc định: 85% - 100% sát đáy, tránh vùng sub chú thích
+    // config.roi.y_min = 0.85;     // ROI mặc định của subtitle: 85% - 100%
     // config.roi.y_max = 1.00;
 
     // 3. Đường dẫn video đầu vào và file vtt đầu ra

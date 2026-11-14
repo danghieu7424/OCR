@@ -7,16 +7,22 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ## [Unreleased]
 
+### Thêm
+
+- `OCR_Captions`: tùy chọn xuất crop ảnh first/best/last có timestamp cho từng cue caption, kèm `manifest.tsv` và `warnings.tsv` cho confidence thấp hoặc thời lượng sát ngưỡng tối thiểu.
+- `tools/compare_subs.py`: nhận cả output `.subtitles.zh.vtt` và `.zh.vtt`; báo Conditional Character Accuracy trên cue đã căn và Overall CER có tính ký tự cue thiếu/thừa.
+- `examples/extract_and_merge.rs`: hỗ trợ trích xuất subtitle/caption song song bằng `std::thread::scope`, hiển thị tiến trình riêng và tùy chọn `--sequential`.
+
 ### Sửa
 
 - `crates/OCR_Merge`: Sửa lỗi thất thoát thiết lập vị trí WebVTT cue settings (`line:20%`, `position:...`, `align:...`) khi phân tích cú pháp và hợp nhất. Trường `settings: Option<String>` được bổ sung vào `VttCue` để bảo tồn nguyên vẹn 100% tọa độ hiển thị của caption (đặt ở phía trên màn hình `line:20%`), ngăn chặn hiện tượng caption bị hiển thị đè xuống dưới chân màn hình trùng với lời thoại.
 
-### Thêm
-
-- `examples/extract_and_merge.rs`: Hỗ trợ chạy trích xuất phụ đề (Subtitles) và chú thích (Captions) hoàn toàn **SONG SONG (Parallel)** bằng `std::thread::scope`, giúp rút ngắn ~40% tổng thời gian xử lý video. Hỗ trợ hiển thị thanh tiến trình kép thời gian thực (`[SUB]` và `[CAP]`) trên cùng một dòng console và cờ tùy chọn `--sequential` khi cần chạy tuần tự.
-
 ### Thay đổi
 
+- Pipeline mặc định trong `examples/extract_and_merge.rs` bỏ `Proofreader` và `EntityGlossary`, giữ nguyên hai VTT OCR thô rồi merge trực tiếp. `OCR_LLM` vẫn thuộc workspace, nhưng là dependency tùy chọn qua feature `llm`; example hiệu đính riêng yêu cầu bật feature này.
+- `examples/merge_subtitles_captions.rs` ưu tiên `.subtitles.zh.vtt` và không còn tự chọn file `.refined.zh.vtt` để merge.
+- `examples/extract_and_merge.rs`: thêm cờ `--caption-evidence` để xuất ảnh bằng chứng và cảnh báo caption; lỗi xử lý video được phản ánh bằng mã thoát khác 0.
+- `readme.md` và `plan.md`: mô tả phạm vi model tiếng Trung, ROI theo profile, pipeline không hiệu đính và cách đánh giá không cam kết điểm số cho mọi video.
 - `readme.md`: Đồng bộ và quy chuẩn toàn bộ phần tài liệu tải mô hình sang chuẩn **PP-OCRv6** (Medium ONNX và từ điển chính thức PaddleOCR), xóa bỏ hoàn toàn các phần tham chiếu cũ PP-OCRv4 và PP-OCRv5.
 - `examples/extract_captions.rs`, `examples/extract_subtitles.rs`, `examples/extract_and_merge.rs`: Bổ sung cơ chế tự động tải trực tiếp bộ mô hình **PP-OCRv6** Medium (`det.onnx`, `rec.onnx`, `keys.txt`) từ HuggingFace PaddlePaddle và PaddleOCR GitHub khi không tìm thấy file local và file nén `ocr.zip`.
 

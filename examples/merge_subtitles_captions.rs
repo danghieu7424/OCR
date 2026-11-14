@@ -5,10 +5,10 @@
 //!   cargo run --release --example merge_subtitles_captions -- 002
 //!   cargo run --release --example merge_subtitles_captions -- all
 
+use OCR::merge_vtt_files;
 use anyhow::Result;
 use std::env;
 use std::path::PathBuf;
-use OCR::merge_vtt_files;
 
 fn main() -> Result<()> {
     println!(">>> [MERGE] Hợp nhất Subtitles và Captions thành một file WebVTT đồng bộ\n");
@@ -28,11 +28,11 @@ fn main() -> Result<()> {
 
     for ep in ep_numbers {
         let ep_str = format!("{:03}", ep);
-        // Ưu tiên dùng file .refined.zh.vtt nếu đã hiệu đính, ngược lại dùng .zh.vtt gốc
+        // Ưu tiên VTT OCR thô theo tên hiện tại, rồi tương thích tên output cũ.
         let sub_vtt = {
-            let refined = PathBuf::from(format!("output/第{}集.refined.zh.vtt", ep_str));
-            if refined.exists() {
-                refined
+            let raw = PathBuf::from(format!("output/第{}集.subtitles.zh.vtt", ep_str));
+            if raw.exists() {
+                raw
             } else {
                 PathBuf::from(format!("output/第{}集.zh.vtt", ep_str))
             }
@@ -48,11 +48,7 @@ fn main() -> Result<()> {
         let summary = merge_vtt_files(&sub_vtt, &cap_vtt, &out_vtt)?;
         println!(
             "  ✔ Tập {}: Đã ghép thành công {} câu ({} lời thoại + {} chú thích) -> {:?}",
-            ep_str,
-            summary.total_merged_cues,
-            summary.subtitle_cues,
-            summary.caption_cues,
-            out_vtt
+            ep_str, summary.total_merged_cues, summary.subtitle_cues, summary.caption_cues, out_vtt
         );
         total_merged += summary.total_merged_cues;
     }

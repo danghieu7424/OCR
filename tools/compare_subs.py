@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""So sánh phụ đề OCR (`output/第XXX集.zh.vtt`) với reference (`input/第XXX集.zh.vtt`).
+"""Compare OCR subtitles with reference WebVTT cues.
 
 Căn câu theo thời gian: ưu tiên overlap >= 40% thời lượng câu ngắn hơn, nếu không
 có thì nhận câu lệch start <= 2s. So ký tự bằng Levenshtein.
@@ -9,7 +9,10 @@ Chuẩn hoá biến thể chữ (tuỳ chọn) để điểm khớp chỉ phản
     --norm s2t   giản thể -> phồn thể
     --norm none  so nguyên văn (mặc định)
 
-Chạy: PYTHONIOENCODING=utf-8 python tools/compare_subs.py --norm t2s
+Conditional Character Accuracy chỉ tính các cặp cue đã căn.
+Overall CER cũng tính toàn bộ ký tự trong cue thiếu và cue thừa.
+
+Chạy: python tools/compare_subs.py
 """
 import argparse
 import glob
@@ -101,7 +104,12 @@ def align(ref, ours):
 def make_normalizer(mode):
     if mode == "none":
         return lambda s: s
-    import zhconv  # pip install zhconv
+    try:
+        import zhconv  # pip install zhconv
+    except ImportError as error:
+        raise SystemExit(
+            "Chuẩn hóa t2s/s2t cần gói zhconv; chạy mặc định --norm none không cần gói này."
+        ) from error
     locale = {"t2s": "zh-cn", "s2t": "zh-tw"}[mode]
     cache = {}
 
@@ -110,6 +118,63 @@ def make_normalizer(mode):
             cache[text] = zhconv.convert(text, locale)
         return cache[text]
     return norm
+
+
+def output_path_for_video(video_path, output_dir):
+    """Prefer current raw `.subtitles.zh.vtt`; accept legacy `.zh.vtt`."""
+    stem = os.path.splitext(os.path.basename(video_path))[0]
+    candidates = [
+        os.path.join(output_dir, f"{stem}.subtitles.zh.vtt"),
+        os.path.join(output_dir, f"{stem}.zh.vtt"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    raise FileNotFoundError(
+        f"Không tìm thấy VTT OCR cho {stem}; đã thử: {', '.join(candidates)}"
+    )
+
+
+def score_alignment(ref, ours, normalizer):
+    pairs, missing, extra = align(ref, ours)
+    paired_ref_chars = 0
+    paired_errors = 0
+    exact = 0
+    variant = 0
+    for reference, recognized in pairs:
+        ref_text = normalizer(reference[2])
+        ocr_text = normalizer(recognized[2])
+        paired_ref_chars += len(ref_text)
+        if ref_text == ocr_text:
+            exact += 1
+            if reference[2] != recognized[2]:
+                variant += 1
+        else:
+            paired_errors += levenshtein(ref_text, ocr_text)
+
+    missing_chars = sum(len(normalizer(cue[2])) for cue in missing)
+    extra_chars = sum(len(normalizer(cue[2])) for cue in extra)
+    total_ref_chars = sum(len(normalizer(cue[2])) for cue in ref)
+    overall_errors = paired_errors + missing_chars + extra_chars
+    conditional_accuracy = (
+        1.0 - paired_errors / paired_ref_chars if paired_ref_chars else None
+    )
+    overall_cer = overall_errors / total_ref_chars if total_ref_chars else 0.0
+    return {
+        "pairs": pairs,
+        "missing": missing,
+        "extra": extra,
+        "exact": exact,
+        "variant": variant,
+        "paired_ref_chars": paired_ref_chars,
+        "paired_errors": paired_errors,
+        "missing_chars": missing_chars,
+        "extra_chars": extra_chars,
+        "total_ref_chars": total_ref_chars,
+        "overall_errors": overall_errors,
+        "conditional_accuracy": conditional_accuracy,
+        "overall_cer": overall_cer,
+    }
 
 
 def main():
@@ -121,54 +186,88 @@ def main():
     args = ap.parse_args()
     norm = make_normalizer(args.norm)
 
-    total = dict(ref=0, ours=0, match=0, exact=0, variant=0, miss=0, extra=0, err=0, chars=0)
-    print(f"| Tập | ref | ours | khớp | đúng | lệch | thiếu | thừa | acc% |")
-    print("|---|---|---|---|---|---|---|---|---|")
+    total = dict(
+        ref_cues=0,
+        ocr_cues=0,
+        paired=0,
+        exact=0,
+        variant=0,
+        missing=0,
+        extra=0,
+        paired_ref_chars=0,
+        paired_errors=0,
+        missing_chars=0,
+        extra_chars=0,
+        total_ref_chars=0,
+        overall_errors=0,
+    )
+    print(
+        "| Tập | ref | OCR | cặp | cue đúng | thiếu | thừa | "
+        "Conditional Character Accuracy | Overall CER |"
+    )
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for video in sorted(glob.glob(os.path.join(args.input, "*.mp4"))):
-        ep = os.path.basename(video)[1:4]
-        ref = parse_vtt(os.path.join(args.input, f"第{ep}集.zh.vtt"))
-        ours = parse_vtt(os.path.join(args.output, f"第{ep}集.zh.vtt"))
-        pairs, missing, extra = align(ref, ours)
-
-        exact = variant = err = chars = 0
-        detail = []
-        for r, o in pairs:
-            rn, on = norm(r[2]), norm(o[2])
-            chars += len(rn)
-            if rn == on:
-                exact += 1
-                if r[2] != o[2]:
-                    variant += 1
-            else:
-                err += levenshtein(rn, on)
-                detail.append(f"   SAI  ref='{r[2]}' ours='{o[2]}'")
-        acc = 100.0 * (1 - err / max(chars, 1))
-
-        total["ref"] += len(ref)
-        total["ours"] += len(ours)
-        total["match"] += len(pairs)
-        total["exact"] += exact
-        total["variant"] += variant
-        total["miss"] += len(missing)
-        total["extra"] += len(extra)
-        total["err"] += err
-        total["chars"] += chars
-
-        print(f"| {ep} | {len(ref)} | {len(ours)} | {len(pairs)} | {exact} | "
-              f"{len(pairs) - exact} | {len(missing)} | {len(extra)} | {acc:.2f} |")
-        if args.show == ep:
-            print("\n".join(detail))
-            for m in missing:
+        stem = os.path.splitext(os.path.basename(video))[0]
+        episode = stem[1:4] if len(stem) >= 4 else stem
+        ref_path = os.path.join(args.input, f"{stem}.zh.vtt")
+        ref = parse_vtt(ref_path)
+        output_path = output_path_for_video(video, args.output)
+        ours = parse_vtt(output_path)
+        score = score_alignment(ref, ours, norm)
+        conditional = score["conditional_accuracy"]
+        conditional_text = "n/a" if conditional is None else f"{100 * conditional:.2f}%"
+        print(
+            f"| {stem} | {len(ref)} | {len(ours)} | {len(score['pairs'])} | "
+            f"{score['exact']} | {len(score['missing'])} | {len(score['extra'])} | "
+            f"{conditional_text} | {100 * score['overall_cer']:.2f}% |"
+        )
+        if args.show in (episode, stem):
+            for r, o in score["pairs"]:
+                if norm(r[2]) != norm(o[2]):
+                    print(f"   SAI  ref='{r[2]}' ours='{o[2]}'")
+            for m in score["missing"]:
                 print(f"   THIEU {m[0]:.2f}-{m[1]:.2f} '{m[2]}'")
-            for x in extra:
+            for x in score["extra"]:
                 print(f"   THUA  {x[0]:.2f}-{x[1]:.2f} '{x[2]}'")
+        total["ref_cues"] += len(ref)
+        total["ocr_cues"] += len(ours)
+        total["paired"] += len(score["pairs"])
+        total["exact"] += score["exact"]
+        total["variant"] += score["variant"]
+        total["missing"] += len(score["missing"])
+        total["extra"] += len(score["extra"])
+        for key in (
+            "paired_ref_chars",
+            "paired_errors",
+            "missing_chars",
+            "extra_chars",
+            "total_ref_chars",
+            "overall_errors",
+        ):
+            total[key] += score[key]
 
-    acc_all = 100.0 * (1 - total["err"] / max(total["chars"], 1))
-    print(f"\n**Tổng** (norm={args.norm}): {total['ref']} câu ref, {total['ours']} câu OCR, "
-          f"khớp {total['match']}, đúng {total['exact']} "
-          f"(trong đó {total['variant']} chỉ khác biến thể chữ), "
-          f"thiếu {total['miss']}, thừa {total['extra']}, "
-          f"lỗi {total['err']}/{total['chars']} ký tự → **{acc_all:.2f}%**")
+    conditional = (
+        1.0 - total["paired_errors"] / total["paired_ref_chars"]
+        if total["paired_ref_chars"]
+        else None
+    )
+    print(f"\nNormalization: {args.norm}")
+    print(
+        "Conditional Character Accuracy (paired cues): "
+        + ("n/a" if conditional is None else f"{100 * conditional:.2f}%")
+        + f" ({total['paired_errors']}/{total['paired_ref_chars']} paired reference characters)"
+    )
+    print(
+        f"Overall CER: {100 * total['overall_errors'] / max(total['total_ref_chars'], 1):.2f}% "
+        f"({total['overall_errors']}/{total['total_ref_chars']} reference characters; "
+        f"paired edits={total['paired_errors']}, missing cue chars={total['missing_chars']}, "
+        f"extra cue chars={total['extra_chars']})"
+    )
+    print(
+        f"Cues: reference={total['ref_cues']}, OCR={total['ocr_cues']}, paired={total['paired']}, "
+        f"exact={total['exact']} (orthographic variants={total['variant']}), "
+        f"missing={total['missing']}, extra={total['extra']}"
+    )
     return 0
 
 

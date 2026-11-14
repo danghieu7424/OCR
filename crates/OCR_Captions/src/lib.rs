@@ -18,7 +18,7 @@
  ****/
 
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -74,6 +74,12 @@ pub struct CaptionExtractorConfig {
     pub min_duration_sec: f64,
     /// Ngưỡng tỷ lệ frame xuất hiện để coi là watermark (0.0-1.0)
     pub watermark_freq_threshold: f32,
+    /// Thư mục xuất crop bằng chứng. `None` sẽ không trích xuất ảnh bằng chứng.
+    pub evidence_dir: Option<PathBuf>,
+    /// Confidence trung bình thấp hơn mức này sẽ được đưa vào danh sách duyệt.
+    pub evidence_warning_confidence: f32,
+    /// Cảnh báo cue có thời lượng không quá min_duration_sec + margin.
+    pub evidence_duration_margin_sec: f64,
 }
 
 impl Default for CaptionExtractorConfig {
@@ -86,6 +92,9 @@ impl Default for CaptionExtractorConfig {
             min_confidence: 0.80,
             min_duration_sec: 1.0,
             watermark_freq_threshold: 0.40,
+            evidence_dir: None,
+            evidence_warning_confidence: 0.90,
+            evidence_duration_margin_sec: 0.25,
         }
     }
 }
@@ -114,6 +123,26 @@ impl CaptionSegment {
 pub struct CaptionExtractorOutput {
     pub vtt_path: PathBuf,
     pub segments: Vec<CaptionSegment>,
+    pub warnings: Vec<CaptionWarning>,
+    pub evidence_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaptionWarning {
+    pub text: String,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    pub duration_sec: f64,
+    pub confidence: f32,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct IndexedCaption {
+    segment: CaptionSegment,
+    start_frame: usize,
+    end_frame: usize,
+    confidence: f32,
 }
 
 /// Text box detected bởi DBNet + CTC
@@ -168,7 +197,9 @@ fn detect_and_recognize(
             .map(|p| (p.x(), p.y()))
             .collect();
 
-        if points.is_empty() { continue; }
+        if points.is_empty() {
+            continue;
+        }
 
         let min_x = points.iter().map(|p| p.0).fold(f64::MAX, f64::min);
         let min_y = points.iter().map(|p| p.1).fold(f64::MAX, f64::min);
@@ -177,10 +208,14 @@ fn detect_and_recognize(
 
         let w = max_x - min_x;
         let h = max_y - min_y;
-        if w < 5.0 || h < 5.0 { continue; }
+        if w < 5.0 || h < 5.0 {
+            continue;
+        }
 
         let clean_text = sanitize_caption_text(&result.text);
-        if clean_text.is_empty() { continue; }
+        if clean_text.is_empty() {
+            continue;
+        }
 
         let stats = box_pixel_stats(rgb_bytes, width, height, min_x, min_y, max_x, max_y);
         let ink_ok = ink_looks_like_caption(rgb_bytes, width, height, min_x, min_y, max_x, max_y);
@@ -196,8 +231,16 @@ fn detect_and_recognize(
             let expected = (h / w).round().max(1.0) as usize;
             if expected > caption_text.chars().count() {
                 if let Some(better) = retry_vertical_missing_chars(
-                    engine, &dynamic_img, width, height,
-                    min_x, min_y, max_x, max_y, expected, &caption_text,
+                    engine,
+                    &dynamic_img,
+                    width,
+                    height,
+                    min_x,
+                    min_y,
+                    max_x,
+                    max_y,
+                    expected,
+                    &caption_text,
                 ) {
                     caption_text = better;
                 }
@@ -210,17 +253,36 @@ fn detect_and_recognize(
         if std::env::var_os("OCR_CAP_DEBUG").is_some() {
             eprintln!(
                 "[BOX] ({:.0},{:.0})-({:.0},{:.0}) w={:.0} h={:.0} '{}' conf={:.2} ink={} shape={} scene={} | lum_med={:.0} dark={:.2} sat_med={:.2} sat_p90={:.2} sat_hi={:.2}",
-                min_x, min_y, max_x, max_y, w, h, caption_text, result.confidence,
-                ink_ok as u8, shape_ok as u8, scene_ok as u8,
-                stats.lum_med, stats.dark_frac, stats.sat_med, stats.sat_p90, stats.sat_hi,
+                min_x,
+                min_y,
+                max_x,
+                max_y,
+                w,
+                h,
+                caption_text,
+                result.confidence,
+                ink_ok as u8,
+                shape_ok as u8,
+                scene_ok as u8,
+                stats.lum_med,
+                stats.dark_frac,
+                stats.sat_med,
+                stats.sat_p90,
+                stats.sat_hi,
             );
         }
 
-        if !accept { continue; }
+        if !accept {
+            continue;
+        }
 
         boxes.push(TextBox {
-            min_x, min_y, max_x, max_y,
-            width: w, height: h,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            width: w,
+            height: h,
             center_x: (min_x + max_x) / 2.0,
             center_y: (min_y + max_y) / 2.0,
             is_vertical,
@@ -334,7 +396,13 @@ fn box_pixel_stats(
     }
 
     if lums.is_empty() {
-        return BoxPixels { lum_med: 0.0, dark_frac: 0.0, sat_med: 0.0, sat_p90: 1.0, sat_hi: 1.0 };
+        return BoxPixels {
+            lum_med: 0.0,
+            dark_frac: 0.0,
+            sat_med: 0.0,
+            sat_p90: 1.0,
+            sat_hi: 1.0,
+        };
     }
 
     let n = lums.len();
@@ -411,7 +479,9 @@ fn retry_vertical_missing_chars(
 
 fn sanitize_caption_text(raw: &str) -> String {
     let trimmed = raw.trim();
-    if trimmed.is_empty() { return String::new(); }
+    if trimmed.is_empty() {
+        return String::new();
+    }
 
     let cleaned: String = trimmed
         .chars()
@@ -419,12 +489,19 @@ fn sanitize_caption_text(raw: &str) -> String {
             ('\u{4e00}'..='\u{9fff}').contains(&c)
                 || ('\u{3400}'..='\u{4dbf}').contains(&c)
                 || c.is_ascii_alphanumeric()
-                || c == '-' || c == '—' || c == '·' || c == '…'
+                || c == '-'
+                || c == '—'
+                || c == '·'
+                || c == '…'
         })
         .collect();
 
-    let has_cjk = cleaned.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
-    if !has_cjk { return String::new(); }
+    let has_cjk = cleaned
+        .chars()
+        .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
+    if !has_cjk {
+        return String::new();
+    }
     cleaned
 }
 
@@ -432,7 +509,10 @@ fn sanitize_caption_text(raw: &str) -> String {
 fn region_key(center_x: f64, center_y: f64, img_w: f64, img_h: f64) -> RegionKey {
     let qx = ((center_x / img_w) * 10.0).floor() as u32;
     let qy = ((center_y / img_h) * 10.0).floor() as u32;
-    RegionKey { qx: qx.min(9), qy: qy.min(9) }
+    RegionKey {
+        qx: qx.min(9),
+        qy: qy.min(9),
+    }
 }
 
 /// Phase 2: Xác định watermark fingerprints
@@ -487,14 +567,21 @@ fn build_watermark_set(
 }
 
 /// Kiểm tra box có phải watermark không
-fn is_watermark(b: &TextBox, watermarks: &HashMap<RegionKey, String>, img_w: f64, img_h: f64) -> bool {
+fn is_watermark(
+    b: &TextBox,
+    watermarks: &HashMap<RegionKey, String>,
+    img_w: f64,
+    img_h: f64,
+) -> bool {
     let rk = region_key(b.center_x, b.center_y, img_w, img_h);
     watermarks.contains_key(&rk)
 }
 
 /// Nhóm boxes dọc thành cột, sắp xếp: mỗi cột y↓, các cột x→
 fn group_vertical_columns(boxes: &[TextBox], tolerance_px: f64) -> Vec<Vec<&TextBox>> {
-    if boxes.is_empty() { return Vec::new(); }
+    if boxes.is_empty() {
+        return Vec::new();
+    }
 
     let mut sorted_idx: Vec<usize> = (0..boxes.len()).collect();
     sorted_idx.sort_by(|&a, &b| boxes[a].center_x.partial_cmp(&boxes[b].center_x).unwrap());
@@ -534,7 +621,9 @@ fn group_vertical_columns(boxes: &[TextBox], tolerance_px: f64) -> Vec<Vec<&Text
 
 /// Ghép filtered boxes thành caption text cho 1 frame
 fn assemble_caption(boxes: &[TextBox], column_x_tol: f64) -> String {
-    if boxes.is_empty() { return String::new(); }
+    if boxes.is_empty() {
+        return String::new();
+    }
 
     let vert: Vec<&TextBox> = boxes.iter().filter(|b| b.is_vertical).collect();
     let horiz: Vec<&TextBox> = boxes.iter().filter(|b| !b.is_vertical).collect();
@@ -546,7 +635,11 @@ fn assemble_caption(boxes: &[TextBox], column_x_tol: f64) -> String {
         let vert_owned: Vec<TextBox> = vert.iter().map(|b| (*b).clone()).collect();
         let columns = group_vertical_columns(&vert_owned, column_x_tol);
         for col in &columns {
-            let col_text: String = col.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("");
+            let col_text: String = col
+                .iter()
+                .map(|b| b.text.as_str())
+                .collect::<Vec<_>>()
+                .join("");
             if !col_text.is_empty() {
                 parts.push(col_text);
             }
@@ -557,7 +650,9 @@ fn assemble_caption(boxes: &[TextBox], column_x_tol: f64) -> String {
     if !horiz.is_empty() {
         let mut h_sorted: Vec<&&TextBox> = horiz.iter().collect();
         h_sorted.sort_by(|a, b| {
-            a.center_y.partial_cmp(&b.center_y).unwrap()
+            a.center_y
+                .partial_cmp(&b.center_y)
+                .unwrap()
                 .then_with(|| a.center_x.partial_cmp(&b.center_x).unwrap())
         });
         for hb in &h_sorted {
@@ -569,30 +664,48 @@ fn assemble_caption(boxes: &[TextBox], column_x_tol: f64) -> String {
 
     if parts.len() > 1 {
         let all_short = parts.iter().all(|p| p.chars().count() <= 5);
-        if all_short { parts.join("-") } else { parts.join("") }
+        if all_short {
+            parts.join("-")
+        } else {
+            parts.join("")
+        }
     } else {
         parts.into_iter().next().unwrap_or_default()
     }
 }
 
 fn is_same_caption(s1: &str, s2: &str) -> bool {
-    if s1 == s2 { return true; }
-    if s1.is_empty() || s2.is_empty() { return false; }
+    if s1 == s2 {
+        return true;
+    }
+    if s1.is_empty() || s2.is_empty() {
+        return false;
+    }
     let l1 = s1.chars().count();
     let l2 = s2.chars().count();
     let mx = l1.max(l2);
     let mn = l1.min(l2);
-    if mn <= 2 { return s1 == s2; }
+    if mn <= 2 {
+        return s1 == s2;
+    }
     let dist = levenshtein_distance(s1, s2);
-    if mn <= 4 { dist <= 1 } else { (1.0 - dist as f32 / mx as f32) >= 0.70 && dist <= 2 }
+    if mn <= 4 {
+        dist <= 1
+    } else {
+        (1.0 - dist as f32 / mx as f32) >= 0.70 && dist <= 2
+    }
 }
 
 fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     let c1: Vec<char> = s1.chars().collect();
     let c2: Vec<char> = s2.chars().collect();
     let (l1, l2) = (c1.len(), c2.len());
-    if l1 == 0 { return l2; }
-    if l2 == 0 { return l1; }
+    if l1 == 0 {
+        return l2;
+    }
+    if l2 == 0 {
+        return l1;
+    }
     let mut prev: Vec<usize> = (0..=l2).collect();
     let mut curr: Vec<usize> = vec![0; l2 + 1];
     for i in 1..=l1 {
@@ -612,7 +725,9 @@ fn caption_key(s: &str) -> String {
 }
 
 fn select_best_caption(texts: &[String]) -> String {
-    if texts.is_empty() { return String::new(); }
+    if texts.is_empty() {
+        return String::new();
+    }
 
     // Gom các biến thể chỉ khác nhau ở dấu nối cột (vd: "大女儿-陆紫萱" và
     // "大女儿陆紫萱") về cùng một nhóm để bầu chọn ổn định, và ưu tiên biến
@@ -643,6 +758,233 @@ fn select_best_caption(texts: &[String]) -> String {
 // =====================================================================
 // HÀM CHÍNH
 // =====================================================================
+fn mean_box_confidence(boxes: &[TextBox]) -> f32 {
+    if boxes.is_empty() {
+        return 0.0;
+    }
+    boxes.iter().map(|b| b.confidence).sum::<f32>() / boxes.len() as f32
+}
+
+fn crop_caption_boxes(image: &RgbImage, boxes: &[TextBox]) -> Result<RgbImage> {
+    if boxes.is_empty() {
+        anyhow::bail!("Không có bounding box để tạo crop bằng chứng");
+    }
+    if image.width() == 0 || image.height() == 0 {
+        anyhow::bail!("Frame bằng chứng có kích thước rỗng");
+    }
+
+    let min_x = boxes.iter().map(|b| b.min_x).fold(f64::INFINITY, f64::min);
+    let min_y = boxes.iter().map(|b| b.min_y).fold(f64::INFINITY, f64::min);
+    let max_x = boxes
+        .iter()
+        .map(|b| b.max_x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let max_y = boxes
+        .iter()
+        .map(|b| b.max_y)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let (width, height) = (image.width() as i64, image.height() as i64);
+    let padding = 8i64;
+    let x0 = ((min_x.floor() as i64) - padding).clamp(0, width - 1) as u32;
+    let y0 = ((min_y.floor() as i64) - padding).clamp(0, height - 1) as u32;
+    let x1 = ((max_x.ceil() as i64) + padding).clamp(x0 as i64 + 1, width) as u32;
+    let y1 = ((max_y.ceil() as i64) + padding).clamp(y0 as i64 + 1, height) as u32;
+
+    Ok(image::imageops::crop_imm(image, x0, y0, x1 - x0, y1 - y0).to_image())
+}
+
+fn export_caption_evidence(
+    video_path: &Path,
+    evidence_dir: &Path,
+    vf_filter: &str,
+    crop_w: usize,
+    crop_h: usize,
+    fps: u32,
+    segments: &[IndexedCaption],
+    records: &[String],
+    frame_boxes: &[Vec<TextBox>],
+    warnings: &[CaptionWarning],
+) -> Result<()> {
+    if fps == 0 {
+        anyhow::bail!("FPS phải lớn hơn 0 khi xuất bằng chứng caption");
+    }
+    fs::create_dir_all(evidence_dir)?;
+
+    let mut targets: BTreeMap<usize, BTreeMap<usize, Vec<&str>>> = BTreeMap::new();
+    for (cue_index, cue) in segments.iter().enumerate() {
+        let text = cue
+            .segment
+            .text
+            .trim_start_matches('《')
+            .trim_end_matches('》');
+        let candidates: Vec<usize> = (cue.start_frame..=cue.end_frame)
+            .filter(|&i| {
+                !frame_boxes[i].is_empty()
+                    && !records[i].is_empty()
+                    && is_same_caption(text, &records[i])
+            })
+            .collect();
+        if candidates.is_empty() {
+            anyhow::bail!(
+                "Không tìm thấy frame OCR để tạo bằng chứng cho cue {} ({})",
+                cue_index + 1,
+                cue.segment.text
+            );
+        }
+
+        let best_frame = candidates
+            .iter()
+            .copied()
+            .max_by(|&a, &b| {
+                mean_box_confidence(&frame_boxes[a])
+                    .partial_cmp(&mean_box_confidence(&frame_boxes[b]))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap_or(candidates[0]);
+        for (stage, frame) in [
+            ("first", candidates[0]),
+            ("best", best_frame),
+            ("last", *candidates.last().unwrap_or(&candidates[0])),
+        ] {
+            let stages = targets
+                .entry(frame)
+                .or_default()
+                .entry(cue_index)
+                .or_default();
+            if !stages.contains(&stage) {
+                stages.push(stage);
+            }
+        }
+    }
+    if targets.is_empty() {
+        fs::write(
+            evidence_dir.join("manifest.tsv"),
+            "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\twarnings\timages\n",
+        )?;
+        fs::write(
+            evidence_dir.join("warnings.tsv"),
+            "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\treasons\n",
+        )?;
+        return Ok(());
+    }
+
+    let mut ffmpeg = Command::new("ffmpeg")
+        .args([
+            "-i",
+            &video_path.to_string_lossy(),
+            "-vf",
+            vf_filter,
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-v",
+            "error",
+            "-",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("FFmpeg caption evidence start failed")?;
+    let mut stdout = ffmpeg.stdout.take().context("FFmpeg evidence stdout")?;
+    let frame_bytes = crop_w * crop_h * 3;
+    let mut buffer = vec![0u8; frame_bytes];
+    let mut frame_index = 0usize;
+    let mut evidence_files = vec![Vec::<String>::new(); segments.len()];
+    let mut exported_frames = 0usize;
+
+    loop {
+        match stdout.read_exact(&mut buffer) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(error) => return Err(error.into()),
+        }
+
+        if let Some(frame_targets) = targets.get(&frame_index) {
+            let image = RgbImage::from_raw(crop_w as u32, crop_h as u32, buffer.clone())
+                .ok_or_else(|| anyhow::anyhow!("Không thể tạo ảnh frame bằng chứng"))?;
+            let timestamp_ms = (frame_index as f64 * 1000.0 / fps as f64).round() as u64;
+            for (&cue_index, stages) in frame_targets {
+                let crop = crop_caption_boxes(&image, &frame_boxes[frame_index])?;
+                let stage_name = stages.join("_");
+                let file_name = format!(
+                    "cue_{:03}_{}_frame_{:06}_t_{:09}ms.png",
+                    cue_index + 1,
+                    stage_name,
+                    frame_index,
+                    timestamp_ms
+                );
+                let path = evidence_dir.join(&file_name);
+                crop.save(&path)
+                    .with_context(|| format!("Không thể ghi crop bằng chứng {:?}", path))?;
+                evidence_files[cue_index].push(file_name);
+            }
+            exported_frames += 1;
+        }
+        frame_index += 1;
+    }
+
+    let status = ffmpeg.wait().context("Không thể chờ FFmpeg evidence")?;
+    if !status.success() {
+        anyhow::bail!("FFmpeg lỗi khi trích xuất crop bằng chứng: {}", status);
+    }
+    if exported_frames != targets.len() {
+        anyhow::bail!(
+            "Thiếu frame bằng chứng: xuất {}/{} frame mục tiêu",
+            exported_frames,
+            targets.len()
+        );
+    }
+
+    let mut manifest = String::from(
+        "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\twarnings\timages\n",
+    );
+    for (i, cue) in segments.iter().enumerate() {
+        let duration_sec = cue.segment.end_sec - cue.segment.start_sec;
+        let warning_text = warnings
+            .iter()
+            .find(|w| w.start_sec == cue.segment.start_sec && w.text == cue.segment.text)
+            .map(|w| w.reasons.join("; "))
+            .unwrap_or_default();
+        manifest.push_str(&format!(
+            "{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\t{}\t{}\n",
+            i + 1,
+            cue.segment.text.replace('\t', " ").replace('\n', " "),
+            cue.segment.start_sec,
+            cue.segment.end_sec,
+            duration_sec,
+            cue.confidence,
+            warning_text,
+            evidence_files[i].join(";")
+        ));
+    }
+    fs::write(evidence_dir.join("manifest.tsv"), manifest)?;
+
+    let mut warning_list =
+        String::from("cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\treasons\n");
+    for warning in warnings {
+        let cue_index = segments
+            .iter()
+            .position(|cue| {
+                cue.segment.start_sec == warning.start_sec && cue.segment.text == warning.text
+            })
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        warning_list.push_str(&format!(
+            "{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\t{}\n",
+            cue_index,
+            warning.text.replace('\t', " ").replace('\n', " "),
+            warning.start_sec,
+            warning.end_sec,
+            warning.duration_sec,
+            warning.confidence,
+            warning.reasons.join("; ")
+        ));
+    }
+    fs::write(evidence_dir.join("warnings.tsv"), warning_list)?;
+    Ok(())
+}
+
 pub fn extract_captions(
     video_path: &Path,
     output_vtt_path: &Path,
@@ -657,8 +999,11 @@ pub fn extract_captions(
     ocr_shared::tui_events::emit_log(format!(
         "   {} Caption ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%] | Fps: {}",
         "[CAPTION]".name_utils().violed(),
-        config.roi.y_min * 100.0, config.roi.y_max * 100.0,
-        config.roi.x_min * 100.0, config.roi.x_max * 100.0, config.fps,
+        config.roi.y_min * 100.0,
+        config.roi.y_max * 100.0,
+        config.roi.x_min * 100.0,
+        config.roi.x_max * 100.0,
+        config.fps,
     ));
 
     let det_path = model_dir.join("ocr/det.onnx");
@@ -666,48 +1011,102 @@ pub fn extract_captions(
     let keys_path = model_dir.join("ocr/keys.txt");
 
     ocr_shared::tui_events::emit_log(format!(
-        "   {} Khởi tạo Caption OCR Engine...", "[CAPTION]".name_utils().violed()
+        "   {} Khởi tạo Caption OCR Engine...",
+        "[CAPTION]".name_utils().violed()
     ));
     let ocr_engine = OCR_Subtitles::det_filter::create_det_engine(
-        &det_path.to_string_lossy(), &rec_path.to_string_lossy(), &keys_path.to_string_lossy(),
+        &det_path.to_string_lossy(),
+        &rec_path.to_string_lossy(),
+        &keys_path.to_string_lossy(),
     )?;
 
     // Video info
     let probe = Command::new("ffprobe")
-        .args(&["-v","error","-select_streams","v:0","-show_entries","stream=width,height","-of","csv=p=0",
-            &video_path.to_string_lossy()])
-        .output().context("ffprobe failed")?;
+        .args(&[
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0",
+            &video_path.to_string_lossy(),
+        ])
+        .output()
+        .context("ffprobe failed")?;
     let dim_str = String::from_utf8_lossy(&probe.stdout);
-    let dims: Vec<usize> = dim_str.trim().split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    let (src_w, src_h) = if dims.len() == 2 { (dims[0], dims[1]) } else { (1920, 1080) };
+    let dims: Vec<usize> = dim_str
+        .trim()
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    let (src_w, src_h) = if dims.len() == 2 {
+        (dims[0], dims[1])
+    } else {
+        (1920, 1080)
+    };
 
     let dur = Command::new("ffprobe")
-        .args(&["-v","error","-select_streams","v:0","-show_entries","format=duration",
-            "-of","default=noprint_wrappers=1:nokey=1", &video_path.to_string_lossy()])
+        .args(&[
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            &video_path.to_string_lossy(),
+        ])
         .output();
-    let total_duration: f64 = dur.ok()
+    let total_duration: f64 = dur
+        .ok()
         .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
         .unwrap_or(600.0);
 
-    let crop_w = (((src_w as f32 * (config.roi.x_max - config.roi.x_min)).round() as usize) / 2) * 2;
-    let crop_h = (((src_h as f32 * (config.roi.y_max - config.roi.y_min)).round() as usize) / 2) * 2;
+    let crop_w =
+        (((src_w as f32 * (config.roi.x_max - config.roi.x_min)).round() as usize) / 2) * 2;
+    let crop_h =
+        (((src_h as f32 * (config.roi.y_max - config.roi.y_min)).round() as usize) / 2) * 2;
     let crop_x = (((src_w as f32 * config.roi.x_min).round() as usize) / 2) * 2;
     let crop_y = (((src_h as f32 * config.roi.y_min).round() as usize) / 2) * 2;
 
-    let vf_filter = format!("fps={},crop={}:{}:{}:{}", config.fps, crop_w, crop_h, crop_x, crop_y);
+    let vf_filter = format!(
+        "fps={},crop={}:{}:{}:{}",
+        config.fps, crop_w, crop_h, crop_x, crop_y
+    );
     ocr_shared::tui_events::emit_log(format!(
-        "   {} ROI: {}x{} @ ({},{}) | {}", "[CAPTION]".name_utils().violed(),
-        crop_w, crop_h, crop_x, crop_y, vf_filter
+        "   {} ROI: {}x{} @ ({},{}) | {}",
+        "[CAPTION]".name_utils().violed(),
+        crop_w,
+        crop_h,
+        crop_x,
+        crop_y,
+        vf_filter
     ));
 
     let column_x_tol = crop_w as f64 * config.column_x_tolerance as f64;
 
     // FFmpeg pipe
     let mut ffmpeg = Command::new("ffmpeg")
-        .args(&["-i", &video_path.to_string_lossy(), "-vf", &vf_filter,
-            "-f", "rawvideo", "-pix_fmt", "rgb24", "-v", "error", "-"])
-        .stdout(Stdio::piped()).stderr(Stdio::null())
-        .spawn().context("FFmpeg caption start failed")?;
+        .args(&[
+            "-i",
+            &video_path.to_string_lossy(),
+            "-vf",
+            &vf_filter,
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-v",
+            "error",
+            "-",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("FFmpeg caption start failed")?;
     let mut stdout = ffmpeg.stdout.take().context("FFmpeg stdout")?;
 
     let frame_bytes = crop_w * crop_h * 3;
@@ -718,7 +1117,9 @@ pub fn extract_captions(
 
     // ===== PHASE 1: Thu thập raw boxes mọi frame =====
     ocr_shared::tui_events::emit_log(format!(
-        "   {} Phase 1: Quét {} frames...", "[CAPTION]".name_utils().violed(), est_frames
+        "   {} Phase 1: Quét {} frames...",
+        "[CAPTION]".name_utils().violed(),
+        est_frames
     ));
 
     let mut all_frame_boxes: Vec<Vec<TextBox>> = Vec::new();
@@ -729,8 +1130,12 @@ pub fn extract_captions(
         frame_idx += 1;
 
         let boxes = detect_and_recognize(
-            &ocr_engine, &buf, crop_w, crop_h,
-            config.vertical_aspect_threshold, config.min_confidence,
+            &ocr_engine,
+            &buf,
+            crop_w,
+            crop_h,
+            config.vertical_aspect_threshold,
+            config.min_confidence,
         )?;
 
         all_frame_boxes.push(boxes);
@@ -739,8 +1144,12 @@ pub fn extract_captions(
         if frame_idx % (config.fps as usize * 5) == 0 {
             let pct = (ts / total_duration * 100.0).min(100.0);
             ocr_shared::tui_events::emit_task_progress(
-                "Caption Phase 1", frame_idx, est_frames, "frames",
-                format!("{:.1}s", ts), format!("{:.1}%", pct),
+                "Caption Phase 1",
+                frame_idx,
+                est_frames,
+                "frames",
+                format!("{:.1}s", ts),
+                format!("{:.1}%", pct),
             );
         }
     }
@@ -749,75 +1158,97 @@ pub fn extract_captions(
 
     // ===== PHASE 2: Xác định & loại bỏ watermark =====
     ocr_shared::tui_events::emit_log(format!(
-        "   {} Phase 2: Lọc watermark ({} frames)...", "[CAPTION]".name_utils().violed(), total
+        "   {} Phase 2: Lọc watermark ({} frames)...",
+        "[CAPTION]".name_utils().violed(),
+        total
     ));
 
     let watermarks = build_watermark_set(
-        &all_frame_boxes, crop_w as f64, crop_h as f64, config.watermark_freq_threshold,
+        &all_frame_boxes,
+        crop_w as f64,
+        crop_h as f64,
+        config.watermark_freq_threshold,
     );
 
     ocr_shared::tui_events::emit_log(format!(
-        "   {} Phát hiện {} vùng watermark cố định", "[CAPTION]".name_utils().violed(), watermarks.len()
+        "   {} Phát hiện {} vùng watermark cố định",
+        "[CAPTION]".name_utils().violed(),
+        watermarks.len()
     ));
 
     // ===== PHASE 3: Ghép caption text (đã lọc watermark) =====
     let mut records: Vec<String> = Vec::with_capacity(total);
+    let mut filtered_frame_boxes: Vec<Vec<TextBox>> = Vec::with_capacity(total);
     for frame_boxes in &all_frame_boxes {
-        let filtered: Vec<TextBox> = frame_boxes.iter()
+        let filtered: Vec<TextBox> = frame_boxes
+            .iter()
             .filter(|b| !is_watermark(b, &watermarks, crop_w as f64, crop_h as f64))
             .cloned()
             .collect();
         records.push(assemble_caption(&filtered, column_x_tol));
+        filtered_frame_boxes.push(filtered);
     }
 
     // ===== PHASE 4: Temporal denoising =====
     ocr_shared::tui_events::emit_log(format!(
-        "   {} Phase 3: Khử nhiễu temporal...", "[CAPTION]".name_utils().violed()
+        "   {} Phase 3: Khử nhiễu temporal...",
+        "[CAPTION]".name_utils().violed()
     ));
 
     // 1-frame dropout fill
     for i in 1..total.saturating_sub(1) {
-        if records[i].is_empty() && !records[i-1].is_empty() && !records[i+1].is_empty() {
-            if is_same_caption(&records[i-1], &records[i+1]) {
-                records[i] = records[i-1].clone();
+        if records[i].is_empty() && !records[i - 1].is_empty() && !records[i + 1].is_empty() {
+            if is_same_caption(&records[i - 1], &records[i + 1]) {
+                records[i] = records[i - 1].clone();
             }
         }
     }
     // 2-frame dropout fill
     for i in 1..total.saturating_sub(2) {
-        if records[i].is_empty() && records[i+1].is_empty()
-            && !records[i-1].is_empty() && !records[i+2].is_empty()
-            && is_same_caption(&records[i-1], &records[i+2])
+        if records[i].is_empty()
+            && records[i + 1].is_empty()
+            && !records[i - 1].is_empty()
+            && !records[i + 2].is_empty()
+            && is_same_caption(&records[i - 1], &records[i + 2])
         {
-            records[i] = records[i-1].clone();
-            records[i+1] = records[i-1].clone();
+            records[i] = records[i - 1].clone();
+            records[i + 1] = records[i - 1].clone();
         }
     }
     // 1-frame spike removal
     for i in 1..total.saturating_sub(1) {
-        if !records[i].is_empty() && records[i-1].is_empty() && records[i+1].is_empty() {
+        if !records[i].is_empty() && records[i - 1].is_empty() && records[i + 1].is_empty() {
             records[i] = String::new();
         }
     }
     // 1-frame typo smooth
     for i in 1..total.saturating_sub(1) {
-        if !records[i-1].is_empty() && !records[i+1].is_empty() && !records[i].is_empty()
-            && records[i] != records[i-1] && records[i-1] == records[i+1]
-            && is_same_caption(&records[i-1], &records[i])
+        if !records[i - 1].is_empty()
+            && !records[i + 1].is_empty()
+            && !records[i].is_empty()
+            && records[i] != records[i - 1]
+            && records[i - 1] == records[i + 1]
+            && is_same_caption(&records[i - 1], &records[i])
         {
-            records[i] = records[i-1].clone();
+            records[i] = records[i - 1].clone();
         }
     }
 
     // Phân cụm temporal
-    struct RawSeg { start: usize, end: usize, texts: Vec<String> }
+    struct RawSeg {
+        start: usize,
+        end: usize,
+        texts: Vec<String>,
+    }
     let mut raw_segs: Vec<RawSeg> = Vec::new();
     let mut cur: Option<RawSeg> = None;
 
     for i in 0..total {
         let t = &records[i];
         if t.is_empty() {
-            if let Some(seg) = cur.take() { raw_segs.push(seg); }
+            if let Some(seg) = cur.take() {
+                raw_segs.push(seg);
+            }
         } else {
             match cur.as_mut() {
                 Some(seg) => {
@@ -826,58 +1257,152 @@ pub fn extract_captions(
                         seg.end = i;
                         seg.texts.push(t.clone());
                     } else {
-                        let old = cur.replace(RawSeg { start: i, end: i, texts: vec![t.clone()] }).unwrap();
+                        let old = cur
+                            .replace(RawSeg {
+                                start: i,
+                                end: i,
+                                texts: vec![t.clone()],
+                            })
+                            .unwrap();
                         raw_segs.push(old);
                     }
                 }
-                None => { cur = Some(RawSeg { start: i, end: i, texts: vec![t.clone()] }); }
+                None => {
+                    cur = Some(RawSeg {
+                        start: i,
+                        end: i,
+                        texts: vec![t.clone()],
+                    });
+                }
             }
         }
     }
-    if let Some(seg) = cur.take() { raw_segs.push(seg); }
+    if let Some(seg) = cur.take() {
+        raw_segs.push(seg);
+    }
 
     // Tạo segments
-    let mut segments: Vec<CaptionSegment> = Vec::new();
+    let mut segments: Vec<IndexedCaption> = Vec::new();
     for seg in raw_segs {
         // Caption phải hiển thị đủ lâu để đọc; chữ nằm trong cảnh (sách, cuộn,
         // biển hiệu) chỉ lướt qua vài khung hình nên bị loại.
         let min_frames = (config.min_duration_sec * config.fps as f64).ceil() as usize;
-        if seg.end.saturating_sub(seg.start) + 1 < min_frames.max(1) { continue; }
+        if seg.end.saturating_sub(seg.start) + 1 < min_frames.max(1) {
+            continue;
+        }
         let best = select_best_caption(&seg.texts);
-        if best.is_empty() { continue; }
+        if best.is_empty() {
+            continue;
+        }
+
+        let confidence_values: Vec<f32> = (seg.start..=seg.end)
+            .filter(|&i| !records[i].is_empty() && is_same_caption(&best, &records[i]))
+            .flat_map(|i| filtered_frame_boxes[i].iter().map(|b| b.confidence))
+            .collect();
+        let confidence = if confidence_values.is_empty() {
+            0.0
+        } else {
+            confidence_values.iter().sum::<f32>() / confidence_values.len() as f32
+        };
 
         let start_sec = (seg.start as f64 * dt).max(0.0);
         let end_sec = seg.end as f64 * dt + dt * 0.5;
         let start_sec = if let Some(last) = segments.last() {
-            start_sec.max(last.end_sec + 0.001)
-        } else { start_sec };
+            start_sec.max(last.segment.end_sec + 0.001)
+        } else {
+            start_sec
+        };
 
         if end_sec > start_sec + 0.1 {
-            segments.push(CaptionSegment {
-                start_sec, end_sec,
-                text: format!("《{}》", best),
+            segments.push(IndexedCaption {
+                segment: CaptionSegment {
+                    start_sec,
+                    end_sec,
+                    text: format!("《{}》", best),
+                },
+                start_frame: seg.start,
+                end_frame: seg.end,
+                confidence,
             });
         }
     }
 
     // Gộp liền kề
-    let mut final_segs: Vec<CaptionSegment> = Vec::new();
+    let mut final_segs: Vec<IndexedCaption> = Vec::new();
     for seg in segments {
         if let Some(last) = final_segs.last_mut() {
-            let gap = seg.start_sec - last.end_sec;
-            if is_same_caption(&last.text, &seg.text) && gap < 0.8 {
-                last.end_sec = seg.end_sec;
-                if seg.text.chars().count() > last.text.chars().count() { last.text = seg.text; }
+            let gap = seg.segment.start_sec - last.segment.end_sec;
+            if is_same_caption(&last.segment.text, &seg.segment.text) && gap < 0.8 {
+                let old_frames = last.end_frame.saturating_sub(last.start_frame) + 1;
+                let new_frames = seg.end_frame.saturating_sub(seg.start_frame) + 1;
+                let total_frames = old_frames + new_frames;
+                last.confidence = (last.confidence * old_frames as f32
+                    + seg.confidence * new_frames as f32)
+                    / total_frames as f32;
+                last.segment.end_sec = seg.segment.end_sec;
+                last.end_frame = seg.end_frame;
+                if seg.segment.text.chars().count() > last.segment.text.chars().count() {
+                    last.segment.text = seg.segment.text;
+                }
                 continue;
             }
         }
         final_segs.push(seg);
     }
 
+    let warnings: Vec<CaptionWarning> = final_segs
+        .iter()
+        .filter_map(|indexed| {
+            let duration_sec = indexed.segment.end_sec - indexed.segment.start_sec;
+            let mut reasons = Vec::new();
+            if indexed.confidence < config.evidence_warning_confidence {
+                reasons.push(format!(
+                    "confidence dưới ngưỡng {:.2}",
+                    config.evidence_warning_confidence
+                ));
+            }
+            if duration_sec <= config.min_duration_sec + config.evidence_duration_margin_sec {
+                reasons.push(format!(
+                    "thời lượng gần ngưỡng tối thiểu {:.2}s",
+                    config.min_duration_sec
+                ));
+            }
+            (!reasons.is_empty()).then(|| CaptionWarning {
+                text: indexed.segment.text.clone(),
+                start_sec: indexed.segment.start_sec,
+                end_sec: indexed.segment.end_sec,
+                duration_sec,
+                confidence: indexed.confidence,
+                reasons,
+            })
+        })
+        .collect();
+
+    let segments: Vec<CaptionSegment> = final_segs
+        .iter()
+        .map(|indexed| indexed.segment.clone())
+        .collect();
+    if let Some(evidence_dir) = &config.evidence_dir {
+        export_caption_evidence(
+            video_path,
+            evidence_dir,
+            &vf_filter,
+            crop_w,
+            crop_h,
+            config.fps,
+            &final_segs,
+            &records,
+            &filtered_frame_boxes,
+            &warnings,
+        )?;
+    }
+
     // Ghi WebVTT
-    if let Some(parent) = output_vtt_path.parent() { fs::create_dir_all(parent)?; }
+    if let Some(parent) = output_vtt_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let mut vtt = String::from("WEBVTT\n\n");
-    for seg in &final_segs {
+    for seg in &segments {
         let s = CaptionSegment::format_vtt_timestamp(seg.start_sec);
         let e = CaptionSegment::format_vtt_timestamp(seg.end_sec);
         vtt.push_str(&format!("{} --> {} line:20%\n{}\n\n", s, e, seg.text));
@@ -887,8 +1412,42 @@ pub fn extract_captions(
 
     ocr_shared::tui_events::emit_log(format!(
         "   {} {} Hoàn tất: {:?} ({} caption)",
-        "[CAPTION]".name_utils().violed(), Icons::SUCCESS, output_vtt_path, final_segs.len()
+        "[CAPTION]".name_utils().violed(),
+        Icons::SUCCESS,
+        output_vtt_path,
+        final_segs.len()
     ));
 
-    Ok(CaptionExtractorOutput { vtt_path: output_vtt_path.to_path_buf(), segments: final_segs })
+    Ok(CaptionExtractorOutput {
+        vtt_path: output_vtt_path.to_path_buf(),
+        segments,
+        warnings,
+        evidence_dir: config.evidence_dir.clone(),
+    })
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::*;
+
+    #[test]
+    fn evidence_crop_is_padded_and_clamped_to_frame() {
+        let image = RgbImage::new(100, 80);
+        let text_box = TextBox {
+            min_x: 5.0,
+            min_y: 10.0,
+            max_x: 20.0,
+            max_y: 30.0,
+            width: 15.0,
+            height: 20.0,
+            center_x: 12.5,
+            center_y: 20.0,
+            is_vertical: true,
+            text: "字".to_string(),
+            confidence: 0.95,
+        };
+
+        let crop = crop_caption_boxes(&image, &[text_box]).unwrap();
+        assert_eq!((crop.width(), crop.height()), (28, 36));
+    }
 }

@@ -13,6 +13,7 @@
 //!   quét mọi video trong `input/`, bỏ qua tập đã có VTT hợp lệ (checkpoint/resume).
 //! - Một tập: `cargo run --release --example extract_captions -- 002`
 
+use OCR::{CaptionExtractorConfig, CaptionRoi, extract_captions};
 use anyhow::Result;
 use cli_gui_form::TaskWidget;
 use ratatui::style::Color;
@@ -20,9 +21,6 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
-use OCR::{extract_captions, CaptionExtractorConfig, CaptionRoi};
-
-
 
 /// Tải file mô hình PP-OCRv6 từ URL
 fn download_file(url: &str, output: &Path) -> Result<()> {
@@ -37,16 +35,22 @@ fn download_file(url: &str, output: &Path) -> Result<()> {
 
     match status {
         Ok(s) if s.success() && output.exists() => {
-            println!("    \x1b[32m[OK]\x1b[0m {:?}", output.file_name().unwrap_or_default());
+            println!(
+                "    \x1b[32m[OK]\x1b[0m {:?}",
+                output.file_name().unwrap_or_default()
+            );
             Ok(())
         }
         _ => {
             println!("    [FALLBACK] PowerShell...");
             let ps = format!(
                 "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
-                url, output.to_string_lossy()
+                url,
+                output.to_string_lossy()
             );
-            Command::new("powershell").args(&["-Command", &ps]).status()?;
+            Command::new("powershell")
+                .args(&["-Command", &ps])
+                .status()?;
             if output.exists() {
                 Ok(())
             } else {
@@ -76,10 +80,18 @@ fn ensure_models(model_dir: &Path) -> Result<()> {
 
     for zip in &zip_candidates {
         if zip.exists() {
-            println!(">>> [MODEL CHECK] Đang giải nén bộ mô hình PP-OCRv6 từ {:?}...", zip);
+            println!(
+                ">>> [MODEL CHECK] Đang giải nén bộ mô hình PP-OCRv6 từ {:?}...",
+                zip
+            );
             let _ = std::fs::create_dir_all(model_dir);
             let status = Command::new("tar")
-                .args(&["-xf", &zip.to_string_lossy(), "-C", &model_dir.to_string_lossy()])
+                .args(&[
+                    "-xf",
+                    &zip.to_string_lossy(),
+                    "-C",
+                    &model_dir.to_string_lossy(),
+                ])
                 .status();
             if let Ok(s) = status {
                 if s.success() && det.exists() && rec.exists() && keys.exists() {
@@ -146,16 +158,21 @@ fn main() -> Result<()> {
         },
         vertical_aspect_threshold: 1.2,
         column_x_tolerance: 0.06,
-        min_confidence: 0.80,   // caption mờ/nhòe: hạ về 0.30
+        min_confidence: 0.80,  // caption mờ/nhòe: hạ về 0.30
         min_duration_sec: 1.0, // caption rất ngắn: hạ về ~0.4
         watermark_freq_threshold: 0.40,
+        evidence_dir: None,
+        evidence_warning_confidence: 0.90,
+        evidence_duration_margin_sec: 0.25,
     };
 
     println!(
         "    [CONFIG] FPS: {} | ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%] | V_Threshold: {:.1} | MinConf: {:.2} | MinDur: {:.1}s",
         config.fps,
-        config.roi.y_min * 100.0, config.roi.y_max * 100.0,
-        config.roi.x_min * 100.0, config.roi.x_max * 100.0,
+        config.roi.y_min * 100.0,
+        config.roi.y_max * 100.0,
+        config.roi.x_min * 100.0,
+        config.roi.x_max * 100.0,
         config.vertical_aspect_threshold,
         config.min_confidence,
         config.min_duration_sec,
@@ -184,7 +201,13 @@ fn main() -> Result<()> {
 
         print!(
             "\r \x1b[33m▶\x1b[0m \x1b[1m{}\x1b[0m \x1b[32m[{}]\x1b[0m \x1b[33m{:>5.1}%\x1b[0m \x1b[90m({}/{} {})\x1b[0m \x1b[35m[{}]\x1b[0m   ",
-            p.title, bar, ratio * 100.0, cur, total, p.unit, p.elapsed
+            p.title,
+            bar,
+            ratio * 100.0,
+            cur,
+            total,
+            p.unit,
+            p.elapsed
         );
         let _ = io::stdout().flush();
     });
@@ -222,6 +245,18 @@ fn extract_and_report(
         output.segments.len()
     );
     println!(">>> \x1b[32m[SUCCESS]\x1b[0m File: {:?}", output.vtt_path);
+    if let Some(dir) = &output.evidence_dir {
+        println!(">>> \x1b[32m[EVIDENCE]\x1b[0m Ảnh kiểm chứng: {:?}", dir);
+    }
+    for warning in &output.warnings {
+        println!(
+            ">>> \x1b[33m[REVIEW]\x1b[0m {} | {:.2}s | confidence={:.3} | {}",
+            warning.text,
+            warning.duration_sec,
+            warning.confidence,
+            warning.reasons.join(", ")
+        );
+    }
 
     // In preview
     println!("\n--- Preview ---");
@@ -323,7 +358,9 @@ fn run_batch(model_dir: &Path, config: &CaptionExtractorConfig) -> Result<()> {
 
     let mut failed = 0usize;
     for (idx, video) in pending.iter().enumerate() {
-        let Some(out) = caption_path(video, output_dir) else { continue };
+        let Some(out) = caption_path(video, output_dir) else {
+            continue;
+        };
         println!(
             "\n>>> [{}/{}] Đang xử lý: {:?}",
             idx + 1,
