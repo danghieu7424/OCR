@@ -433,3 +433,55 @@ Chạy công cụ đối chiếu `tools/compare_subs.py` trên toàn bộ 20 t�
 
 - **Độ chính xác thô**: **99.20%** (753/758 câu khớp, sai lệch chỉ 44/5482 ký tự).
 - **Độ chính xác sau khi chuẩn hoá giản/phồn thể**: **99.82%** (trong 44 chữ lệch thì có tới 34 chữ là do reference dùng chữ phồn thể như `強/强, 於/于, 別/别, 能夠/能够`, trong khi pipeline OCR xuất chữ giản thể chuẩn theo từ điển; 4 trường hợp còn lại là do chính file reference gõ sai như `眼晴` thay vì `眼睛`).
+
+---
+
+---
+
+Để đạt mức **chuẩn tuyệt đối từng từ (100.00%)** phục vụ dịch thuật mà không bị dịch sai ngữ cảnh, bản thân mô hình OCR độc lập (dù là PaddleOCR v5 hay v6) **vẫn có giới hạn vật lý** khi gặp:
+
+- Nền chuyển động phức tạp (hiệu ứng chưởng pháp, bùa chú, cháy nổ che khuất nét chữ).
+- Các chữ Hán có cấu tạo cực kỳ giống nhau (như `爹` vs `参`, `嗯` vs `涵`, `己` vs `已`).
+
+Để giải quyết triệt để vấn đề này trong công nghiệp sản xuất phụ đề, có **3 giải pháp chuẩn** bạn có thể áp dụng:
+
+---
+
+### 1. Dùng LLM Hậu xử lý (Post-processing Context Correction)
+
+Đây là cách các hệ thống dịch thuật và làm sub hiện đại đang dùng hiệu quả nhất:
+
+- **Cách làm**: Đưa toàn bộ dòng phụ đề thô vừa OCR xong qua một LLM nhẹ (chuyên tiếng Trung) với vai trò **"Hiệu đính ngữ cảnh" (Proofreading)** trước khi nạp vào máy dịch.
+- **Hiệu quả**:
+  - LLM hiểu ngữ pháp và câu chuyện: Thấy câu _"娘亲参參"_ hoặc _"参以前的武器给你"_, nó sẽ tự biết chữ `参` ở đây phải là `爹` (_"娘亲爹爹"_, _"爹以前的武器给你"_).
+  - Thấy _"自已"_ nó sẽ tự sửa thành _"自己"_, thấy chữ rơi rụng hay nhầm âm sẽ được nắn lại chuẩn ngữ cảnh 100% trước khi đem đi dịch sang tiếng Việt.
+
+---
+
+### 2. Tận dụng từ điển danh từ riêng & Nhân vật (Glossary / Entity Dictionary)
+
+Trong phim hoạt hình / tu tiên:
+
+- Tên nhân vật, công pháp, địa danh là thứ **tuyệt đối không được sai** vì sai 1 chữ máy dịch sẽ dịch ra nghĩa kỳ quặc (ví dụ: `何訇`, `陆清安`, `九狱弑仙剑`, `无垢帝位`).
+- **Cách làm**: Lập một bảng từ điển danh từ riêng của bộ phim (Glossary). Sau khi OCR xong, chạy thuật toán so khớp gần đúng (Fuzzy match) với danh sách nhân vật/địa danh:
+  - Nếu OCR ra `陆安` hay `防安` trong khoảng thời gian có mặt nhân vật $\rightarrow$ tự động map về chuẩn `陆清安`.
+  - Nếu OCR ra `帝境中期` ở tập 8 $\rightarrow$ map về `大帝境中期`.
+  - Bộ từ điển này cũng dùng để khóa từ khi nạp vào model dịch, đảm bảo tên nhân vật đồng nhất từ tập 1 đến tập 100.
+
+---
+
+### 3. Cơ chế "Bỏ phiếu đa khung hình" (Multi-frame Temporal Voting)
+
+- **Cách làm**: Thay vì chỉ lấy kết quả của 1 frame đại diện trong cụm, ta gom kết quả OCR của tất cả các frame trong khoảng thời gian dòng sub đó xuất hiện (ví dụ xuất hiện 1.5 giây ở 10fps là có 15 frame).
+- **Hiệu quả**:
+  - Ở frame bị hiệu ứng bùa chú che, chữ có thể bị đọc nhòe thành `挡一` hay `星 挡住`.
+  - Nhưng ở 10 frame còn lại khi hiệu ứng tan bớt, nó đọc đúng là `挡住`.
+  - Bằng cách phân tích tần suất từng ký tự trên toàn bộ 15 frame đó, hệ thống sẽ tự động ghép lại thành câu hoàn chỉnh và loại bỏ hoàn toàn các ký tự bị che khuất tạm thời.
+
+---
+
+### Tóm lại quy trình chuẩn để dịch hoàn hảo:
+
+1. **Tầng 1 (OCR hiện tại)**: Đã làm rất tốt việc bóc tách và định vị mốc thời gian chuẩn xác đến từng mili-giây (~99.8%).
+2. **Tầng 2 (Glossary + LLM Proofreader)**: Tự động nắn lại các chữ nhầm ngữ cảnh và chuẩn hóa danh từ riêng.
+3. **Tầng 3 (Dịch thuật)**: Đưa bản phụ đề đã sạch 100% vào pipeline dịch tiếng Việt.
