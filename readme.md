@@ -51,7 +51,7 @@ cargo run --release --bin ocr-cli -- -i input -o output --caption-evidence
 
 Subtitle và caption được trích xuất song song. Mỗi video lưu checkpoint `.tmp_<tên-video>\state.json`, nên lần chạy lại sẽ bỏ qua từng bước đã hoàn tất và tiếp tục bước còn thiếu; thay đổi input/model/cấu hình OCR làm bước liên quan chạy lại. Thay đổi riêng `--subtitle-line`/`--caption-line` chỉ tạo lại file merge. Dùng `--force` để chạy lại toàn bộ các bước.
 
-`--caption-evidence` xuất ảnh first/best/last cho cue subtitle (crop ROI subtitle) và caption (crop detector caption), kèm manifest cho từng loại. Không bật cờ thì không tạo ảnh evidence. Hai thanh `[SUB]`/`[CAP]` hiển thị tiến trình riêng; thanh xanh dương, hoàn tất xanh lá, cảnh báo cam và lỗi đỏ. Khi bước thành công, phần trăm được chốt ở 100%. Các tùy chọn sau điều chỉnh riêng profile trích xuất và vị trí hiển thị trong file merge; ROI dùng thứ tự `Y_MIN,Y_MAX,X_MIN,X_MAX`, giá trị tỷ lệ từ `0` đến `1`:
+`--caption-evidence` xuất ảnh first/best/last cho cue subtitle (crop ROI subtitle) và caption (crop detector caption), kèm manifest cho từng loại. Không bật cờ thì không tạo ảnh evidence. Hai thanh `[SUB]`/`[CAP]` hiển thị tiến trình riêng; thanh xanh dương, hoàn tất xanh lá, cảnh báo cam và lỗi đỏ. Thanh chỉ đầy ở 100%; hai phần trăm chỉ cùng chốt 100% sau khi cả OCR và evidence hoàn tất. Các tùy chọn sau điều chỉnh riêng profile trích xuất và vị trí hiển thị trong file merge; ROI dùng thứ tự `Y_MIN,Y_MAX,X_MIN,X_MAX`, giá trị tỷ lệ từ `0` đến `1`:
 
 ```powershell
 cargo run --release --bin ocr-cli -- input --output output `

@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, anyhow, bail};
 use image::RgbImage;
 use ocr::{
-    CaptionExtractorConfig, OcrExtractorConfig, SubtitleRoi, SubtitleSegment, extract_captions,
-    extract_hardcoded_subtitles, merge_vtt_files_with_line_overrides,
+    CaptionExtractorConfig, CaptionExtractorOutput, OcrExtractorConfig, SubtitleRoi,
+    SubtitleSegment, extract_captions, extract_hardcoded_subtitles,
+    merge_vtt_files_with_line_overrides,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -137,7 +138,7 @@ fn register_progress_handler() -> Arc<Mutex<ProgressState>> {
     ocr::on_progress(move |progress| {
         let total = progress.total.max(1);
         let current = progress.current.min(total);
-        let percent = (current as f32 / total as f32 * 100.0).clamp(0.0, 100.0);
+        let percent = (current as f32 / total as f32 * 100.0).clamp(0.0, 99.9);
 
         if let Ok(mut state) = callback_state.lock() {
             if progress.title.contains("Caption") {
@@ -169,34 +170,39 @@ fn status_style(status: PhaseStatus) -> &'static str {
 }
 
 fn render_progress(state: &ProgressState, filled_char: &str, empty_char: &str, bar_width: usize) {
-    let subtitle_filled =
-        ((state.subtitle_percent / 100.0 * bar_width as f32).round() as usize).min(bar_width);
-    let caption_filled =
-        ((state.caption_percent / 100.0 * bar_width as f32).round() as usize).min(bar_width);
-    let subtitle_bar =
-        filled_char.repeat(subtitle_filled) + &empty_char.repeat(bar_width - subtitle_filled);
-    let caption_bar =
-        filled_char.repeat(caption_filled) + &empty_char.repeat(bar_width - caption_filled);
+    let subtitle_bar = progress_bar(state.subtitle_percent, filled_char, empty_char, bar_width);
+    let caption_bar = progress_bar(state.caption_percent, filled_char, empty_char, bar_width);
 
     print!(
-        "\r {}[SUB]{} [{}{}{}] {:5.1}% | {}[CAP]{} [{}{}{}] {:5.1}% | {}   ",
+        "{}",
+        format_progress_line(state, &subtitle_bar, &caption_bar,)
+    );
+    if let Err(error) = io::stdout().flush() {
+        eprintln!("\n[WARN] Không thể cập nhật thanh tiến trình: {error}");
+    }
+}
+
+fn format_progress_line(state: &ProgressState, subtitle_bar: &str, caption_bar: &str) -> String {
+    format!(
+        "\r {}[SUB]: {}{}{} {:5.1}% | {}[CAP]: {}{}{} {:5.1}% | {}   ",
         status_style(state.subtitle_status),
-        ANSI_RESET,
         ANSI_BLUE,
         subtitle_bar,
         ANSI_RESET,
         state.subtitle_percent,
         status_style(state.caption_status),
-        ANSI_RESET,
         ANSI_BLUE,
         caption_bar,
         ANSI_RESET,
         state.caption_percent,
         state.elapsed
-    );
-    if let Err(error) = io::stdout().flush() {
-        eprintln!("\n[WARN] Không thể cập nhật thanh tiến trình: {error}");
-    }
+    )
+}
+
+fn progress_bar(percent: f32, filled_char: &str, empty_char: &str, bar_width: usize) -> String {
+    let clamped_percent = percent.clamp(0.0, 100.0);
+    let filled = (clamped_percent / 100.0 * bar_width as f32).floor() as usize;
+    filled_char.repeat(filled) + &empty_char.repeat(bar_width - filled)
 }
 
 fn set_phase_progress(
@@ -218,13 +224,34 @@ fn set_phase_progress(
     }
 }
 
-fn set_phase_status(state: &Mutex<ProgressState>, subtitle: bool, status: PhaseStatus) {
+fn finalize_progress(
+    state: &Mutex<ProgressState>,
+    subtitle_complete: bool,
+    subtitle_warning: bool,
+    caption_complete: bool,
+    caption_warning: bool,
+) {
     let (filled_char, empty_char) = cli_gui_form::Icons::PROGRESS_CHARS_PARALLELOGRAM;
     if let Ok(mut state) = state.lock() {
-        if subtitle {
-            state.subtitle_status = status;
+        if subtitle_complete {
+            state.subtitle_percent = 100.0;
+            state.subtitle_status = if subtitle_warning {
+                PhaseStatus::Warning
+            } else {
+                PhaseStatus::Complete
+            };
         } else {
-            state.caption_status = status;
+            state.subtitle_status = PhaseStatus::Error;
+        }
+        if caption_complete {
+            state.caption_percent = 100.0;
+            state.caption_status = if caption_warning {
+                PhaseStatus::Warning
+            } else {
+                PhaseStatus::Complete
+            };
+        } else {
+            state.caption_status = PhaseStatus::Error;
         }
         render_progress(&state, filled_char, empty_char, 12);
     }
@@ -808,7 +835,7 @@ fn process_video(
     );
     save_checkpoint(&state_path, &checkpoint)?;
 
-    println!("[OCR] {} -> {:?}", video.display(), merged_vtt);
+    println!(" [OCR] {} -> {:?}", video.display(), merged_vtt);
     if args.force {
         println!("  [FORCE] Bỏ checkpoint, chạy lại toàn bộ các bước.");
     }
@@ -900,8 +927,8 @@ fn process_video(
         (subtitle_result, caption_result)
     });
 
-    println!();
     let mut extraction_errors = Vec::new();
+    let mut caption_output_for_display: Option<CaptionExtractorOutput> = None;
     match subtitle_result {
         Ok(Some(output)) => {
             let evidence_result = if args.caption_evidence {
@@ -915,18 +942,15 @@ fn process_video(
                 Ok(())
             };
             if let Err(error) = evidence_result {
-                set_phase_status(progress_state, true, PhaseStatus::Error);
                 extraction_errors.push(format!("subtitle evidence: {error:#}"));
             } else {
                 checkpoint.subtitle.completed = true;
                 checkpoint.subtitle.warnings = 0;
                 save_checkpoint(&state_path, &checkpoint)?;
-                set_phase_progress(progress_state, true, 100.0, PhaseStatus::Complete);
             }
         }
         Ok(None) => {}
         Err(error) => {
-            set_phase_status(progress_state, true, PhaseStatus::Error);
             extraction_errors.push(format!("subtitle: {error:#}"));
         }
     }
@@ -935,39 +959,22 @@ fn process_video(
             checkpoint.caption.completed = true;
             checkpoint.caption.warnings = output.warnings.len();
             save_checkpoint(&state_path, &checkpoint)?;
-            let status = if output.warnings.is_empty() {
-                PhaseStatus::Complete
-            } else {
-                PhaseStatus::Warning
-            };
-            set_phase_progress(progress_state, false, 100.0, status);
-            for warning in &output.warnings {
-                println!(
-                    "\n{ANSI_ORANGE}[CAP: WARN]{ANSI_RESET} {} | {:.2}s | confidence={:.3} | {}",
-                    warning.text,
-                    warning.duration_sec,
-                    warning.confidence,
-                    warning.reasons.join(", ")
-                );
-            }
-            if args.caption_evidence {
-                println!(
-                    "\n  Evidence caption: {:?}",
-                    output
-                        .evidence_dir
-                        .as_deref()
-                        .unwrap_or(&caption_evidence_dir)
-                );
-            }
+            caption_output_for_display = Some(output);
         }
         Ok(None) => {}
         Err(error) => {
-            set_phase_status(progress_state, false, PhaseStatus::Error);
             extraction_errors.push(format!("caption: {error:#}"));
         }
     }
-    println!();
     if !extraction_errors.is_empty() {
+        finalize_progress(
+            progress_state,
+            checkpoint.subtitle.completed,
+            checkpoint.subtitle.warnings > 0,
+            checkpoint.caption.completed,
+            checkpoint.caption.warnings > 0,
+        );
+        println!();
         bail!(
             "Trích xuất thất bại cho {:?}: {}",
             video,
@@ -975,8 +982,29 @@ fn process_video(
         );
     }
 
-    if args.caption_evidence && !subtitle_done {
-        println!("  Evidence subtitle: {:?}", subtitle_evidence);
+    finalize_progress(
+        progress_state,
+        checkpoint.subtitle.completed,
+        checkpoint.subtitle.warnings > 0,
+        checkpoint.caption.completed,
+        checkpoint.caption.warnings > 0,
+    );
+    println!();
+
+    if let Some(output) = &caption_output_for_display {
+        for warning in &output.warnings {
+            println!(
+                "{ANSI_ORANGE} >>> [CAP: WARN]{ANSI_RESET} {} | {:.2}s | confidence={:.3} | {}",
+                warning.text,
+                warning.duration_sec,
+                warning.confidence,
+                warning.reasons.join(", ")
+            );
+        }
+    }
+    if args.caption_evidence {
+        println!(" >>> Evidence caption: {:?}", caption_evidence_dir);
+        println!(" >>> Evidence subtitle: {:?}", subtitle_evidence);
     }
 
     if !merge_done {
@@ -984,7 +1012,10 @@ fn process_video(
         save_checkpoint(&state_path, &checkpoint)?;
     }
     if merge_done {
-        println!("  [MERGE: SKIP] Giữ nguyên file đã merge {:?}", merged_vtt);
+        println!(
+            " {ANSI_GREEN}[MERGE: SKIP]{ANSI_RESET} Giữ nguyên file đã merge {:?}",
+            merged_vtt
+        );
     } else {
         match merge_vtt_files_with_line_overrides(
             &subtitle_vtt,
@@ -997,7 +1028,7 @@ fn process_video(
                 checkpoint.merge.completed = true;
                 save_checkpoint(&state_path, &checkpoint)?;
                 println!(
-                    "\n{ANSI_GREEN}[MERGE: DONE]{ANSI_RESET} {} cues ({} subtitle + {} caption); raw VTT: {:?}",
+                    " {ANSI_GREEN}[MERGE: DONE]{ANSI_RESET} {} cues ({} subtitle + {} caption); raw VTT: {:?}",
                     summary.total_merged_cues,
                     summary.subtitle_cues,
                     summary.caption_cues,
@@ -1031,6 +1062,7 @@ fn run() -> Result<()> {
     let progress_state = register_progress_handler();
     let mut failures = Vec::new();
     for video in &files {
+        println!("========================================");
         if let Err(error) = process_video(video, &args, &progress_state) {
             eprintln!(
                 "{ANSI_RED}[ERROR]{ANSI_RESET} {}: {error:#}",
@@ -1038,6 +1070,7 @@ fn run() -> Result<()> {
             );
             failures.push(video.display().to_string());
         }
+        println!("========================================");
     }
     if !failures.is_empty() {
         bail!(
@@ -1047,6 +1080,7 @@ fn run() -> Result<()> {
             failures.join(", ")
         );
     }
+    println!(">>> DONE ALL <<<");
     Ok(())
 }
 
@@ -1205,8 +1239,7 @@ mod tests {
         assert_eq!(status_style(PhaseStatus::Complete), ANSI_GREEN);
 
         let state = Mutex::new(ProgressState::default());
-        set_phase_progress(&state, true, 100.0, PhaseStatus::Complete);
-        set_phase_progress(&state, false, 100.0, PhaseStatus::Warning);
+        finalize_progress(&state, true, false, true, true);
         let state = state.lock().unwrap();
         assert_eq!(state.subtitle_percent, 100.0);
         assert_eq!(state.caption_percent, 100.0);
@@ -1215,15 +1248,30 @@ mod tests {
     }
 
     #[test]
+    fn progress_bar_only_fills_completely_at_one_hundred_percent() {
+        let almost_full = progress_bar(98.2, "▰", "▱", 12);
+        let full = progress_bar(100.0, "▰", "▱", 12);
+        assert_eq!(almost_full.chars().filter(|ch| *ch == '▰').count(), 11);
+        assert_eq!(full.chars().filter(|ch| *ch == '▰').count(), 12);
+
+        let line = format_progress_line(&ProgressState::default(), "▰▰", "▱▱");
+        assert!(line.contains("[SUB]:"));
+        assert!(line.contains("[CAP]:"));
+        assert!(!line.contains("[▰"));
+        assert!(!line.contains("▰]"));
+    }
+
+    #[test]
     fn progress_callback_tracks_subtitle_and_caption_separately() {
         let state = register_progress_handler();
         ocr::emit_task_progress("OCR Video Subtitles", 25, 100, "frames", "2s", "25%");
         ocr::emit_task_progress("Caption Phase 1", 50, 100, "frames", "5s", "50%");
+        ocr::emit_task_progress("OCR Video Subtitles", 100, 100, "frames", "6s", "100%");
 
         let state = state.lock().unwrap();
-        assert_eq!(state.subtitle_percent, 25.0);
+        assert_eq!(state.subtitle_percent, 99.9);
         assert_eq!(state.caption_percent, 50.0);
-        assert_eq!(state.elapsed, "5s");
+        assert_eq!(state.elapsed, "6s");
         println!();
     }
 }

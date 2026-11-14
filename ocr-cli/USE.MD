@@ -68,7 +68,14 @@ C:\Videos\
 
 File merge được ghi trong output với tên `<tên-video>.merged.zh.vtt`. Nếu nhiều video trong folder có cùng tên gốc, CLI báo lỗi để tránh ghi đè VTT và thư mục tạm.
 
-Trong lúc OCR, subtitle và caption được trích xuất song song. Hai thanh `[SUB]` và `[CAP]` có màu riêng: thanh tiến trình xanh dương; nhãn đang chạy xanh cyan; hoàn tất xanh lá; cần duyệt/cảnh báo cam; lỗi đỏ. Khi bước trích xuất thành công, phần trăm được chốt ở 100%.
+Trong lúc OCR, subtitle và caption được trích xuất song song. Hai thanh `[SUB]` và `[CAP]` có màu riêng: thanh tiến trình xanh dương; nhãn đang chạy xanh cyan; hoàn tất xanh lá; cần duyệt/cảnh báo cam; lỗi đỏ. Thanh chỉ đầy ở đúng 100%; callback trong lúc chạy dừng tối đa ở 99,9%, và chỉ chốt đồng thời cả hai bước ở 100% sau khi trích xuất cùng evidence hoàn tất.
+
+```text
+[SUB]: ▰▰▰▰▰▰▰▰▰▰▰▰ 100.0% | [CAP]: ▰▰▰▰▰▰▰▰▰▰▰▰ 100.0% | 139.8s
+ >>> Evidence caption: ...
+ >>> Evidence subtitle: ...
+ [MERGE: DONE] ...
+```
 
 ### Tiếp tục sau khi bị gián đoạn
 
