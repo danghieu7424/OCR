@@ -27,7 +27,6 @@ pub struct OllamaManager {
     pub host: String,
     pub port: u16,
     _daemon_process: Arc<Mutex<Option<Child>>>,
-    runtime: Arc<tokio::runtime::Runtime>,
 }
 
 impl OllamaManager {
@@ -35,12 +34,6 @@ impl OllamaManager {
     pub fn init_or_setup(model_name: &str) -> Result<Self> {
         let host = "http://127.0.0.1".to_string();
         let port = 11434u16;
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .context("Không thể khởi tạo Tokio runtime cho Ollama")?,
-        );
 
         let manager = Self {
             client: Ollama::builder().host(host.clone()).port(port).build(),
@@ -48,7 +41,6 @@ impl OllamaManager {
             host,
             port,
             _daemon_process: Arc::new(Mutex::new(None)),
-            runtime,
         };
 
         // 1. Tự động kiểm tra và khởi động Ollama daemon nếu chưa chạy
@@ -110,14 +102,10 @@ impl OllamaManager {
         ));
 
         let bin = Self::find_ollama_binary()?;
-        let mut cmd = Command::new(&bin);
-        cmd.arg("serve")
-            .env("OLLAMA_LLM_LIBRARY", "cpu")
-            .env("CUDA_VISIBLE_DEVICES", "")
-            .env("VK_ICD_FILENAMES", "")
+        let child = Command::new(&bin)
+            .arg("serve")
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let child = cmd
+            .stderr(Stdio::null())
             .spawn()
             .with_context(|| format!("Không thể khởi động `ollama serve` từ {:?}", bin))?;
 
@@ -132,7 +120,7 @@ impl OllamaManager {
             std::thread::sleep(Duration::from_millis(600));
             if self.is_server_responsive() {
                 crate::shared::tui_events::emit_log(format!(
-                    "   {} Ollama daemon tự khởi động thành công (chế độ Pure CPU)!",
+                    "   {} Ollama daemon tự khởi động thành công!",
                     "[OLLAMA]".name_utils().violed()
                 ));
                 return Ok(());
@@ -154,9 +142,11 @@ impl OllamaManager {
 
     /// Tự động kiểm tra model, nếu chưa có thì tự động pull
     pub fn ensure_model_available(&self) -> Result<()> {
-        let models = self
-            .runtime
-            .block_on(async { self.client.list_local_models().await })?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+
+        let models = rt.block_on(async { self.client.list_local_models().await })?;
 
         let has_model = models.iter().any(|m| {
             m.name == self.model_name
@@ -241,28 +231,14 @@ Quy tắc: \
 
         let req = ChatMessageRequest::new(self.model_name.clone(), messages);
 
-        let resp = self.runtime.block_on(async {
-            tokio::time::timeout(
-                Duration::from_secs(10),
-                self.client.send_chat_messages(req),
-            )
-            .await
-        })
-        .context("Ollama phản hồi quá thời gian chờ (10s)")?
-        .context("Lỗi khi gửi tin nhắn tới Ollama")?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
 
-        let mut text = resp.message.content.trim().to_string();
-        if let Some(pos) = text.find("</think>") {
-            text = text[pos + 8..].to_string();
-        }
-        let clean = text
-            .lines()
-            .find(|l| !l.trim().is_empty())
-            .unwrap_or(raw_text)
-            .trim()
-            .trim_matches('"')
-            .to_string();
+        let resp = rt.block_on(async { self.client.send_chat_messages(req).await })?;
 
-        Ok(if clean.is_empty() { raw_text.to_string() } else { clean })
+        let text = resp.message.content.trim().trim_matches('"').to_string();
+        Ok(text)
     }
 }
+

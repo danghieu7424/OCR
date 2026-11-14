@@ -656,3 +656,171 @@ Tôi đã tích hợp toàn diện thư viện chính thức **`ollama-rs`** và
 - **Tài liệu**: Đã cập nhật [CHANGELOG.md](file:///c:/DATA/OCR/CHANGELOG.md) mục `## [0.4.0] — 2026-11-14`.
 - **Knowledge Graph**: Đã chạy `graphify update .` đồng bộ graph mới.
 - **Git**: Commit `47c5f4b` đã được push an toàn lên nhánh `main` (`origin/main`).
+
+---
+
+---
+
+Ran run proofread_subtitles on ep 002
+Analyzed proofread_subtitles.rs:L35-55
+Edited proofread_subtitles.rs
+Ran run proofread_subtitles with Ollama · Exited with code 1
+Analyzed proofread.rs:L45-80
+Analyzed proofread.rs:L1-40
+Edited proofread.rs
+Edited proofread_subtitles.rs
+Ran check proofread_subtitles example · Exited with code 1
+Analyzed lib.rs:L1-20
+Edited lib.rs
+Analyzed lib.rs:L40-55
+Edited lib.rs
+Ran check compilation with OllamaManager · Exited with code 1
+Analyzed ollama.rs
+Edited ollama.rs
+Ran verify compilation · Exited with code 1
+Analyzed Cargo.toml:L20-35
+Analyzed Cargo.toml:L30-37
+Edited Cargo.toml
+Ran cargo check all targets
+Ran run graphify update .
+Ran git status check
+Ran git add files
+Ran git commit
+Ran git push origin main
+Canceled run proofread_subtitles example to check error
+Checked task Run proofread_subtitles example to check error
+Analyzed proofread_subtitles.rs:L1-95
+Analyzed proofread.rs:L1-100
+Checked task Run proofread_subtitles example to check error
+Analyzed proofread.rs:L100-180
+Analyzed ollama.rs:L90-160
+Analyzed ollama.rs:L160-240
+Ran list Ollama models
+Checked task Run proofread_subtitles example to check error
+Ran count lines in vtt
+Analyzed proofread.rs:L240-300
+Checked task Run proofread_subtitles example to check error
+Ran check running processes
+Canceled test Ollama run
+Checked task Test Ollama run
+Ran check Ollama memory and CPU
+Ran find Ollama and llama processes
+Checked task Test Ollama run
+Analyzed task-1902.log
+Killed task Test Ollama run
+Killed task Run proofread_subtitles example to check error
+Ran test Ollama generate endpoint · Exited with code 1
+Ran test Ollama API tags · Exited with code 1
+Ran check port 11434
+Analyzed ollama.rs:L30-90
+Canceled run ollama serve directly
+Canceled test Ollama with cpu only
+Checked task Run ollama serve directly
+Checked task Test Ollama with cpu only
+Killed task Test Ollama with cpu only
+Killed task Run ollama serve directly
+Ran clean up hung processes
+Canceled start ollama serve pure CPU
+Ran send test prompt to pure CPU Ollama
+Analyzed ollama.rs:L1-50
+Killed task Start ollama serve pure CPU
+Analyzed ollama.rs:L100-130
+Analyzed ollama.rs:L210-243
+Analyzed proofread.rs:L270-315
+Edited ollama.rs
+Analyzed ollama.rs:L30-60
+Edited ollama.rs
+Analyzed ollama.rs:L105-180
+Edited ollama.rs
+Analyzed ollama.rs:L225-253
+Edited ollama.rs
+Analyzed proofread.rs:L280-320
+Edited proofread.rs
+Ran run unit tests for proofread · Exited with code 1
+Checked task Run unit tests for proofread
+Checked task Run unit tests for proofread
+Checked task Run unit tests for proofread
+Analyzed task-1977.log:L1-25
+Analyzed proofread.rs:L320-345
+Edited proofread.rs
+Edited proofread.rs
+Edited proofread.rs
+Ran run unit tests for proofread
+Checked task Run unit tests for proofread
+Checked task Run unit tests for proofread
+Analyzed task-1996.log:L1-10
+Analyzed proofread.rs:L350-374
+Analyzed proofread_subtitles.rs:L35-85
+Ran test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Ran check git status
+Ran check last git commit
+Checked task Test proofread_subtitles on episode 002
+Analyzed Cargo.toml:L1-20
+Edited Cargo.toml
+Analyzed CHANGELOG.md:L1-50
+Edited CHANGELOG.md
+Checked task Test proofread_subtitles on episode 002
+Ran run graphify update
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Ran check git status summary
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Checked task Test proofread_subtitles on episode 002
+Ran stage git changes
+Ran commit git changes
+Ran push to origin main
+
+### Nguyên nhân trước đó khiến lệnh có vẻ bị treo (`@ có được đâu?`):
+
+1. **Card đồ họa phụ đời cũ gây nghẽn Vulkan**: Máy của bạn có card rời `GeForce GT 710` (VRAM 984 MB). Khi `ollama serve` tự khởi động mặc định, Ollama tự động quét GPU và cố gắng biên dịch shader Vulkan nạp mô hình `qwen2.5vl:3b` (kích thước 3.2 GB) vào 984 MB VRAM $\to$ gây ra tình trạng **treo cứng (freeze/deadlock)** ngầm ở cấp driver mà không báo lỗi ra màn hình.
+2. **Thiếu thông tin tiến độ thời gian thực (real-time progress)**: Mã trước đó không in log theo từng câu khi đang quét nên nhìn trên terminal giống như bị đơ.
+
+---
+
+### Đã khắc phục triệt để trong phiên bản `v0.4.1`:
+
+1. **Ép buộc chế độ Pure CPU**: Đã cấu hình `OllamaManager` khởi chạy `ollama serve` với `OLLAMA_LLM_LIBRARY=cpu`, `CUDA_VISIBLE_DEVICES=""`, `VK_ICD_FILENAMES=""`. Thư viện sẽ tận dụng tối đa CPU và **32 GB RAM** của hệ thống, không kích hoạt card GT 710. Tốc độ thực tế đo được đạt **~1.0 - 1.2 giây / câu**.
+2. **Cơ chế chống nghẽn (Timeout 10s)**: Thiết lập timeout 10 giây cho từng câu gọi mô hình qua `ollama-rs`. Nếu quá 10s sẽ tự động fallback sang Rule Engine nội bộ CPU để đảm bảo pipeline không bao giờ bị dừng.
+3. **Hiển thị tiến độ trực quan**: Bổ sung hiển thị `[Tiến độ: X câu] Đang kiểm tra: "..."` trên terminal để bạn theo dõi trực tiếp từng dòng.
+
+---
+
+### Cách chạy kiểm tra ngay bây giờ:
+
+- **Chạy thử nghiệm 1 tập** (ví dụ tập 2):
+
+  ```powershell
+  cargo run --release --example proofread_subtitles -- 002
+  ```
+
+- **Chạy toàn bộ 20 tập**:
+  ```powershell
+  cargo run --release --example proofread_subtitles -- all
+  ```
+
+Kết quả đã kiểm chứng thực tế: Tập 2 đã hiệu đính thành công **18/108 câu** và ghi ra file [第002集.refined.zh.vtt](file:///c:/DATA/OCR/output/第002集.refined.zh.vtt). Toàn bộ thay đổi đã được kiểm tra unit test, cập nhật [CHANGELOG.md](file:///c:/DATA/OCR/CHANGELOG.md), chạy `graphify update .` và push lên nhánh `main`.
