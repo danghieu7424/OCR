@@ -178,6 +178,9 @@ def score_alignment(ref, ours, normalizer):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--norm", default="none", choices=["none", "t2s", "s2t"])
     ap.add_argument("--input", default="input")
