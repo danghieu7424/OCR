@@ -22,39 +22,9 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use OCR::{extract_captions, CaptionExtractorConfig, CaptionRoi};
 
-/// Tải file từ URL
-fn download_file(url: &str, output: &Path) -> Result<()> {
-    if let Some(parent) = output.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    println!("    [DOWNLOAD] {}", url);
 
-    let status = Command::new("curl.exe")
-        .args(&["-L", "--progress-bar", "-o", &output.to_string_lossy(), url])
-        .status();
 
-    match status {
-        Ok(s) if s.success() && output.exists() => {
-            println!("    \x1b[32m[OK]\x1b[0m {:?}", output.file_name().unwrap_or_default());
-            Ok(())
-        }
-        _ => {
-            println!("    [FALLBACK] PowerShell...");
-            let ps = format!(
-                "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
-                url, output.to_string_lossy()
-            );
-            Command::new("powershell").args(&["-Command", &ps]).status()?;
-            if output.exists() {
-                Ok(())
-            } else {
-                anyhow::bail!("Tải thất bại: {}", url);
-            }
-        }
-    }
-}
-
-/// Kiểm tra & tải model nếu thiếu
+/// Kiểm tra & nạp model PP-OCRv6 nếu thiếu
 fn ensure_models(model_dir: &Path) -> Result<()> {
     let ocr = model_dir.join("ocr");
     let det = ocr.join("det.onnx");
@@ -65,32 +35,33 @@ fn ensure_models(model_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    println!(">>> [MODEL] Phát hiện thiếu file mô hình. Tự động tải...");
-    std::fs::create_dir_all(&ocr)?;
+    // Ưu tiên giải nén từ file ocr.zip
+    let zip_candidates = [
+        model_dir.join("ocr.zip"),
+        std::path::PathBuf::from("ocr.zip"),
+        std::path::PathBuf::from("models/ocr.zip"),
+    ];
 
-    if !det.exists() {
-        println!(">>> [1/3] det.onnx (Text Detection)...");
-        download_file(
-            "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx/resolve/main/inference.onnx",
-            &det,
-        )?;
+    for zip in &zip_candidates {
+        if zip.exists() {
+            println!(">>> [MODEL CHECK] Đang giải nén bộ mô hình PP-OCRv6 từ {:?}...", zip);
+            let _ = std::fs::create_dir_all(model_dir);
+            let status = Command::new("tar")
+                .args(&["-xf", &zip.to_string_lossy(), "-C", &model_dir.to_string_lossy()])
+                .status();
+            if let Ok(s) = status {
+                if s.success() && det.exists() && rec.exists() && keys.exists() {
+                    println!("    \x1b[32m[OK]\x1b[0m Giải nén thành công bộ mô hình PP-OCRv6!");
+                    return Ok(());
+                }
+            }
+        }
     }
-    if !keys.exists() {
-        println!(">>> [2/3] keys.txt (Dictionary)...");
-        download_file(
-            "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt",
-            &keys,
-        )?;
-    }
-    if !rec.exists() {
-        println!(">>> [3/3] rec.onnx (Text Recognition)...");
-        download_file(
-            "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx/resolve/main/inference.onnx",
-            &rec,
-        )?;
-    }
-    println!(">>> [MODEL] Sẵn sàng!\n");
-    Ok(())
+
+    anyhow::bail!(
+        "Thiếu bộ mô hình PP-OCRv6 trong {:?}. Vui lòng đảm bảo các file 'det.onnx', 'rec.onnx', 'keys.txt' tồn tại trong 'models/ocr/' (hoặc cung cấp file 'models/ocr.zip').",
+        ocr
+    );
 }
 
 fn main() -> Result<()> {

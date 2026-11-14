@@ -27,36 +27,7 @@ use OCR::{
     EntityGlossary, OcrExtractorConfig, Proofreader,
 };
 
-/// Tải file mô hình nếu thiếu
-fn download_file(url: &str, output: &Path) -> Result<()> {
-    if let Some(parent) = output.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    println!("    [DOWNLOAD] {}", url);
-
-    let status = Command::new("curl.exe")
-        .args(&["-L", "--progress-bar", "-o", &output.to_string_lossy(), url])
-        .status();
-
-    match status {
-        Ok(s) if s.success() && output.exists() => Ok(()),
-        _ => {
-            let ps = format!(
-                "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
-                url,
-                output.to_string_lossy()
-            );
-            Command::new("powershell").args(&["-Command", &ps]).status()?;
-            if output.exists() {
-                Ok(())
-            } else {
-                bail!("Tải thất bại: {}", url);
-            }
-        }
-    }
-}
-
-/// Kiểm tra bộ mô hình ONNX
+/// Kiểm tra bộ mô hình PP-OCRv6 (`det.onnx`, `rec.onnx`, `keys.txt`)
 fn ensure_models(model_dir: &Path) -> Result<()> {
     let ocr = model_dir.join("ocr");
     let det = ocr.join("det.onnx");
@@ -64,25 +35,36 @@ fn ensure_models(model_dir: &Path) -> Result<()> {
     let keys = ocr.join("keys.txt");
 
     if !det.exists() || !rec.exists() || !keys.exists() {
-        println!(">>> [MODEL CHECK] Đang tải các mô hình ONNX...");
-        fs::create_dir_all(&ocr)?;
-        if !det.exists() {
-            download_file(
-                "https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/ch_PP-OCRv4_det_infer.onnx",
-                &det,
-            )?;
+        // Ưu tiên giải nén từ file `ocr.zip` chứa đầy đủ mô hình PP-OCRv6
+        let zip_candidates = [
+            model_dir.join("ocr.zip"),
+            PathBuf::from("ocr.zip"),
+            PathBuf::from("models/ocr.zip"),
+        ];
+
+        let mut unzipped = false;
+        for zip in &zip_candidates {
+            if zip.exists() {
+                println!(">>> [MODEL CHECK] Đang giải nén bộ mô hình PP-OCRv6 từ {:?}...", zip);
+                let _ = fs::create_dir_all(model_dir);
+                let status = Command::new("tar")
+                    .args(&["-xf", &zip.to_string_lossy(), "-C", &model_dir.to_string_lossy()])
+                    .status();
+                if let Ok(s) = status {
+                    if s.success() && det.exists() && rec.exists() && keys.exists() {
+                        println!("    \x1b[32m[OK]\x1b[0m Giải nén thành công bộ mô hình PP-OCRv6!");
+                        unzipped = true;
+                        break;
+                    }
+                }
+            }
         }
-        if !rec.exists() {
-            download_file(
-                "https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/ch_PP-OCRv4_rec_infer.onnx",
-                &rec,
-            )?;
-        }
-        if !keys.exists() {
-            download_file(
-                "https://raw.githubusercontent.com/RapidAI/RapidOCR/main/python/rapidocr_openvino/models/ppocr_keys_v1.txt",
-                &keys,
-            )?;
+
+        if !unzipped && (!det.exists() || !rec.exists() || !keys.exists()) {
+            bail!(
+                "Thiếu bộ mô hình PP-OCRv6 trong {:?}. Vui lòng đảm bảo các file 'det.onnx', 'rec.onnx', 'keys.txt' tồn tại trong 'models/ocr/' (hoặc cung cấp file 'models/ocr.zip').",
+                ocr
+            );
         }
     }
     Ok(())
