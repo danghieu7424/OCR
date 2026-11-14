@@ -463,13 +463,13 @@ print(f'paired_edit={err}, paired_ref_chars={refchars}, missing_cues={missing}, 
 print(f'rough_CER_including_unpaired_cue_chars={(err+misschars+extrachars)/max(1,refchars+misschars)*100:.3f}%')
 '@ | python -
 
-## Đánh giá
+## Đánh giá lúc rà soát trước khi gỡ OCR_LLM
 
-Tôi đã đọc cả bốn tài liệu, đối chiếu VTT hiện có và xem các frame caption lưu trong `scratch`. **Không gọi OCR_LLM và không sửa file.** Tôi cũng không chạy lại `extract_and_merge.rs`: ví dụ này có thể ghi lại `refined/merged`, hiện shell không tìm thấy `ffmpeg`, và quan trọng hơn, code đang gọi `Proofreader::with_fast_mode()` từ crate OCR_LLM dù đã tắt LLM.
+Các nhận xét trong phần này ghi lại trạng thái trước khi gỡ OCR_LLM. Khi đó pipeline OCR chính chưa được xác minh sau thay đổi; `extract_and_merge` đã bỏ qua hiệu đính nhưng crate và example riêng vẫn còn trong workspace.
 
 - **`readme.md` đang khẳng định quá mức:** các tuyên bố “>99%” và “100% sub một ký tự” không phải bảo đảm cho video bất kỳ; chúng dựa trên một bộ video tiếng Trung cụ thể. `readme.md`
 - **`plan.md` không phù hợp yêu cầu hiện tại:** còn đề xuất Qwen/VLM, tự sửa chữ theo ngữ cảnh và hứa hẹn độ chính xác 100%. Cũng không nên tự động sửa phụ đề chỉ vì một từ gần giống trong glossary. `plan.md`
-- **`CHANGELOG.md` và pipeline vẫn phụ thuộc OCR_LLM:** ví dụ hiện tại gọi `EntityGlossary`/`Proofreader` ngay cả ở Fast Mode. Nếu “không dùng OCR_LLM” là yêu cầu nghiêm ngặt, không nên chạy ví dụ này nguyên trạng. `CHANGELOG.md` · `extract_and_merge.rs`
+- **Trạng thái lúc rà soát:** `OCR_LLM` và example hiệu đính vẫn tồn tại. Chúng đã được gỡ khỏi workspace trong phần cập nhật bên dưới.
 - **`evaluate.md` trộn nhiều lần đánh giá:** có báo cáo 99.18%, báo cáo chuẩn hóa 99.82%, caption 24/25 và báo cáo 18/18 cho bốn tập đầu. Đây là các lần đo khác nhau, không phải một bảo đảm tổng quát. `evaluate.md`
 
 ### Kết quả kiểm tra dữ liệu hiện có
@@ -490,7 +490,13 @@ Code hiện có đúng ROI caption bạn mô tả: **Y 10–80%, X 0–100%**. N
 4. **Đánh giá riêng nội dung và thời gian:** với subtitle, báo CER có tính cue thiếu/thừa, exact-cue rate và sai số timestamp; với caption, báo precision/recall, exact text và sai số đầu/cuối, đồng thời duyệt ảnh cho ca nghi ngờ. Chuẩn hóa phồn/giản chỉ dùng khi trình bày thêm một điểm phụ, không sửa ground truth.
 5. **Giới hạn cam kết theo model hỗ trợ:** pipeline hiện mặc định ngôn ngữ Trung và ROI/heuristic đã tinh chỉnh cho một kiểu video. Không thể bảo đảm “mọi video” nếu chưa biết ngôn ngữ, font, vị trí chữ và chất lượng hình; cần profile theo ngôn ngữ/nguồn và xác nhận thủ công khi nằm ngoài phạm vi đã kiểm chứng.
 
-**Kết luận:** OCR subtitle hiện khá tốt trên bộ 20 tập này nhưng tỷ lệ 99.2% chưa bao gồm đầy đủ cue thiếu/thừa; caption có kết quả văn bản rất tốt trên 18 cue đầu, song cần kiểm lại một frame và timestamp trước khi gọi là xác nhận thị giác hoàn tất. Bước tiếp theo phù hợp là cập nhật bốn tài liệu để bỏ hướng LLM, chốt cách đo có tính cả miss/extra, rồi tách pipeline OCR–merge thuần khỏi `OCR_LLM`.
+**Kết luận tại thời điểm rà soát:** OCR subtitle hiện khá tốt trên bộ video này nhưng accuracy có điều kiện không tính đủ cue thiếu/thừa; caption cần duyệt ảnh ở các cue nghi vấn. Kết quả kiểm chứng mới nhất được ghi trong `evaluate.md`.
+
+## Cập nhật: loại bỏ OCR_LLM, giữ pipeline OCR thuần
+
+- Đã xóa crate `crates/OCR_LLM`, feature `llm`, các API re-export tương ứng và example `proofread_subtitles`.
+- Workspace hiện chỉ giữ các crate trích xuất subtitle/caption, merge và thành phần dùng chung. `extract_and_merge` giữ nguyên OCR thô, không hiệu đính nội dung.
+- Đã chạy lại `cargo test --workspace`; xem trạng thái kiểm chứng và số liệu mới trong `evaluate.md`.
 
 ---
 ---

@@ -7,7 +7,6 @@
 //! - `OCR_Subtitles`: Trích xuất phụ đề lời thoại (khu vực dưới khung hình).
 //! - `OCR_Captions`: Trích xuất chú thích nhân vật/công pháp (khu vực trên/trái khung hình).
 //! - `OCR_Merge`: Ghép phụ đề và chú thích thành một file WebVTT đồng bộ thời gian hoàn chỉnh.
-//! - `OCR_LLM`: Tích hợp tùy chọn bằng feature `llm`; không thuộc pipeline mặc định.
 
 // Re-export các sub-crates dưới dạng namespace chuẩn
 pub mod OCR_Subtitles {
@@ -16,11 +15,6 @@ pub mod OCR_Subtitles {
 
 pub mod OCR_Captions {
     pub use OCR_Captions::*;
-}
-
-#[cfg(feature = "llm")]
-pub mod OCR_LLM {
-    pub use OCR_LLM::*;
 }
 
 pub mod OCR_Merge {
@@ -36,18 +30,6 @@ pub mod caption {
 }
 pub mod temporal_voting {
     pub use OCR_Subtitles::temporal_voting::*;
-}
-#[cfg(feature = "llm")]
-pub mod glossary {
-    pub use OCR_LLM::glossary::*;
-}
-#[cfg(feature = "llm")]
-pub mod ollama {
-    pub use OCR_LLM::ollama::*;
-}
-#[cfg(feature = "llm")]
-pub mod proofread {
-    pub use OCR_LLM::proofread::*;
 }
 pub mod shared {
     pub use ocr_shared::*;
@@ -66,17 +48,13 @@ pub use OCR_Captions::{
     extract_captions,
 };
 
-// 3. Hiệu đính ngữ cảnh tùy chọn (feature `llm`)
-#[cfg(feature = "llm")]
-pub use OCR_LLM::{EntityGlossary, OllamaManager, ProofreadConfig, ProofreadSummary, Proofreader};
-
-// 4. Hợp nhất phụ đề và chú thích (Merge)
+// 3. Hợp nhất phụ đề và chú thích (Merge)
 pub use OCR_Merge::{
     MergeSummary, VttCue, format_vtt_timestamp, merge_cues, merge_vtt_files, parse_vtt,
     parse_vtt_timestamp, serialize_vtt,
 };
 
-// 5. Shared & TUI Events
+// 4. Shared & TUI Events
 pub use ocr_shared::tui_events::{
     ProgressPayload, attach_cli_gui_task, clear_handlers, emit_log, emit_step, emit_task_progress,
     on_log, on_progress, on_step,

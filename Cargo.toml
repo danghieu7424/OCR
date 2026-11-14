@@ -4,7 +4,6 @@ members = [
     "crates/ocr_shared",
     "crates/OCR_Subtitles",
     "crates/OCR_Captions",
-    "crates/OCR_LLM",
     "crates/OCR_Merge",
 ]
 
@@ -30,18 +29,12 @@ name = "extract_captions"
 path = "examples/extract_captions.rs"
 
 [[example]]
-name = "proofread_subtitles"
-path = "examples/proofread_subtitles.rs"
-required-features = ["llm"]
-
-[[example]]
 name = "merge_subtitles_captions"
 path = "examples/merge_subtitles_captions.rs"
 
 [dependencies]
 OCR_Subtitles = { path = "crates/OCR_Subtitles" }
 OCR_Captions = { path = "crates/OCR_Captions" }
-OCR_LLM = { path = "crates/OCR_LLM", optional = true }
 OCR_Merge = { path = "crates/OCR_Merge" }
 ocr_shared = { path = "crates/ocr_shared" }
 
@@ -51,6 +44,3 @@ serde_json = "1.0"
 cli_gui_form = { path = "./cli_gui_form" }
 ratatui = "0.28"
 
-[features]
-default = []
-llm = ["dep:OCR_LLM"]

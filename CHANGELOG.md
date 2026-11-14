@@ -19,12 +19,16 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thay đổi
 
-- Pipeline mặc định trong `examples/extract_and_merge.rs` bỏ `Proofreader` và `EntityGlossary`, giữ nguyên hai VTT OCR thô rồi merge trực tiếp. `OCR_LLM` vẫn thuộc workspace, nhưng là dependency tùy chọn qua feature `llm`; example hiệu đính riêng yêu cầu bật feature này.
+- Pipeline trong `examples/extract_and_merge.rs` chỉ trích xuất hai VTT OCR thô rồi merge trực tiếp, không hiệu đính nội dung.
 - `examples/merge_subtitles_captions.rs` ưu tiên `.subtitles.zh.vtt` và không còn tự chọn file `.refined.zh.vtt` để merge.
 - `examples/extract_and_merge.rs`: thêm cờ `--caption-evidence` để xuất ảnh bằng chứng và cảnh báo caption; lỗi xử lý video được phản ánh bằng mã thoát khác 0.
 - `readme.md` và `plan.md`: mô tả phạm vi model tiếng Trung, ROI theo profile, pipeline không hiệu đính và cách đánh giá không cam kết điểm số cho mọi video.
 - `readme.md`: Đồng bộ và quy chuẩn toàn bộ phần tài liệu tải mô hình sang chuẩn **PP-OCRv6** (Medium ONNX và từ điển chính thức PaddleOCR), xóa bỏ hoàn toàn các phần tham chiếu cũ PP-OCRv4 và PP-OCRv5.
 - `examples/extract_captions.rs`, `examples/extract_subtitles.rs`, `examples/extract_and_merge.rs`: Bổ sung cơ chế tự động tải trực tiếp bộ mô hình **PP-OCRv6** Medium (`det.onnx`, `rec.onnx`, `keys.txt`) từ HuggingFace PaddlePaddle và PaddleOCR GitHub khi không tìm thấy file local và file nén `ocr.zip`.
+
+### Gỡ bỏ
+
+- Xóa crate `OCR_LLM`, feature `llm`, API hiệu đính liên quan và example `proofread_subtitles`; workspace chỉ còn pipeline OCR thô và merge, không gọi mô hình ngôn ngữ.
 
 ## [0.5.0] — 2026-11-14
 
