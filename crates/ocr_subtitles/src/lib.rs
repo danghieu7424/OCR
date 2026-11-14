@@ -344,7 +344,7 @@ mod sanitize_tests {
 
 #[cfg(test)]
 mod observation_tests {
-    use super::{has_stable_detection_track, select_best_subtitle_text};
+    use super::{has_stable_single_character_track, select_best_subtitle_text};
 
     #[test]
     fn temporal_voting_prefers_the_higher_confidence_character() {
@@ -355,14 +355,75 @@ mod observation_tests {
 
     #[test]
     fn single_character_requires_a_stable_detected_region() {
-        assert!(has_stable_detection_track(&[
-            Some((10.0, 10.0, 30.0, 30.0)),
-            Some((11.0, 10.0, 31.0, 30.0)),
-        ]));
-        assert!(!has_stable_detection_track(&[
-            Some((10.0, 10.0, 30.0, 30.0)),
-            Some((60.0, 60.0, 80.0, 80.0)),
-        ]));
+        assert!(has_stable_single_character_track(
+            &[
+                Some((10.0, 10.0, 30.0, 30.0)),
+                Some((11.0, 10.0, 31.0, 30.0)),
+            ],
+            &[0.95, 0.95],
+            Some(20.0),
+        ));
+        assert!(!has_stable_single_character_track(
+            &[
+                Some((10.0, 10.0, 30.0, 30.0)),
+                Some((60.0, 60.0, 80.0, 80.0)),
+            ],
+            &[0.95, 0.95],
+            Some(20.0),
+        ));
+    }
+
+    #[test]
+    fn single_character_rejects_broad_regions_and_low_confidence_tracks() {
+        assert!(!has_stable_single_character_track(
+            &[
+                Some((10.0, 10.0, 760.0, 70.0)),
+                Some((15.0, 12.0, 765.0, 72.0)),
+            ],
+            &[0.95, 0.95],
+            Some(60.0),
+        ));
+        assert!(!has_stable_single_character_track(
+            &[
+                Some((10.0, 10.0, 30.0, 30.0)),
+                Some((11.0, 10.0, 31.0, 30.0)),
+                Some((12.0, 10.0, 32.0, 30.0)),
+            ],
+            &[0.40, 0.54, 1.00],
+            Some(20.0),
+        ));
+        assert!(!has_stable_single_character_track(
+            &[
+                Some((10.0, 10.0, 34.0, 34.0)),
+                Some((11.0, 10.0, 35.0, 34.0)),
+            ],
+            &[0.95, 0.95],
+            Some(80.0),
+        ));
+    }
+
+    #[test]
+    fn single_character_confidence_ignores_interpolated_frames_without_boxes() {
+        assert!(has_stable_single_character_track(
+            &[
+                Some((10.0, 10.0, 30.0, 30.0)),
+                Some((11.0, 10.0, 31.0, 30.0)),
+                None,
+            ],
+            &[0.95, 0.95, 0.0],
+            Some(20.0),
+        ));
+    }
+
+    #[test]
+    fn single_character_keeps_a_track_with_a_few_low_confidence_frames() {
+        let bounds = [Some((10.0, 10.0, 30.0, 30.0)); 8];
+        let confidences = [0.824, 0.576, 0.823, 0.642, 0.529, 0.776, 0.798, 0.741];
+        assert!(has_stable_single_character_track(
+            &bounds,
+            &confidences,
+            Some(20.0),
+        ));
     }
 }
 
@@ -575,11 +636,72 @@ fn bounds_iou(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> f64 {
     }
 }
 
-fn has_stable_detection_track(bounds: &[Option<(f64, f64, f64, f64)>]) -> bool {
+fn median_f64(values: &mut [f64]) -> Option<f64> {
+    if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
+
+    values.sort_by(f64::total_cmp);
+    let middle = values.len() / 2;
+    Some(if values.len().is_multiple_of(2) {
+        (values[middle - 1] + values[middle]) / 2.0
+    } else {
+        values[middle]
+    })
+}
+
+fn has_stable_single_character_track(
+    bounds: &[Option<(f64, f64, f64, f64)>],
+    confidences: &[f32],
+    typical_glyph_height: Option<f64>,
+) -> bool {
+    const MIN_MEDIAN_CONFIDENCE: f32 = 0.65;
+    const MAX_ASPECT_RATIO: f64 = 2.5;
+    const MIN_HEIGHT_RATIO: f64 = 0.5;
+    const MAX_HEIGHT_RATIO: f64 = 1.5;
+
+    let mut observed_confidences: Vec<f32> = bounds
+        .iter()
+        .zip(confidences)
+        .filter_map(|(bounds, &confidence)| bounds.map(|_| confidence))
+        .collect();
+    if observed_confidences.is_empty()
+        || observed_confidences
+            .iter()
+            .any(|confidence| !confidence.is_finite())
+    {
+        return false;
+    }
+    observed_confidences.sort_by(f32::total_cmp);
+    let middle = observed_confidences.len() / 2;
+    let median_confidence = if observed_confidences.len().is_multiple_of(2) {
+        (observed_confidences[middle - 1] + observed_confidences[middle]) / 2.0
+    } else {
+        observed_confidences[middle]
+    };
+    if median_confidence < MIN_MEDIAN_CONFIDENCE {
+        return false;
+    }
+
     bounds.windows(2).any(|pair| {
-        pair[0]
-            .zip(pair[1])
-            .is_some_and(|(a, b)| bounds_iou(a, b) >= 0.25)
+        pair[0].zip(pair[1]).is_some_and(|(a, b)| {
+            let glyph_shaped = |rect: (f64, f64, f64, f64)| {
+                let width = rect.2 - rect.0;
+                let height = rect.3 - rect.1;
+                let height_consistent = match typical_glyph_height {
+                    Some(reference_height) => {
+                        let relative_height = height / reference_height;
+                        (MIN_HEIGHT_RATIO..=MAX_HEIGHT_RATIO).contains(&relative_height)
+                    }
+                    None => true,
+                };
+                width > 0.0
+                    && height > 0.0
+                    && (width / height).max(height / width) <= MAX_ASPECT_RATIO
+                    && height_consistent
+            };
+            glyph_shaped(a) && glyph_shaped(b) && bounds_iou(a, b) >= 0.25
+        })
     })
 }
 
@@ -965,6 +1087,19 @@ pub fn extract_hardcoded_subtitles(
 
     // Bước 4: Khử nhiễu, biểu quyết nội dung & chuẩn hóa mốc thời gian WebVTT
     let mut initial_segments: Vec<SubtitleSegment> = Vec::new();
+    let mut reference_glyph_heights: Vec<f64> = raw_segments
+        .iter()
+        .filter(|seg| {
+            select_best_subtitle_text(&seg.texts, &seg.confidences)
+                .chars()
+                .count()
+                > 1
+        })
+        .flat_map(|seg| seg.bounds.iter().flatten())
+        .map(|bounds| bounds.3 - bounds.1)
+        .filter(|height| height.is_finite() && *height > 0.0)
+        .collect();
+    let typical_glyph_height = median_f64(&mut reference_glyph_heights);
 
     for seg in raw_segments {
         let dbg = std::env::var_os("OCR_SUB_DEBUG").is_some();
@@ -1009,7 +1144,14 @@ pub fn extract_hardcoded_subtitles(
             let is_cjk = best_text
                 .chars()
                 .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
-            if !is_cjk || duration < 0.10 || !has_stable_detection_track(&seg.bounds) {
+            if !is_cjk
+                || duration < 0.10
+                || !has_stable_single_character_track(
+                    &seg.bounds,
+                    &seg.confidences,
+                    typical_glyph_height,
+                )
+            {
                 continue;
             }
         } else if duration < 0.10 {
