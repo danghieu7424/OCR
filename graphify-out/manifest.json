@@ -1,8 +1,8 @@
 {
   "Cargo.toml": {
-    "mtime": 1794644245.4934855,
-    "seen": 1794644786.205369,
-    "ast_hash": "9f25f76ce59dd17862d4cb61c1c3d057",
+    "mtime": 1794645177.6503155,
+    "seen": 1794645253.7951586,
+    "ast_hash": "fa16e52a726e610c5bee4e351b9bb3ee",
     "semantic_hash": ""
   },
   "cli_gui_form/Cargo.toml": {
@@ -222,9 +222,9 @@
     "semantic_hash": ""
   },
   "src/lib.rs": {
-    "mtime": 1794644385.5733526,
-    "seen": 1794644786.205369,
-    "ast_hash": "e606bc0223a5f1bae33af3cc8f196d27",
+    "mtime": 1794645177.718242,
+    "seen": 1794645253.79617,
+    "ast_hash": "b8ba08a04a43528403e8caa2adb58981",
     "semantic_hash": ""
   },
   "src/main.rs": {
@@ -282,9 +282,9 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1794643017.0742493,
-    "seen": 1794643033.4224806,
-    "ast_hash": "46b7caefd93f1cd143080da2b61b71af",
+    "mtime": 1794645235.5493443,
+    "seen": 1794645253.79617,
+    "ast_hash": "8b80a5297d17de8adb39740f3ee384f4",
     "semantic_hash": ""
   },
   "tools/compare_subs.py": {
@@ -306,9 +306,9 @@
     "semantic_hash": ""
   },
   "examples/proofread_subtitles.rs": {
-    "mtime": 1794644462.327396,
-    "seen": 1794644786.205369,
-    "ast_hash": "a01134e69b77d90ecce3323e45f1a767",
+    "mtime": 1794645177.6853802,
+    "seen": 1794645253.79617,
+    "ast_hash": "29f55007136c6d3485be7b3665e07a25",
     "semantic_hash": ""
   },
   "src/glossary.rs": {
@@ -318,15 +318,15 @@
     "semantic_hash": ""
   },
   "src/proofread.rs": {
-    "mtime": 1794644371.1713185,
-    "seen": 1794644786.205369,
-    "ast_hash": "e8584c66318b37e58835142fdb717e82",
+    "mtime": 1794645177.7840776,
+    "seen": 1794645253.79617,
+    "ast_hash": "0e136a19f337f2267a0b4e748e1b0b57",
     "semantic_hash": ""
   },
   "src/ollama.rs": {
-    "mtime": 1794644451.2209365,
-    "seen": 1794644786.205369,
-    "ast_hash": "b97e8093278e465f231205f56815ef36",
+    "mtime": 1794645187.389195,
+    "seen": 1794645253.79617,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": ""
   }
 }

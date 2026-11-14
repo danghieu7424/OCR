@@ -11,16 +11,16 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
-- Tích hợp trực tiếp thư viện Rust `ollama-rs`: module `src/ollama.rs` (`OllamaManager`) với cơ chế tự động tìm kiếm đường dẫn nhị phân `ollama`, tự động khởi động daemon `ollama serve` ngầm nếu chưa chạy, và tự động pull model (`qwen2.5vl:3b`) khi máy chưa có.
 - Module `src/glossary.rs` (`EntityGlossary`): tự động trích xuất danh sách danh từ riêng (tên nhân vật, công pháp, địa danh) từ các file `.captions.zh.vtt` và chuẩn hóa câu phụ đề, loại bỏ nguy cơ đọc nhầm tên riêng.
 - Module `src/temporal_voting.rs`: thuật toán bỏ phiếu đa khung hình cấp chuỗi (`vote_majority_string`) và cấp ký tự (`vote_character_consensus`) giúp triệt tiêu nhiễu bùa chú, tia sáng lướt qua tạm thời giữa các frame.
-- Module `src/proofread.rs` (`Proofreader`): tầng hiệu đính ngữ cảnh hậu xử lý kết hợp luật ngữ cảnh nội bộ (sửa các cặp nhầm lẫn `参`↔`爹`, `涵`↔`嗯`, `自已`↔`自己`, xóa ký tự rác ngoại lai) và gọi `OllamaManager` để suy luận trực tiếp với mô hình Qwen2.5-VL-3B.
-- Example `examples/proofread_subtitles.rs`: công cụ CLI hiệu đính phụ đề hàng loạt cho 20 tập từ từ điển caption tự động kết hợp Ollama Rust.
+- Module `src/ollama.rs` (`OllamaManager`): tích hợp thư viện chính thức `ollama-rs` của Rust, tự động định vị binary `ollama`, tự động khởi động daemon ngầm `ollama serve` nếu chưa chạy, và tự động kiểm tra/tải mô hình (`qwen2.5vl:3b`) qua API.
+- Module `src/proofread.rs` (`Proofreader`): tầng hiệu đính ngữ cảnh hậu xử lý tích hợp trực tiếp `OllamaManager::with_ollama`, kết hợp luật ngữ cảnh nội bộ (sửa các cặp nhầm lẫn `参`↔`爹`, `涵`↔`嗯`, `自已`↔`自己`, xóa ký tự rác ngoại lai).
+- Example `examples/proofread_subtitles.rs`: công cụ CLI hiệu đính phụ đề hàng loạt cho 20 tập từ từ điển caption tự động, tự kích hoạt và kết nối mô hình Qwen qua Ollama.
 
 ### Thay đổi
 
-- `src/lib.rs`: re-export `OllamaManager`, `EntityGlossary`, `Proofreader`, `ProofreadConfig`, `ProofreadSummary`, `vote_character_consensus`, `vote_majority_string`.
-- `Cargo.toml`: thêm dependencies `ollama-rs = "0.3.6"` và `tokio` (runtime async cho client). Nâng phiên bản thư viện lên `0.4.0`.
+- `src/lib.rs`: re-export `EntityGlossary`, `Proofreader`, `ProofreadConfig`, `ProofreadSummary`, `OllamaManager`, `vote_character_consensus`, `vote_majority_string`.
+- `Cargo.toml`: thêm dependencies `ollama-rs` và `tokio`, nâng phiên bản thư viện lên `0.4.0`.
 
 ## [0.3.0] — 2026-11-14
 

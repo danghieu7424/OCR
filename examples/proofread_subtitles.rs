@@ -7,7 +7,7 @@
 use anyhow::Result;
 use std::env;
 use std::path::PathBuf;
-use OCR::{EntityGlossary, Proofreader};
+use OCR::{EntityGlossary, ProofreadConfig, Proofreader};
 
 fn main() -> Result<()> {
     println!(">>> [PROOFREADER] Hậu xử lý & Hiệu đính ngữ cảnh phụ đề WebVTT\n");
@@ -35,19 +35,15 @@ fn main() -> Result<()> {
     }
     println!();
 
-    // 2. Khởi tạo Proofreader tự động qua thư viện Ollama của Rust
-    println!(">>> [2/3] Khởi tạo Proofreader (Tự động kích hoạt Ollama & mô hình Qwen2.5-VL)...");
-    let model = std::env::var("OCR_LLM_MODEL").unwrap_or_else(|_| "qwen2.5vl:3b".to_string());
-    let proofreader = match Proofreader::with_ollama(&model) {
-        Ok(p) => {
-            println!("    \x1b[32m[OLLAMA]\x1b[0m Thư viện Ollama Rust đã sẵn sàng với mô hình `{}`", model);
-            p
-        }
-        Err(e) => {
-            println!("    \x1b[33m[FALLBACK]\x1b[0m Chuyển sang Engine nội bộ CPU ({})", e);
-            Proofreader::with_default_config()
-        }
-    };
+    // 2. Khởi tạo Proofreader
+    println!(">>> [2/3] Khởi tạo Proofreader (Hỗ trợ Qwen2.5-VL + Rule Engine)...");
+    let config = ProofreadConfig::default();
+    if let Some(ref ep) = config.endpoint {
+        println!("    [LLM] Sử dụng Qwen2.5-VL endpoint: {}", ep);
+    } else {
+        println!("    [CPU] Chạy chế độ nội bộ CPU (Built-in Rule Engine & Glossary)");
+    }
+    let proofreader = Proofreader::new(config);
     println!();
 
     // 3. Xử lý tập chỉ định hoặc toàn bộ

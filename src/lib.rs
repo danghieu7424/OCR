@@ -11,7 +11,6 @@ pub mod ocr;
 
 pub mod caption;
 pub mod glossary;
-pub mod ollama;
 pub mod proofread;
 pub mod temporal_voting;
 pub mod shared;
@@ -42,9 +41,6 @@ pub use temporal_voting::{vote_character_consensus, vote_majority_string};
 
 // Re-export Proofreader & Post-processing
 pub use proofread::{ProofreadConfig, ProofreadSummary, Proofreader};
-
-// Re-export Ollama Manager
-pub use ollama::OllamaManager;
 
 // Re-export các hàm lắng nghe sự kiện tiến trình & tích hợp cli_gui_form
 pub use shared::tui_events::{
