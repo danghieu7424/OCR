@@ -7,16 +7,21 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ## [Unreleased]
 
-### Thay đổi
-
-- DBNet của pipeline phụ đề chạy ở cạnh dài tối đa `640` (thay vì `960`): đo trên tập 002/005/006 nhanh hơn ~1.4x (det 213 → 125–145 ms/frame), chất lượng bằng hoặc tốt hơn (`002`: 98.50% → 98.64%, `005`: VTT giống hệt, `006`: thêm mảnh `挡` của câu `挡住`). Đổi lại bằng `OCR_SUB_DET_LIMIT`; mức `320` làm sai nhiều câu nên không dùng.
-- `sanitize_ocr_text` bỏ ký tự kana và ký tự Latin lẻ dính cuối chuỗi (`魔域之人で` → `魔域之人`).
-- Loại mảnh vụn chuyển sub: câu 1–2 chữ, ngắn ≤ 0.3s, sát câu khác và là tập con của câu đó (`和` cạnh `和离`).
+## [0.4.0] — 2026-11-14
 
 ### Thêm
 
-- Log chẩn đoán phụ đề bật bằng `OCR_SUB_DEBUG=1` (in từng phân đoạn thô, số frame và lý do bị loại) và ghi đè tốc độ lấy mẫu bằng `OCR_SUB_FPS` (mặc định 10) trong `examples/extract_subtitles.rs`.
-- `tools/compare_subs.py`: đối chiếu phụ đề OCR với reference (căn câu theo overlap giảm dần toàn cục, bù bằng start gần nhất, so ký tự bằng Levenshtein) và tùy chọn `--norm none|t2s|s2t` để quy biến thể phồn/giản về một dạng trước khi chấm điểm. Trên 20 tập, chuẩn hoá `t2s` đưa độ chính xác ký tự từ 99.20% lên 99.82% (34/44 lỗi cũ chỉ là khác biến thể chữ).
+- Module `src/glossary.rs` (`EntityGlossary`): tự động trích xuất danh sách danh từ riêng (tên nhân vật, công pháp, địa danh) từ các file `.captions.zh.vtt` và chuẩn hóa câu phụ đề, loại bỏ nguy cơ đọc nhầm tên riêng.
+- Module `src/temporal_voting.rs`: thuật toán bỏ phiếu đa khung hình cấp chuỗi (`vote_majority_string`) và cấp ký tự (`vote_character_consensus`) giúp triệt tiêu nhiễu bùa chú, tia sáng lướt qua tạm thời giữa các frame.
+- Module `src/proofread.rs` (`Proofreader`): tầng hiệu đính ngữ cảnh hậu xử lý kết hợp luật ngữ cảnh nội bộ (sửa các cặp nhầm lẫn `参`↔`爹`, `涵`↔`嗯`, `自已`↔`自己`, xóa ký tự rác ngoại lai) và hỗ trợ kết nối mô hình Qwen2.5-VL-3B-Instruct qua endpoint OpenAI/Ollama tương thích.
+- Example `examples/proofread_subtitles.rs`: công cụ CLI hiệu đính phụ đề hàng loạt cho 20 tập từ từ điển caption tự động.
+
+### Thay đổi
+
+- `src/lib.rs`: re-export `EntityGlossary`, `Proofreader`, `ProofreadConfig`, `ProofreadSummary`, `vote_character_consensus`, `vote_majority_string`.
+- `Cargo.toml`: nâng phiên bản thư viện lên `0.4.0`.
+
+## [0.3.0] — 2026-11-14
 
 ## [0.2.1] — 2026-11-14
 

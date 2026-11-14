@@ -1,6 +1,6 @@
 [package]
 name = "OCR"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 
 [lib]
@@ -18,6 +18,10 @@ path = "examples/extract_subtitles.rs"
 [[example]]
 name = "extract_captions"
 path = "examples/extract_captions.rs"
+
+[[example]]
+name = "proofread_subtitles"
+path = "examples/proofread_subtitles.rs"
 
 [dependencies]
 anyhow = "1.0"

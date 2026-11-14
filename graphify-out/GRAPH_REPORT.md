@@ -1,17 +1,17 @@
 # Graph Report - OCR  (2026-11-14)
 
 ## Corpus Check
-- 49 files · ~79,869 words
+- 53 files · ~83,652 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 8 file(s) not represented in the graph (top: (none) 5, .onnx 2, .zip 1)
 
 ## Summary
-- 1126 nodes · 2121 edges · 41 communities (29 shown, 12 thin omitted)
-- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 6 edges (avg confidence: 0.8)
+- 1174 nodes · 2224 edges · 46 communities (33 shown, 13 thin omitted)
+- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 7 edges (avg confidence: 0.81)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `5b03e406`
+- Built from commit: `1214e1e7`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -39,7 +39,7 @@
 - TaskShared
 - extract_captions.rs
 - [0.2.0] — 2026-11-14
-- extract_subtitles.rs
+- EntityGlossary
 - TaskShared
 - TaskShared
 - StatusBarWidget
@@ -49,12 +49,17 @@
 - TaskShared
 - plan.md
 - [MODULE]: Video Hardcoded Subtitle OCR (Trích xuất phụ đề cứng từ Video)
+- Proofreader
+- CardWidget
 - TaskWidget
+- cli_gui_form/src/lib.rs
 - plan.md
 - cli_gui_form
 - evaluate.md
 - WorkerMessage
 - WorkerMessage
+- task.rs
+- SpinnerType
 
 ## God Nodes (most connected - your core abstractions)
 1. `Icons` - 159 edges
@@ -69,21 +74,21 @@
 10. `ButtonWidget` - 28 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `extract_and_report()` --calls--> `extract_captions()`  [INFERRED]
-  examples/extract_captions.rs → src/caption.rs
 - `main()` --calls--> `extract_hardcoded_subtitles()`  [INFERRED]
   examples/extract_subtitles.rs → src/OCR/mod.rs
+- `extract_and_report()` --calls--> `extract_captions()`  [INFERRED]
+  examples/extract_captions.rs → src/caption.rs
+- `OCR` --depends_on--> `cli_gui_form`  [EXTRACTED]
+  Cargo.toml → cli_gui_form/Cargo.toml
 - `ShimmerShared` --implements--> `FormWidget`  [INFERRED]
   cli_gui_form/examples/status_shimmer.rs → cli_gui_form/src/traits.rs
 - `extract_and_report()` --references--> `CaptionExtractorConfig`  [EXTRACTED]
-  examples/extract_captions.rs → src/caption.rs
-- `run_batch()` --references--> `CaptionExtractorConfig`  [EXTRACTED]
   examples/extract_captions.rs → src/caption.rs
 
 ## Import Cycles
 - None detected.
 
-## Communities (41 total, 12 thin omitted)
+## Communities (46 total, 13 thin omitted)
 
 ### Community 0 - "Icons"
 Cohesion: 0.01
@@ -106,7 +111,7 @@ Cohesion: 0.11
 Nodes (4): Text, InputWidget, test_input_placeholder_builder(), test_input_typing_and_backspace()
 
 ### Community 5 - "TabsWidget"
-Cohesion: 0.08
+Cohesion: 0.09
 Nodes (6): TabsWidget, test_tabs_auto_scroll_sticky(), test_tabs_container_overflow_protection(), test_tabs_mouse_and_step_scrolling(), test_tabs_navigation(), test_tabs_scrolling()
 
 ### Community 6 - "SelectWidget"
@@ -114,15 +119,15 @@ Cohesion: 0.08
 Nodes (8): SelectOption, SelectWidget, test_select_widget_basic_creation_and_value(), test_select_widget_dozens_of_options_scrolling_and_navigation(), test_select_widget_esc_cancels(), test_select_widget_open_navigate_and_select(), test_truncate_with_ellipsis_and_overflow_protection(), truncate_with_ellipsis()
 
 ### Community 7 - "shared.rs"
-Cohesion: 0.10
-Nodes (22): attach_cli_gui_task(), clear_handlers(), CpuOptimizer, emit_log(), emit_step(), emit_task_progress(), EventHandlerRegistry, get_registry() (+14 more)
+Cohesion: 0.08
+Nodes (29): attach_cli_gui_task(), clear_handlers(), CpuOptimizer, emit_log(), emit_step(), emit_task_progress(), EventHandlerRegistry, get_registry() (+21 more)
 
 ### Community 8 - "Minimal — TUI Design System"
 Cohesion: 0.06
 Nodes (34): 1. Chuẩn Text-based 4 chữ: `[XXXX]` (Độ rộng chính xác: 6 cell), 1. Theme Overview, 2. Chuẩn Symbol-based 1 ký tự: `[X]` (Độ rộng chính xác: 3 cell), 2. Color Palette `[x]`, 3. Typography & ASCII Art `[x]`, 4. Borders & Box Drawing `[x]`, 5. Components `[x]`, 6. Layout & Spacing `[x]` (+26 more)
 
 ### Community 9 - "editable_list.rs"
-Cohesion: 0.09
+Cohesion: 0.11
 Nodes (9): EditableListWidget, render_input_spans(), test_editable_list_add_item_workflow(), test_editable_list_creation_and_value(), test_editable_list_delete_item_workflow(), test_editable_list_edit_item_workflow(), test_editable_list_esc_key_hierarchy(), test_render_input_spans_block_cursor() (+1 more)
 
 ### Community 10 - "ShimmerWidget"
@@ -158,36 +163,44 @@ Cohesion: 0.13
 Nodes (14): 1. Dùng như Thư viện Rust (`--lib`), 🔍 1. Tải mô hình phát hiện vị trí chữ (`det.onnx`), 2. Tích hợp thanh tiến trình với `cli_gui_form` (TUI Ready), 🔤 2. Từ điển ký tự (`keys.txt`), 3. Chạy file ví dụ mẫu (`examples/`), 📥 3. Tải mô hình nhận diện chữ (`rec.onnx`), 4. Chạy chế độ hàng loạt CLI (`--bin`), Cách A: Cắm trực tiếp vào `cli_gui_form::TaskWidget` (+6 more)
 
 ### Community 21 - "extract_captions.rs"
-Cohesion: 0.29
-Nodes (10): caption_path(), download_file(), ensure_models(), extract_and_report(), is_done(), main(), run_batch(), run_one() (+2 more)
+Cohesion: 0.15
+Nodes (13): caption_path(), download_file(), ensure_models(), extract_and_report(), is_done(), main(), run_batch(), run_one() (+5 more)
 
 ### Community 22 - "[0.2.0] — 2026-11-14"
-Cohesion: 0.11
-Nodes (17): [0.1.0] — 2026-11-05, [0.2.0] — 2026-11-14, [0.2.1] — 2026-11-14, Bảo mật, Changelog, Gỡ bỏ, Kiểm chứng, Sửa (+9 more)
+Cohesion: 0.10
+Nodes (19): [0.1.0] — 2026-11-05, [0.2.0] — 2026-11-14, [0.2.1] — 2026-11-14, [0.3.0] — 2026-11-14, [0.4.0] — 2026-11-14, Bảo mật, Changelog, Gỡ bỏ (+11 more)
 
-### Community 23 - "extract_subtitles.rs"
-Cohesion: 0.22
-Nodes (3): download_model_file(), ensure_models_exist(), main()
+### Community 23 - "EntityGlossary"
+Cohesion: 0.18
+Nodes (4): EntityGlossary, levenshtein_chars(), test_extract_from_vtt(), test_normalize_sentence()
 
 ### Community 27 - "det_filter.rs"
-Cohesion: 0.29
+Cohesion: 0.33
 Nodes (3): create_det_engine(), create_det_engine_with_limit(), extract_patch_with_det()
 
 ### Community 28 - "src/main.rs"
-Cohesion: 0.21
+Cohesion: 0.25
 Nodes (5): init_logger(), LOG_FILE, log_eprintln!, log_println!, main()
 
 ### Community 31 - "plan.md"
-Cohesion: 0.25
-Nodes (7): 1. Dùng LLM Hậu xử lý (Post-processing Context Correction), 1. Về LLM Hậu xử lý (Chạy thuần CPU, cực nhẹ, đọc tốt tiếng Trung và nhận được ảnh - VLM), 2. Tận dụng từ điển danh từ riêng & Nhân vật (Glossary / Entity Dictionary), 2. Tự động hóa tạo Danh từ riêng / Nhân vật (Glossary hoàn toàn tự động), 3. Cơ chế "Bỏ phiếu đa khung hình" (Multi-frame Temporal Voting), 3. Về cơ chế "Bỏ phiếu đa khung hình" (Multi-frame Temporal Voting) trong code của bạn, Tóm lại quy trình chuẩn để dịch hoàn hảo:
+Cohesion: 0.15
+Nodes (12): 1. Dùng LLM Hậu xử lý (Post-processing Context Correction), 1. Mục 1: Tích hợp Qwen2.5-VL-3B-Instruct (Hậu xử lý trên CPU), 1. Về LLM Hậu xử lý (Chạy thuần CPU, cực nhẹ, đọc tốt tiếng Trung và nhận được ảnh - VLM), 2. Mục 2: Tự động tạo Entity Glossary từ Caption, 2. Tận dụng từ điển danh từ riêng & Nhân vật (Glossary / Entity Dictionary), 2. Tự động hóa tạo Danh từ riêng / Nhân vật (Glossary hoàn toàn tự động), 3. Cơ chế "Bỏ phiếu đa khung hình" (Multi-frame Temporal Voting), 3. Mục 3: Nâng cấp Bỏ phiếu đa khung hình (Temporal Voting cho Subtitle) (+4 more)
 
 ### Community 32 - "[MODULE]: Video Hardcoded Subtitle OCR (Trích xuất phụ đề cứng từ Video)"
 Cohesion: 0.29
 Nodes (6): I. KIẾN TRÚC LUỒNG XỬ LÝ (4-STEP PIPELINE), II. ĐẶC TẢ THÔNG SỐ KỸ THUẬT & BẢO VỆ RANH GIỚI (GUARDRAILS), III. THỰC NGHIỆM TRÊN VIDEO MẪU & BỘ PHỤ ĐỀ CHUẨN, IV. BẢNG ĐỐI SOÁNH ĐỘ CHUẨN XÁC VỀ THỜI GIAN & NỘI DUNG (BENCHMARK), [MODULE]: Video Hardcoded Subtitle OCR (Trích xuất phụ đề cứng từ Video), V. ĐÁNH GIÁ CHỈ SỐ KỸ THUẬT (METRICS ANALYSIS)
 
-### Community 35 - "TaskWidget"
-Cohesion: 0.05
-Nodes (28): CardItem, CardWidget, test_card_widget_creation(), EditMode, Adding, Browsing, Editing, ProgressStyle (+20 more)
+### Community 33 - "Proofreader"
+Cohesion: 0.20
+Nodes (5): ProofreadConfig, Proofreader, ProofreadSummary, test_builtin_rules_corrections(), test_proofread_with_glossary()
+
+### Community 34 - "CardWidget"
+Cohesion: 0.22
+Nodes (3): CardItem, CardWidget, test_card_widget_creation()
+
+### Community 36 - "cli_gui_form/src/lib.rs"
+Cohesion: 0.20
+Nodes (10): EditMode, Adding, Browsing, Editing, ProgressStyle, Line, Parallelogram, TaskState (+2 more)
 
 ### Community 40 - "evaluate.md"
 Cohesion: 0.06
@@ -201,25 +214,33 @@ Nodes (3): WorkerMessage, ModelLoaded, ProgressUpdate
 Cohesion: 0.67
 Nodes (3): WorkerMessage, ModelLoaded, ProgressUpdate
 
+### Community 44 - "task.rs"
+Cohesion: 0.15
+Nodes (5): SPINNER_FRAMES_ARC, SPINNER_FRAMES_BRAILLE_6, SPINNER_FRAMES_DOTS, SPINNER_FRAMES_MOON, SPINNER_FRAMES_PULSE
+
+### Community 46 - "SpinnerType"
+Cohesion: 0.22
+Nodes (8): SpinnerType, Arc, Braille6, Dots, Moon, Pulse, test_task_loading_tick_with_moon(), test_task_loading_tick_with_pulse()
+
 ## Knowledge Gaps
-- **27 isolated node(s):** `Consumed`, `Ignored`, `Submitted`, `Bool`, `List` (+22 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 535 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **12 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **27 isolated node(s):** `OCR`, `Consumed`, `Ignored`, `Submitted`, `Password` (+22 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 544 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Icons` connect `Icons` to `icons.rs`?**
-  _High betweenness centrality (0.243) - this node is a cross-community bridge._
-- **What connects `Consumed`, `Ignored`, `Submitted` to the rest of the system?**
+  _High betweenness centrality (0.229) - this node is a cross-community bridge._
+- **What connects `OCR`, `Consumed`, `Ignored` to the rest of the system?**
   _27 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Icons` be split into smaller, more focused modules?**
   _Cohesion score 0.013422818791946308 - nodes in this community are weakly interconnected._
-- **Why does `Tags` connect `Tags` to `demo_master.rs`, `TaskWidget`, `tags.rs`?**
-  _High betweenness centrality (0.140) - this node is a cross-community bridge._
+- **Why does `Tags` connect `Tags` to `demo_master.rs`, `cli_gui_form/src/lib.rs`, `tags.rs`?**
+  _High betweenness centrality (0.129) - this node is a cross-community bridge._
 - **Should `demo_master.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.05013512254216755 - nodes in this community are weakly interconnected._
-- **Why does `Theme` connect `Theme` to `demo_master.rs`, `TaskWidget`?**
-  _High betweenness centrality (0.138) - this node is a cross-community bridge._
+  _Cohesion score 0.05200411099691675 - nodes in this community are weakly interconnected._
+- **Why does `FormWidget` connect `demo_master.rs` to `TaskWidget`, `cli_gui_form/src/lib.rs`, `InputWidget`, `SelectWidget`, `TabsWidget`, `editable_list.rs`, `ShimmerWidget`, `cli_gui_form/src/lib.rs`, `ButtonWidget`, `task.rs`, `TaskShared`, `TaskShared`, `TaskShared`, `TaskShared`, `TaskShared`?**
+  _High betweenness centrality (0.093) - this node is a cross-community bridge._
 - **Should `Tags` be split into smaller, more focused modules?**
   _Cohesion score 0.027777777777777776 - nodes in this community are weakly interconnected._

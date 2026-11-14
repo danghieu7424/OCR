@@ -22,7 +22,7 @@
   "20": "TaskShared",
   "21": "extract_captions.rs",
   "22": "[0.2.0] — 2026-11-14",
-  "23": "extract_subtitles.rs",
+  "23": "EntityGlossary",
   "24": "TaskShared",
   "25": "TaskShared",
   "26": "StatusBarWidget",
@@ -32,12 +32,17 @@
   "30": "TaskShared",
   "31": "plan.md",
   "32": "[MODULE]: Video Hardcoded Subtitle OCR (Trích xuất phụ đề cứng từ Video)",
+  "33": "Proofreader",
+  "34": "CardWidget",
   "35": "TaskWidget",
+  "36": "cli_gui_form/src/lib.rs",
   "37": "plan.md",
   "38": "cli_gui_form",
   "39": "OcrEngine",
   "40": "evaluate.md",
   "41": "OcrEngine",
   "42": "WorkerMessage",
-  "43": "WorkerMessage"
+  "43": "WorkerMessage",
+  "44": "task.rs",
+  "46": "SpinnerType"
 }
