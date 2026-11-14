@@ -143,25 +143,11 @@ impl Proofreader {
         text
     }
 
-    /// Làm sạch nhiễu OCR và áp dụng từ điển ký tự nhầm lẫn phổ biến (100% Generic, không hard-code theo video)
+    /// Làm sạch nhiễu OCR và áp dụng bảng thay thế tùy chỉnh do người dùng cấu hình (Generic)
     pub fn apply_generic_sanitizer(&self, text: &str) -> String {
         let mut s = Self::sanitize_ocr_noise(text);
 
-        // 1. Áp dụng bảng nhầm lẫn ký tự tiêu chuẩn trong từ điển tiếng Trung (độc lập với ngữ cảnh video)
-        // Đây là các cặp chữ Hán tương đồng hình học (Homoglyphs) kinh điển trong OCR:
-        const STANDARD_OCR_CONFUSABLES: &[(&str, &str)] = &[
-            ("自已", "自己"), // Lỗi nhầm 己 (kỷ) và 已 (dĩ)
-            ("眼晴", "眼睛"), // Lỗi nhầm 睛 (tinh/mắt) và 晴 (tình/nắng)
-            ("绝対", "绝对"), // Lỗi nhầm kanji/phồn thể 対 sang giản thể 对
-        ];
-
-        for (from, to) in STANDARD_OCR_CONFUSABLES {
-            if s.contains(from) {
-                s = s.replace(from, to);
-            }
-        }
-
-        // 2. Áp dụng bảng thay thế tùy chỉnh do người dùng cung cấp qua cấu hình (nếu có)
+        // Áp dụng bảng thay thế tùy chỉnh do người dùng cung cấp qua cấu hình (nếu có)
         for (from, to) in &self.config.custom_replacements {
             if s.contains(from) {
                 s = s.replace(from, to);
@@ -367,32 +353,25 @@ mod tests {
     fn test_generic_sanitizer_and_custom_rules() {
         let mut proofreader = Proofreader::with_rule_engine_only();
 
-        // 1. Chuẩn hóa cặp chữ Hán nhầm lẫn kinh điển trong OCR (Homoglyphs)
-        let s1 = proofreader.proofread_sentence("保护好自已", &[], None);
-        assert_eq!(s1, "保护好自己");
+        // 1. Làm sạch nhiễu detector thuật toán (dấu viền, ký tự rác Latin, kana dính đuôi)
+        let s1 = proofreader.proofread_sentence("~无敌剑意v", &[], None);
+        assert_eq!(s1, "无敌剑意");
 
-        let s2 = proofreader.proofread_sentence("擦亮眼晴", &[], None);
-        assert_eq!(s2, "擦亮眼睛");
+        let s2 = proofreader.proofread_sentence("绝世仙尊で", &[], None);
+        assert_eq!(s2, "绝世仙尊");
 
-        // 2. Làm sạch nhiễu detector (dấu viền, ký tự rác Latin, kana dính đuôi)
-        let s3 = proofreader.proofread_sentence("~无敌剑意v", &[], None);
-        assert_eq!(s3, "无敌剑意");
-
-        let s4 = proofreader.proofread_sentence("绝世仙尊で", &[], None);
-        assert_eq!(s4, "绝世仙尊");
-
-        // 3. Hỗ trợ nạp từ điển tùy chỉnh của người dùng (Generic)
+        // 2. Hỗ trợ nạp từ điển tùy chỉnh của người dùng (Generic)
         proofreader
             .config
             .custom_replacements
             .insert("错别字".to_string(), "正确词".to_string());
-        let s5 = proofreader.proofread_sentence("这是一个错别字", &[], None);
-        assert_eq!(s5, "这是一个正确词");
+        let s3 = proofreader.proofread_sentence("这是一个错别字", &[], None);
+        assert_eq!(s3, "这是一个正确词");
     }
 
     #[test]
     fn test_proofread_with_glossary() {
-        let proofreader = Proofreader::with_default_config();
+        let proofreader = Proofreader::with_rule_engine_only();
         let mut glossary = EntityGlossary::new();
         glossary.add_term("陆清安");
         glossary.add_term("何訇");

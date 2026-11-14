@@ -1,7 +1,7 @@
 {
   "Cargo.toml": {
-    "mtime": 1794646631.7909567,
-    "seen": 1794646656.5747557,
+    "mtime": 1794646695.0129113,
+    "seen": 1794646923.6957815,
     "ast_hash": "64939088e6d3faf3b9a68389a0059739",
     "semantic_hash": ""
   },
@@ -276,15 +276,15 @@
     "semantic_hash": ""
   },
   "evaluate.md": {
-    "mtime": 1794645392.2668312,
-    "seen": 1794645860.1168833,
-    "ast_hash": "4a9786c4da1caceee23270cfa7c20109",
+    "mtime": 1794646658.0528145,
+    "seen": 1794646923.6957815,
+    "ast_hash": "2538e3480e9aca464f8a0513c96f5cf5",
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1794646641.8300543,
-    "seen": 1794646656.5747557,
-    "ast_hash": "c8706437f155fbe2985f9edcb10359f6",
+    "mtime": 1794646916.549267,
+    "seen": 1794646923.6957815,
+    "ast_hash": "dc6e24be2d5176bb59e3adb540914437",
     "semantic_hash": ""
   },
   "tools/compare_subs.py": {
@@ -318,15 +318,15 @@
     "semantic_hash": ""
   },
   "src/proofread.rs": {
-    "mtime": 1794646603.332274,
-    "seen": 1794646656.5747557,
-    "ast_hash": "f5e9ff75bc181f534f80bd995ed39656",
+    "mtime": 1794646884.3834016,
+    "seen": 1794646923.6957815,
+    "ast_hash": "a49f07cddf8f2a997ea5e94016a79ec8",
     "semantic_hash": ""
   },
   "src/ollama.rs": {
-    "mtime": 1794646194.7014613,
-    "seen": 1794646362.5796182,
-    "ast_hash": "53c4d41571ae84376cfbbac0a1b7946d",
+    "mtime": 1794646694.936381,
+    "seen": 1794646923.6957815,
+    "ast_hash": "b4a65143a0ad58484fadc001c378c61f",
     "semantic_hash": ""
   }
 }

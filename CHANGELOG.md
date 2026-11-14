@@ -11,17 +11,17 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Gỡ bỏ
 
-- Toàn bộ các chuỗi và quy tắc hard-code theo ngữ cảnh video cụ thể (`娘亲参`, `参以前`, `魔域之人で`, `一还只是`) trong `src/proofread.rs`.
+- Toàn bộ các chuỗi, danh sách từ vựng tĩnh và quy tắc hard-code (`娘亲参`, `参以前`, `魔域之人で`, `STANDARD_OCR_CONFUSABLES`) trong `src/proofread.rs`. Thư viện không còn lưu trữ bất kỳ cặp từ vựng hay quy tắc tiếng Trung cố định nào trong mã nguồn.
 
 ### Thêm
 
-- Phương thức `Proofreader::sanitize_ocr_noise`: bộ lọc làm sạch nhiễu detector tổng quát (loại bỏ ký tự rác ngoại lai `^`, `_`, `|`, `~`, `v`, `V` ở viền câu và kana rác dính đuôi từ background) độc lập với video.
+- Phương thức `Proofreader::sanitize_ocr_noise`: bộ lọc làm sạch nhiễu detector tổng quát (loại bỏ ký tự rác ngoại lai `^`, `_`, `|`, `~`, `v`, `V` ở viền câu và kana rác dính đuôi từ background) theo thuật toán Unicode, hoàn toàn độc lập với từ vựng.
 - Trường `custom_replacements` trong `ProofreadConfig`: cho phép caller/người dùng tự do nạp bảng từ điển ánh xạ lỗi chính tả tùy ý vào pipeline mà không cần sửa code.
 
 ### Thay đổi
 
-- Tái cấu trúc pipeline hiệu đính: giao toàn bộ phần phân tích ngữ cảnh, đại từ xưng hô và câu thoại tự nhiên cho mô hình ngôn ngữ **Qwen2.5-VL** (thông qua `OllamaManager`), kết hợp với bảng danh từ riêng động (`EntityGlossary`) học từ caption `《...》`.
-- Chuẩn hóa các cặp chữ Hán tương đồng hình học kinh điển trong OCR (`自已` ↔ `自己`, `眼晴` ↔ `眼睛`) thành bảng hằng số dùng chung thay vì các khối `if-else` lồng ghép.
+- Tái cấu trúc pipeline hiệu đính: giao toàn bộ phần phân tích ngữ cảnh, chính tả, đại từ xưng hô và câu thoại tự nhiên cho mô hình ngôn ngữ **Qwen2.5-VL** (thông qua `OllamaManager`), kết hợp với bảng danh từ riêng động (`EntityGlossary`) học từ caption `《...》`.
+- Kiểm thử unit test của `proofread` chạy hoàn toàn độc lập với mạng và server LLM (thời gian thực thi 0.00s).
 
 ## [0.4.1] — 2026-11-14
 
