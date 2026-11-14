@@ -281,10 +281,24 @@ pub fn sanitize_ocr_text(raw: &str) -> String {
         .trim()
         .to_string();
 
-    let mut final_chars: Vec<char> = cleaned.chars().collect();
+    // Bỏ kana: phụ đề tiếng Hán không dùng kana, ký tự này chỉ là rác nhận diện
+    // (vd "魔域之人で" — CTC đọc nhầm nét cuối thành で).
+    let mut final_chars: Vec<char> = cleaned
+        .chars()
+        .filter(|&c| {
+            !(('\u{3040}'..='\u{30ff}').contains(&c) || ('\u{31f0}'..='\u{31ff}').contains(&c))
+        })
+        .collect();
     if final_chars.len() >= 2 {
         if final_chars[0].is_ascii_alphabetic() && ('\u{4e00}'..='\u{9fff}').contains(&final_chars[1]) {
             final_chars.remove(0);
+        }
+        // Ký tự Latin lẻ ở cuối cũng là rác (vd "魔域V")
+        let last = final_chars.len() - 1;
+        if final_chars[last].is_ascii_alphabetic()
+            && ('\u{4e00}'..='\u{9fff}').contains(&final_chars[last - 1])
+        {
+            final_chars.pop();
         }
     }
 
@@ -495,10 +509,19 @@ pub fn extract_hardcoded_subtitles(
         "   {} Khởi tạo mô hình DBNet Text Detection...",
         "[OCR]".name_utils().violed()
     ));
-    let det_engine = self::det_filter::create_det_engine(
+    // Cạnh dài tối đa khi đưa ảnh vào DBNet: nhỏ hơn = nhanh hơn, quá nhỏ = mất
+    // nét chữ nhỏ. 640 đo trên tập 002/005/006: nhanh hơn ~1.4x, chất lượng bằng
+    // hoặc tốt hơn 960 (002: 98.50% → 98.64%, 005: giống hệt, 006: thêm 1 mảnh
+    // "挡" của câu 挡住). 320 thì hỏng nhiều câu nên không dùng.
+    let det_limit = std::env::var("OCR_SUB_DET_LIMIT")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(640);
+    let det_engine = self::det_filter::create_det_engine_with_limit(
         &det_path.to_string_lossy(),
         &rec_path.to_string_lossy(),
         &keys_path.to_string_lossy(),
+        det_limit,
     )?;
 
     // Lấy kích thước video gốc bằng ffprobe
@@ -607,17 +630,25 @@ pub fn extract_hardcoded_subtitles(
         total_frames_estimated
     ));
 
+    let mut det_time = std::time::Duration::ZERO;
+    let mut rec_time = std::time::Duration::ZERO;
+
     while stdout.read_exact(&mut current_frame).is_ok() {
         let timestamp = frame_idx as f64 * dt;
         frame_idx += 1;
 
         // DBNet phát hiện vùng phụ đề
+        let t_det = std::time::Instant::now();
         let patch = self::det_filter::extract_patch_with_det(&det_engine, &current_frame, crop_w, crop_h)?;
+        det_time += t_det.elapsed();
+
+        let t_rec = std::time::Instant::now();
         let text = if let Some((raw_patch, w, h)) = patch {
             ocr_engine.recognize_patch(&raw_patch, w, h).unwrap_or_default()
         } else {
             String::new()
         };
+        rec_time += t_rec.elapsed();
 
         frame_records.push((frame_idx - 1, timestamp, text));
 
@@ -636,6 +667,14 @@ pub fn extract_hardcoded_subtitles(
 
     let _ = ffmpeg_child.wait();
     let total_frames = frame_records.len();
+    if total_frames > 0 && std::env::var_os("OCR_SUB_DEBUG").is_some() {
+        eprintln!(
+            "[TIMING] {} frames | det {:.1} ms/frame | rec {:.1} ms/frame",
+            total_frames,
+            det_time.as_secs_f64() * 1000.0 / total_frames as f64,
+            rec_time.as_secs_f64() * 1000.0 / total_frames as f64,
+        );
+    }
     crate::shared::tui_events::emit_log(format!(
         "   {} Đã quét xong {} frames. Tiến hành khử nhiễu & phân đoạn...",
         "[OCR]".name_utils().violed(),
@@ -850,6 +889,33 @@ pub fn extract_hardcoded_subtitles(
         }
         final_segments.push(seg);
     }
+
+    // Bỏ mảnh vụn ở điểm chuyển sub: câu 1-2 chữ, rất ngắn, nằm sát câu khác và
+    // là tập con của câu đó (vd "和" cạnh "和离", "爷" cạnh "爷爷").
+    let mut deduped: Vec<SubtitleSegment> = Vec::with_capacity(final_segments.len());
+    for i in 0..final_segments.len() {
+        let seg = &final_segments[i];
+        let dur = seg.end_sec - seg.start_sec;
+        let chars = seg.text.chars().count();
+        if dur <= 0.30 && chars <= 2 {
+            let neighbour_contains = |other: Option<&SubtitleSegment>| -> bool {
+                if let Some(o) = other {
+                    let near = (o.start_sec - seg.end_sec).abs() <= 0.35
+                        || (seg.start_sec - o.end_sec).abs() <= 0.35;
+                    near && o.text != seg.text && o.text.contains(&seg.text)
+                } else {
+                    false
+                }
+            };
+            let prev = if i > 0 { Some(&final_segments[i - 1]) } else { None };
+            let next = final_segments.get(i + 1);
+            if neighbour_contains(prev) || neighbour_contains(next) {
+                continue;
+            }
+        }
+        deduped.push(seg.clone());
+    }
+    let final_segments = deduped;
 
     // Đảm bảo thư mục cha tồn tại
     if let Some(parent) = output_vtt_path.parent() {

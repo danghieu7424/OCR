@@ -8,10 +8,22 @@ pub fn create_det_engine(
     rec_model_path: &str,
     dict_path: &str,
 ) -> Result<OcrEngine> {
+    create_det_engine_with_limit(det_model_path, rec_model_path, dict_path, 960)
+}
+
+/// Như `create_det_engine` nhưng chỉnh cạnh dài tối đa của ảnh đưa vào DBNet.
+/// Ảnh càng nhỏ thì detect (và cả rec nội bộ của engine) càng nhanh.
+pub fn create_det_engine_with_limit(
+    det_model_path: &str,
+    rec_model_path: &str,
+    dict_path: &str,
+    limit_side_len: u32,
+) -> Result<OcrEngine> {
     let engine = OcrEngineBuilder::new()
         .det_model_path(det_model_path)
         .rec_model_path(rec_model_path)
         .dictionary_path(dict_path)
+        .det_limit_side_len(limit_side_len)
         .build()
         .context("Không thể khởi tạo DBNet Engine.")?;
     Ok(engine)

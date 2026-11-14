@@ -7,6 +7,12 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ## [Unreleased]
 
+### Thay đổi
+
+- DBNet của pipeline phụ đề chạy ở cạnh dài tối đa `640` (thay vì `960`): đo trên tập 002/005/006 nhanh hơn ~1.4x (det 213 → 125–145 ms/frame), chất lượng bằng hoặc tốt hơn (`002`: 98.50% → 98.64%, `005`: VTT giống hệt, `006`: thêm mảnh `挡` của câu `挡住`). Đổi lại bằng `OCR_SUB_DET_LIMIT`; mức `320` làm sai nhiều câu nên không dùng.
+- `sanitize_ocr_text` bỏ ký tự kana và ký tự Latin lẻ dính cuối chuỗi (`魔域之人で` → `魔域之人`).
+- Loại mảnh vụn chuyển sub: câu 1–2 chữ, ngắn ≤ 0.3s, sát câu khác và là tập con của câu đó (`和` cạnh `和离`).
+
 ### Thêm
 
 - Log chẩn đoán phụ đề bật bằng `OCR_SUB_DEBUG=1` (in từng phân đoạn thô, số frame và lý do bị loại) và ghi đè tốc độ lấy mẫu bằng `OCR_SUB_FPS` (mặc định 10) trong `examples/extract_subtitles.rs`.
