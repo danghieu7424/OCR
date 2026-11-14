@@ -213,3 +213,112 @@ Ngoài lỗi ký tự, phần còn lại là cấu trúc, không liên quan ph�
 - Commit `d3f33d9` + `8944882` (dọn zhconv tạm) + `dbf2182` (graphify), đã push; cây làm việc sạch.
 
 Gợi ý bước tiếp (chưa làm): nếu muốn con số sát hơn nữa, sửa 4 lỗi reference trong bản so sánh hoặc tách riêng "reference-lỗi" — nhưng như vậy là sửa dữ liệu chuẩn, nên để bạn quyết.
+
+---
+
+---
+
+Đã test 2 phương án trên một vài tập; **cả hai đều không cứu được sub nào mà chỉ thêm nhiễu**, nên tôi giữ nguyên luật hiện tại.
+
+## Chẩn đoán trước: "sub bị mất" phần lớn không phải do luật 2 frame
+
+Bật `OCR_SUB_DEBUG=1` để xem phân đoạn thô:
+
+| Ref báo thiếu         | Thực tế                                                                                                                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ep7 `滚` 17.05–17.35  | ref tách đôi cùng một caption: `17.050–17.350 滚` + `17.351–17.550 滾`. OCR có `滚` 16.95–17.65 (7 frame) và gộp đúng ✔                                         |
+| ep17 `别说了` 67.05   | ref cũng tách đôi: `別说了` 67.05–67.25 + `别说了` 67.25–67.75. OCR có `别说了` 66.95–67.75 ✔                                                                   |
+| ep6 `挡住` / `五挡往` | ref tách 2 mảnh 0.2s của **một** caption; OCR thô mỗi frame ra rác (`挡一`, `挡`, `星 挡住是本朱`) — lỗi nhận diện trên nền bùa chú rối, không phải thiếu frame |
+| ep2 `美` 50.35–50.75  | soi frame 49.9 / 50.1 / 50.35 / 50.55 / 50.75 / 51.0: **không có chữ nào trên màn hình** → dòng ref này là rác                                                  |
+
+Tức chỉ còn **đúng 1 ca thật**: `挡住` ở ep6, và nó hỏng vì OCR đọc sai trên nền rối.
+
+## Phương án A — giữ câu 1–2 chữ Hán hiện 1 frame (test tập 001–005)
+
+Thêm: `if seg.end_frame < seg.start_frame + 1 && !short_cjk` (short_cjk = ≤2 chữ Hán).
+
+| Tập | Số câu trước → sau | Câu thêm                              |
+| --- | ------------------ | ------------------------------------- |
+| 001 | 65 → 65            | —                                     |
+| 002 | 108 → 111          | `海` (0.1s), `夏` (0.1s), `艾` (0.1s) |
+| 003 | 44 → 45            | `華` (0.1s)                           |
+| 004 | 80 → 80            | —                                     |
+| 005 | 26 → 27            | `污` (0.1s)                           |
+
+**+5 câu, 0 câu đúng** — toàn ký tự rác 0.1s. → loại.
+
+## Phương án B — hạ dt (10 → 12 fps, test ep2 và ep6)
+
+| Tập | 10 fps | 12 fps | Khác biệt                                                                                               |
+| --- | ------ | ------ | ------------------------------------------------------------------------------------------------------- |
+| 002 | 108    | 110    | sửa được `魔域之人で` → `魔域之人` (hết kana rác) nhưng thêm `工`, `国` (2 mảnh rác); `美` vẫn không có |
+| 006 | 20     | 20     | `挡住` **vẫn mất**                                                                                      |
+
+→ 12 fps sửa 1 lỗi chữ, thêm 2 nhiễu, không cứu được câu nào; thời gian chạy +20% (ep2: 216s video → ~11 phút). Không đáng.
+
+## Kết luận
+
+Giữ nguyên: 10 fps, tối thiểu 2 frame liên tiếp. Nút thắt thật sự là **độ ổn định nhận diện theo thời gian** (ep6 nền bùa chú), không phải số frame tối thiểu — hướng đúng nếu muốn cứu `挡住` là gộp phiếu trên các frame lân cận theo `is_same_subtitle` (chỉ nhận chuỗi con xuất hiện ≥2 frame trong cửa sổ ±0.5s), chứ không hạ ngưỡng frame (sẽ kéo rác vào).
+
+## Trạng thái
+
+- Code trả lại luật cũ; chỉ còn 2 knob để đo lại nhanh: `OCR_SUB_DEBUG=1` (in phân đoạn thô + lý do loại) và `OCR_SUB_FPS=12` (mặc định 10).
+- Output 20 tập đã trả về bản 10 fps (ep2, ep6 đã `cmp` khớp bản gốc).
+- `CHANGELOG.md` mục `[Unreleased] → ### Thêm` có 1 dòng cho 2 knob này.
+- Commit `23c5cb1` + `9b1faec` (graphify), đã push, cây sạch.
+
+Chưa kiểm chứng: chỉ đo trên 5 tập (A) và 2 tập (B) như bạn yêu cầu; chưa chạy lại toàn bộ 20 tập với các phương án đó.
+
+---
+
+---
+
+Cần biết thời gian rơi vào đâu trước khi tối ưu. Thêm đo thời gian det/rec mỗi frame.
+
+Đã đọc `evaluate.md`, đo lại đường ống và tối ưu cả tốc độ lẫn chất lượng (test trên tập 002/005/006).
+
+## Đo trước khi sửa (tập 006, 719 frame)
+
+| Thành phần  | ms/frame  | Ghi chú                   |
+| ----------- | --------- | ------------------------- |
+| DBNet (det) | **213,2** | chiếm 87% thời gian       |
+| Rec phụ đề  | 32,8      |                           |
+| Tổng        | ~248      | wall 178 s cho video 69 s |
+
+Nghĩa là nút thắt nằm ở detect: ảnh ROI 1920×162 được đưa vào DBNet ở giới hạn cạnh dài 960 (mặc định của crate), tốn 213 ms/frame.
+
+## Đã tối ưu
+
+**1. Hạ cạnh dài DBNet 960 → 640** (`create_det_engine_with_limit`, đổi lại được bằng `OCR_SUB_DET_LIMIT`)
+| Giới hạn | det ms/frame | Wall (ep006) | Chất lượng |
+|---|---|---|---|
+| 960 (cũ) | 213,2 | 178 s | ep002 98,50 % · ep005 100 % · ep006 20 câu |
+| **640 (mới)** | **125–145** | **132 s** | ep002 **98,64 %** · ep005 **giống hệt byte-for-byte** · ep006 21 câu |
+| 320 (loại) | 71,4 | 71 s | sai nhiều câu (`可是我如今` lặp, `这是1`, `一—一起`) → không dùng |
+
+→ **nhanh hơn ~1,4× (≈35 % thời gian)**, chất lượng bằng hoặc tốt hơn.
+
+**2. Dọn rác nhận diện** (`sanitize_ocr_text`)
+
+- Bỏ kana: `魔域之人で` → `魔域之人` (lỗi thật trong báo cáo cũ).
+- Bỏ một ký tự Latin lẻ dính cuối: `魔域V` → `魔域`.
+
+**3. Bỏ mảnh vụn ở điểm chuyển sub**
+Câu 1–2 chữ, ≤0,3 s, nằm sát câu khác và là tập con của câu đó (`和` cạnh `和离`, `爷` cạnh `爷爷`) → loại. Hai segment thừa đã được xử lý trong lần chạy này mà không mất câu thật nào.
+
+**4. Log chẩn đoán mới**: `OCR_SUB_DEBUG=1` in `[TIMING] frames | det ms/frame | rec ms/frame` (trước đó không biết thời gian rơi vào đâu).
+
+## Kết quả chất lượng sau khi sửa (so với reference)
+
+| Tập | Trước                  | Sau                  | Thay đổi                                                                               |
+| --- | ---------------------- | -------------------- | -------------------------------------------------------------------------------------- |
+| 002 | 98,50 % · 11 lỗi ký tự | **98,64 % · 10 lỗi** | hết `で`, `V`; vẫn còn `涵` vs `嗯`, `参` vs `爹` và 4 chỗ reference sai               |
+| 005 | 100 % · 26 câu         | **100 % · 26 câu**   | VTT giống hệt từng byte                                                                |
+| 006 | 98,60 % · thiếu `挡住` | 21 câu, có `挡`      | lấy lại được mảnh của `挡住`; `啊啊` (1,6 s) vẫn mất do nhận diện sai trên nền bùa chú |
+
+## Ghi chú
+
+- Detector vẫn giữ 960 cho pipeline **caption** (crop nhỏ, chữ mảnh) — thay đổi này chỉ áp cho phụ đề.
+- `OCR_SUB_DET_LIMIT=960` để quay lại hành vi cũ nếu gặp tập có sub chữ nhỏ.
+- Chỉ đo trên 3 tập theo yêu cầu "test một vài tập"; 17 tập còn lại trong `output/` vẫn là bản 960 (chất lượng tương đương, chỉ chậm hơn).
+- Đã build release `OCR v0.3.0`, cập nhật `CHANGELOG.md` (mục `[Unreleased] → ### Thay đổi`), commit `15e77ee` + `827d16f` (graphify) và push. `evaluate.md` đang dirty do công cụ tự nối nhật ký — tôi không đụng vào.
