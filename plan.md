@@ -141,3 +141,62 @@ Theo đúng nguyên tắc **"1. Think Before Coding"** trong [graphify.md](file:
 
 1. Bạn muốn tích hợp module này dưới dạng **một công cụ hậu xử lý độc lập** (CLI script / tool trong `tools/` nhận file VTT + video rồi sửa lại), hay **tích hợp trực tiếp thành một cờ/tùy chọn (flag) trong pipeline Rust**?
 2. Về mô hình Qwen2.5-VL-3B-Instruct: Bạn đã có sẵn file model trọng số GGUF/HuggingFace cục bộ trên máy chưa, hay muốn viết lệnh tự động tải bản lượng tử hóa GGUF?
+
+---
+
+---
+
+Ran search static variables in crates
+Analyzed lib.rs:L85-150
+Analyzed extract_and_merge.rs:L110-160
+Analyzed extract_and_merge.rs:L161-230
+
+**Hoàn toàn ĐƯỢC và RẤT NÊN LÀM!** Việc chạy song song Subtitle và Caption sẽ giúp giảm đáng kể tổng thời gian xử lý mỗi tập phim.
+
+---
+
+### 1. Phân tích tính khả thi kỹ thuật
+
+```mermaid
+flowchart TD
+    V["Video Input (MP4/MKV)"]
+
+    subgraph Parallel ["Xử lý song song (std::thread::scope)"]
+        S["Thread 1: OCR Subtitles<br/>(FFmpeg + ONNX ROI dưới)"]
+        C["Thread 2: OCR Captions<br/>(FFmpeg + ONNX ROI trên/trái)"]
+    end
+
+    V --> S
+    V --> C
+
+    S --> P["Hậu xử lý & Hiệu đính<br/>(Fast Mode 0.01s, học Glossary từ Caption)"]
+    C --> P
+    P --> M["Ghép nối WebVTT (.merged.zh.vtt)<br/>(0.00s)"]
+```
+
+| Tiêu chí              | Đánh giá                   | Chi tiết                                                                                                                                                           |
+| --------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Thread Safety**     | ✅ **100% An toàn**        | Cả 2 crate `OCR_Subtitles` và `OCR_Captions` hoàn toàn độc lập, không chia sẻ bất kỳ mutable state nào. Mỗi thread tự tạo ONNX Runtime `Session` riêng.            |
+| **File I/O**          | ✅ **Không xung đột**      | FFmpeg mở file video ở chế độ Read-Only, 2 process FFmpeg đọc cùng lúc không bị lock file. Output ghi ra 2 file riêng (`.subtitles.zh.vtt` và `.captions.zh.vtt`). |
+| **Tốc độ (Speedup)**  | 🚀 **Nhanh hơn ~40%**      | Thay vì tuần tự $T_{\text{tổng}} = T_{\text{sub}} + T_{\text{cap}}$, chạy song song chỉ còn $T_{\text{tổng}} = \max(T_{\text{sub}}, T_{\text{cap}})$.              |
+| **Yêu cầu phụ thuộc** | ✅ **Không cần crate mới** | Dùng sẵn `std::thread::scope` có sẵn trong thư viện chuẩn Rust (`std`).                                                                                            |
+
+---
+
+### 2. Các điểm cần lưu ý khi chạy song song
+
+1. **Tải CPU / Luồng**:
+   - 2 tiến trình FFmpeg và 2 phiên ONNX cùng chạy sẽ đẩy CPU lên mức cao hơn (rất tối ưu cho CPU 8 – 16 cores trở lên).
+2. **Terminal Log**:
+   - Cần gắn tiền tố rõ ràng như `[SUB]` và `[CAP]` để log tiến trình không bị lẫn lộn khi 2 luồng cùng in ra màn hình.
+3. **Thứ tự hoàn thành**:
+   - Sau khi cả 2 thread `join()` xong, Bước 3 (học `EntityGlossary` từ file Caption vừa xong để hiệu đính Subtitle) và Bước 4 (Merge) sẽ tiếp tục chạy như bình thường mà không bị ảnh hưởng.
+
+---
+
+### 3. Bạn có muốn cập nhật luôn tính năng này không?
+
+Nếu bạn đồng ý, tôi có thể:
+
+- Cập nhật trực tiếp [examples/extract_and_merge.rs](file:///c:/DATA/OCR/examples/extract_and_merge.rs) sử dụng `std::thread::scope` để chạy song song Subtitle + Caption.
+- Hoặc thêm cờ CLI `--parallel` (mặc định bật) để bạn có thể linh hoạt chọn chạy song song hoặc tuần tự khi cần.

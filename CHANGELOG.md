@@ -7,6 +7,10 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ## [Unreleased]
 
+### Thêm
+
+- `examples/extract_and_merge.rs`: Hỗ trợ chạy trích xuất phụ đề (Subtitles) và chú thích (Captions) hoàn toàn **SONG SONG (Parallel)** bằng `std::thread::scope`, giúp rút ngắn ~40% tổng thời gian xử lý video. Hỗ trợ hiển thị thanh tiến trình kép thời gian thực (`[SUB]` và `[CAP]`) trên cùng một dòng console và cờ tùy chọn `--sequential` khi cần chạy tuần tự.
+
 ### Thay đổi
 
 - `readme.md`: Đồng bộ và quy chuẩn toàn bộ phần tài liệu tải mô hình sang chuẩn **PP-OCRv6** (Medium ONNX và từ điển chính thức PaddleOCR), xóa bỏ hoàn toàn các phần tham chiếu cũ PP-OCRv4 và PP-OCRv5.

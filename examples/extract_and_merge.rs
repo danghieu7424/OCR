@@ -3,14 +3,17 @@
 //! Quy trình 4 bước chuẩn công nghiệp:
 //! 1. Trích xuất phụ đề lời thoại (Subtitles) ở khu vực dưới màn hình -> `output/第XXX集.zh.vtt`.
 //! 2. Trích xuất chú thích nhân vật/công pháp (Captions) -> `output/第XXX集.captions.zh.vtt`.
+//!    (Bước 1 và 2 mặc định chạy SONG SONG trên 2 luồng để tối ưu thời gian).
 //! 3. Tự động bóc tách danh từ riêng (Entity Glossary) và chuẩn hóa phụ đề ở chế độ Fast Mode (0.01s, không dùng LLM) -> `output/第XXX集.refined.zh.vtt`.
 //! 4. Ghép nối (Merge) lời thoại và chú thích thành file WebVTT đồng bộ thời gian hoàn chỉnh -> `output/第XXX集.merged.zh.vtt`.
 //!
 //! Cách chạy:
-//! - Cho một tập chỉ định:
+//! - Cho một tập chỉ định (mặc định song song):
 //!     cargo run --release --example extract_and_merge -- 002
 //!     cargo run --release --example extract_and_merge -- input/第002集.mp4
-//! - Cho toàn bộ video trong input/ (mặc định):
+//! - Chạy tuần tự (nếu muốn tiết kiệm CPU):
+//!     cargo run --release --example extract_and_merge -- 002 --sequential
+//! - Cho toàn bộ video trong input/:
 //!     cargo run --release --example extract_and_merge -- all
 //!     cargo run --release --example extract_and_merge
 
@@ -20,6 +23,8 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Instant;
 
 use OCR::{
@@ -144,6 +149,7 @@ fn process_video(
     model_dir: &Path,
     sub_config: &OcrExtractorConfig,
     cap_config: &CaptionExtractorConfig,
+    parallel: bool,
 ) -> Result<()> {
     let file_stem = video_path
         .file_stem()
@@ -159,7 +165,15 @@ fn process_video(
     let merged_vtt = out_dir.join(format!("{}.merged.zh.vtt", file_stem));
 
     println!("\n================================================================================");
-    println!(">>> [PIPELINE] Bắt đầu xử lý: \x1b[1m{}\x1b[0m", file_stem);
+    println!(
+        ">>> [PIPELINE] Bắt đầu xử lý: \x1b[1m{}\x1b[0m (Chế độ: {})",
+        file_stem,
+        if parallel {
+            "\x1b[32mSong song (Parallel)\x1b[0m"
+        } else {
+            "\x1b[33mTuần tự (Sequential)\x1b[0m"
+        }
+    );
     println!("    Video đầu vào : {:?}", video_path);
     println!("    Merged output : {:?}", merged_vtt);
     println!("================================================================================");
@@ -167,37 +181,93 @@ fn process_video(
     let total_start = Instant::now();
 
     // -------------------------------------------------------------------------
-    // BƯỚC 1: Trích xuất phụ đề lời thoại (Subtitles)
+    // BƯỚC 1 & 2: Trích xuất Subtitles & Captions (Hỗ trợ chạy song song)
     // -------------------------------------------------------------------------
-    println!("\n>>> [1/4] Trích xuất Subtitles lời thoại...");
-    if is_valid_vtt(&sub_vtt) {
-        println!("    \x1b[33m[SKIP]\x1b[0m Đã có file phụ đề hợp lệ: {:?}", sub_vtt);
-    } else {
-        let t0 = Instant::now();
-        let sub_out = extract_hardcoded_subtitles(video_path, &sub_vtt, model_dir, sub_config)
-            .with_context(|| format!("Lỗi trích xuất Subtitles từ {:?}", video_path))?;
-        println!(
-            "    \x1b[32m[DONE]\x1b[0m Trích xuất xong {} câu lời thoại ({:.1}s)",
-            sub_out.segments.len(),
-            t0.elapsed().as_secs_f32()
-        );
-    }
+    if parallel {
+        println!("\n>>> [1/4 & 2/4] Đang trích xuất SONG SONG: Subtitles (lời thoại) + Captions (chú thích)...");
+        let t_par = Instant::now();
 
-    // -------------------------------------------------------------------------
-    // BƯỚC 2: Trích xuất chú thích nhân vật/công pháp (Captions)
-    // -------------------------------------------------------------------------
-    println!("\n>>> [2/4] Trích xuất Captions chú thích...");
-    if is_valid_vtt(&cap_vtt) {
-        println!("    \x1b[33m[SKIP]\x1b[0m Đã có file chú thích hợp lệ: {:?}", cap_vtt);
-    } else {
-        let t0 = Instant::now();
-        let cap_out = extract_captions(video_path, &cap_vtt, model_dir, cap_config)
-            .with_context(|| format!("Lỗi trích xuất Captions từ {:?}", video_path))?;
+        let (sub_res, cap_res) = thread::scope(|s| {
+            let sub_handle = s.spawn(|| {
+                if is_valid_vtt(&sub_vtt) {
+                    println!("\n    \x1b[33m[SUB: SKIP]\x1b[0m Đã có file phụ đề hợp lệ: {:?}", sub_vtt);
+                    Ok(())
+                } else {
+                    let t0 = Instant::now();
+                    println!("\n    \x1b[36m[SUB: START]\x1b[0m Bắt đầu trích xuất Subtitles lời thoại...");
+                    let sub_out = extract_hardcoded_subtitles(video_path, &sub_vtt, model_dir, sub_config)
+                        .with_context(|| format!("Lỗi trích xuất Subtitles từ {:?}", video_path))?;
+                    println!(
+                        "\n    \x1b[32m[SUB: DONE]\x1b[0m Trích xuất xong {} câu lời thoại ({:.1}s)",
+                        sub_out.segments.len(),
+                        t0.elapsed().as_secs_f32()
+                    );
+                    Ok(())
+                }
+            });
+
+            let cap_handle = s.spawn(|| {
+                if is_valid_vtt(&cap_vtt) {
+                    println!("\n    \x1b[33m[CAP: SKIP]\x1b[0m Đã có file chú thích hợp lệ: {:?}", cap_vtt);
+                    Ok(())
+                } else {
+                    let t0 = Instant::now();
+                    println!("\n    \x1b[35m[CAP: START]\x1b[0m Bắt đầu trích xuất Captions chú thích...");
+                    let cap_out = extract_captions(video_path, &cap_vtt, model_dir, cap_config)
+                        .with_context(|| format!("Lỗi trích xuất Captions từ {:?}", video_path))?;
+                    println!(
+                        "\n    \x1b[32m[CAP: DONE]\x1b[0m Trích xuất xong {} chú thích ({:.1}s)",
+                        cap_out.segments.len(),
+                        t0.elapsed().as_secs_f32()
+                    );
+                    Ok(())
+                }
+            });
+
+            let r1 = sub_handle
+                .join()
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("Subtitles thread panic")));
+            let r2 = cap_handle
+                .join()
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("Captions thread panic")));
+            (r1, r2)
+        });
+
+        sub_res?;
+        cap_res?;
+
         println!(
-            "    \x1b[32m[DONE]\x1b[0m Trích xuất xong {} chú thích ({:.1}s)",
-            cap_out.segments.len(),
-            t0.elapsed().as_secs_f32()
+            "\n    \x1b[32m[PARALLEL SUCCESS]\x1b[0m Cả 2 luồng hoàn tất trong {:.1}s!",
+            t_par.elapsed().as_secs_f32()
         );
+    } else {
+        println!("\n>>> [1/4] Trích xuất Subtitles lời thoại...");
+        if is_valid_vtt(&sub_vtt) {
+            println!("    \x1b[33m[SKIP]\x1b[0m Đã có file phụ đề hợp lệ: {:?}", sub_vtt);
+        } else {
+            let t0 = Instant::now();
+            let sub_out = extract_hardcoded_subtitles(video_path, &sub_vtt, model_dir, sub_config)
+                .with_context(|| format!("Lỗi trích xuất Subtitles từ {:?}", video_path))?;
+            println!(
+                "    \x1b[32m[DONE]\x1b[0m Trích xuất xong {} câu lời thoại ({:.1}s)",
+                sub_out.segments.len(),
+                t0.elapsed().as_secs_f32()
+            );
+        }
+
+        println!("\n>>> [2/4] Trích xuất Captions chú thích...");
+        if is_valid_vtt(&cap_vtt) {
+            println!("    \x1b[33m[SKIP]\x1b[0m Đã có file chú thích hợp lệ: {:?}", cap_vtt);
+        } else {
+            let t0 = Instant::now();
+            let cap_out = extract_captions(video_path, &cap_vtt, model_dir, cap_config)
+                .with_context(|| format!("Lỗi trích xuất Captions từ {:?}", video_path))?;
+            println!(
+                "    \x1b[32m[DONE]\x1b[0m Trích xuất xong {} chú thích ({:.1}s)",
+                cap_out.segments.len(),
+                t0.elapsed().as_secs_f32()
+            );
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -267,28 +337,50 @@ fn main() -> Result<()> {
     let sub_config = OcrExtractorConfig::default();
     let cap_config = CaptionExtractorConfig::default();
 
-    // Lắng nghe thanh tiến trình khung hình
+    // Lắng nghe thanh tiến trình khung hình thời gian thực (hỗ trợ cả song song và tuần tự)
+    let progress_state = Arc::new(Mutex::new((0.0f32, 0.0f32, String::new())));
+    let state_clone = Arc::clone(&progress_state);
     let (filled_char, empty_char) = cli_gui_form::Icons::PROGRESS_CHARS_PARALLELOGRAM;
-    let bar_width = 25usize;
+    let bar_width = 12usize;
 
     OCR::on_progress(move |p| {
         let total = p.total.max(1);
         let current = p.current.min(total);
         let ratio = (current as f32 / total as f32).clamp(0.0, 1.0);
-        let filled_len = ((ratio * bar_width as f32).round() as usize).min(bar_width);
-        let empty_len = bar_width.saturating_sub(filled_len);
+        let pct = ratio * 100.0;
 
-        let bar_visual = filled_char.repeat(filled_len) + &empty_char.repeat(empty_len);
+        if let Ok(mut st) = state_clone.lock() {
+            if p.title.contains("Caption") {
+                st.1 = pct;
+            } else {
+                st.0 = pct;
+            }
+            st.2 = p.elapsed.clone();
 
-        print!(
-            "\r \x1b[36m▶\x1b[0m \x1b[1m{}\x1b[0m \x1b[32m[{}]\x1b[0m \x1b[33m{:>5.1}%\x1b[0m \x1b[90m({}/{} {})\x1b[0m \x1b[35m[{}]\x1b[0m   ",
-            p.title, bar_visual, ratio * 100.0, current, total, p.unit, p.elapsed
-        );
-        let _ = io::stdout().flush();
+            let sub_filled = ((st.0 / 100.0 * bar_width as f32).round() as usize).min(bar_width);
+            let sub_empty = bar_width.saturating_sub(sub_filled);
+            let sub_bar = filled_char.repeat(sub_filled) + &empty_char.repeat(sub_empty);
+
+            let cap_filled = ((st.1 / 100.0 * bar_width as f32).round() as usize).min(bar_width);
+            let cap_empty = bar_width.saturating_sub(cap_filled);
+            let cap_bar = filled_char.repeat(cap_filled) + &empty_char.repeat(cap_empty);
+
+            print!(
+                "\r \x1b[36m▶\x1b[0m \x1b[1m[SUB]\x1b[0m \x1b[32m[{}]\x1b[0m \x1b[33m{:>5.1}%\x1b[0m │ \x1b[1m[CAP]\x1b[0m \x1b[35m[{}]\x1b[0m \x1b[33m{:>5.1}%\x1b[0m \x1b[90m[{}]\x1b[0m   ",
+                sub_bar, st.0, cap_bar, st.1, st.2
+            );
+            let _ = io::stdout().flush();
+        }
     });
 
     let args: Vec<String> = env::args().collect();
-    let target = args.get(1).map(|s| s.as_str()).unwrap_or("all");
+    let parallel = !args.iter().any(|a| a == "--sequential" || a == "--no-parallel");
+    let target = args
+        .iter()
+        .skip(1)
+        .find(|a| !a.starts_with("--"))
+        .map(|s| s.as_str())
+        .unwrap_or("all");
 
     // Xác định danh sách video cần xử lý
     let mut videos: Vec<PathBuf> = Vec::new();
@@ -357,7 +449,7 @@ fn main() -> Result<()> {
     let pipeline_start = Instant::now();
 
     for video in &videos {
-        if let Err(e) = process_video(video, model_dir, &sub_config, &cap_config) {
+        if let Err(e) = process_video(video, model_dir, &sub_config, &cap_config, parallel) {
             eprintln!("\n\x1b[31m[ERROR]\x1b[0m Lỗi khi xử lý video {:?}: {:?}", video, e);
         }
     }
