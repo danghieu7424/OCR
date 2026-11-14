@@ -322,3 +322,114 @@ Câu 1–2 chữ, ≤0,3 s, nằm sát câu khác và là tập con của câu �
 - `OCR_SUB_DET_LIMIT=960` để quay lại hành vi cũ nếu gặp tập có sub chữ nhỏ.
 - Chỉ đo trên 3 tập theo yêu cầu "test một vài tập"; 17 tập còn lại trong `output/` vẫn là bản 960 (chất lượng tương đương, chỉ chậm hơn).
 - Đã build release `OCR v0.3.0`, cập nhật `CHANGELOG.md` (mục `[Unreleased] → ### Thay đổi`), commit `15e77ee` + `827d16f` (graphify) và push. `evaluate.md` đang dirty do công cụ tự nối nhật ký — tôi không đụng vào.
+
+---
+
+---
+
+Analyzed evaluate.md:L1-100
+Analyzed evaluate.md:L101-250
+Analyzed evaluate.md:L251-324
+Ran list .agents directory
+Ran list final directory
+Ran list input directory
+Ran list output directory
+Analyzed 第002集.zh.vtt:L1-50
+Analyzed 第001集.zh.vtt:L1-50
+Ran find all captions in final/
+Analyzed 第001集.captions.zh.vtt:L1-23
+Analyzed 第002集.captions.zh.vtt:L1-20
+Analyzed 第003集.captions.zh.vtt:L1-11
+Analyzed 第004集.captions.zh.vtt:L1-8
+Analyzed caption.rs:L30-85
+Analyzed caption.rs:L85-115
+Ran extract captions from final/002
+Ran extract captions from final/003
+Ran extract captions from final/004
+Ran check scratch directory
+Analyzed caption_frame_003s.png
+Analyzed caption_frame_027s.png
+Analyzed caption_frame_071s.png
+Ran extract all 18 caption frames
+Analyzed ep01_02_xitong.png
+Analyzed ep01_04_linqingxue.png
+Analyzed ep01_05_xuqingying.png
+Analyzed ep01_07_chuanyin.png
+Analyzed ep02_01_xiao_nv_er.png
+Analyzed ep02_02_lao_er.png
+Analyzed ep02_03_he_hong.png
+Analyzed ep02_04_didi.png
+Analyzed ep02_05_meimei.png
+Analyzed ep02_06_jia.png
+Analyzed ep03_01_jiyi.png
+Analyzed ep03_02_jiaojiechu.png
+Analyzed ep03_03_moyu.png
+Analyzed ep04_01_shixianjian.png
+Analyzed ep04_02_zhanzhuang.png
+Ran check tools/compare_subs.py
+Analyzed compare_subs.py:L1-100
+Ran run compare_subs.py
+Ran compare captions final vs output
+Ran git status check
+
+Tôi đã tiến hành kiểm tra, cắt frame video thực tế bằng ffmpeg và đối chiếu chi tiết giữa **`final/`** (bản chuẩn bạn tinh chỉnh 4 tập đầu), **`input/`** (reference phụ đề) và **`output/`** (kết quả do OCR đọc):
+
+---
+
+### 1. Tổng quan kết quả đối chiếu 4 tập đầu (`final/` vs `output/`)
+
+Trong 4 tập đầu (`第001集` – `第004集`), toàn bộ **18/18 caption** trong `final/` đã được OCR nhận diện chính xác 100% về mặt nội dung, không có bất kỳ false positive (rác) nào lọt vào:
+
+|   Tập    | Số caption (`final/`) | Số caption (`output/`) |    Tỷ lệ khớp    | Chi tiết caption nhận diện                                                                                                            |
+| :------: | :-------------------: | :--------------------: | :--------------: | :------------------------------------------------------------------------------------------------------------------------------------ |
+| **001**  |           7           |           7            |  **7/7 (100%)**  | `《陆清安》`, `《系统》`, `《直到徐清莹突破大帝这天》`, `《林清雪》`, `《徐清莹》`, `《大女儿-陆紫萱》`, `《传音秘术只有两人能听见》` |
+| **002**  |           6           |           6            |  **6/6 (100%)**  | `《小女儿-陆淼淼》`, `《老二-陆正然》`, `《何訇》`, `《徐清莹弟弟-徐轩宇》`, `《徐清莹妹妹-徐韵怡》`, `《陆清安的家》`                |
+| **003**  |           3           |           3            |  **3/3 (100%)**  | `《将千年记忆封锁》`, `《魔域与仙墟交界处》`, `《魔域》`                                                                              |
+| **004**  |           2           |           2            |  **2/2 (100%)**  | `《九狱弑仙剑》`, `《血戮战装》`                                                                                                      |
+| **Tổng** |        **18**         |         **18**         | **18/18 (100%)** | _(Lưu ý: 3 câu ngữ cảnh chỉ khác đuôi `...` do người soạn gõ tay thêm vào bản chuẩn)_                                                 |
+
+---
+
+### 2. Soi frame hình ảnh thực tế cắt từ video
+
+Tôi đã xuất frame trực tiếp tại thời điểm hiển thị của từng caption để kiểm tra chữ cách điệu và hiện tượng nhiễu:
+
+#### A. Chữ dọc trên thanh đen (Thư pháp / Cách điệu)
+
+1. **Thanh đen 1 cột bên trái**:
+   - `《陆清安》` (Tập 1, 00:03.2): Chữ thư pháp cách điệu màu trắng trên vệt mực đen. OCR đọc chuẩn xác `陆清安`.
+   - `《何訇》` (Tập 2, 00:44.8): Chữ `訇` là chữ Hán cổ/hiếm, nét phức tạp. OCR đọc chính xác `何訇`.
+   - `《九狱弑仙剑》` & `《血戮战装》` (Tập 4): Chữ `弑` và `戮` nhiều nét, font cách điệu sắc nhọn, OCR đọc hoàn toàn chính xác.
+2. **Thanh đen 1 cột ở GIỮA màn hình**:
+   - `《系统》` (Tập 1, 00:11.0): Nằm ngay chính giữa khung hình ($x \approx 48\%$). Nhờ ROI width mở rộng $0\% - 100\%$ nên box này được bắt trọn vẹn, không bị mất nét.
+3. **Thanh đen 2 CỘT dọc (Đọc từ trái qua phải, trên xuống dưới)**:
+   - `《大女儿-陆紫萱》` (Tập 1, 01:11.2): Cột 1 `大女儿`, cột 2 `陆紫萱` $\rightarrow$ OCR nhóm chuẩn 2 cột theo thứ tự trái $\rightarrow$ phải và nối dấu `-`.
+   - `《小女儿-陆淼淼》` (Tập 2, 00:25.8): Cột 1 `小女儿`, cột 2 `陆淼淼` $\rightarrow$ Ghép chuẩn `小女儿-陆淼淼`.
+   - `《老二-陆正然》` (Tập 2, 00:38.4): Cột 1 `老二`, cột 2 `陆正然` $\rightarrow$ Ghép chuẩn `老二-陆正然`.
+   - `《徐清莹弟弟-徐轩宇》` & `《徐清莹妹妹-徐韵怡》` (Tập 2, 03:22 & 03:26): Đều gồm 2 cột dọc $\rightarrow$ Ghép chuẩn xác từng chữ.
+
+#### B. Chữ ngang ngữ cảnh (Art brush font / Nền phức tạp)
+
+- `《直到徐清莹突破大帝这天》` (Tập 1, 00:26.6): Font thư pháp viền đen ruột trắng trên nền trời mây/phượng hoàng sáng chói.
+- `《传音秘术只有两人能听见》` (Tập 1, 01:38.8): Font viền đen ruột trắng trên nền sóng năng lượng xanh tỏa tia sáng.
+- `《将千年记忆封锁》` (Tập 3, 00:04.8): Nằm đè trên hình vẽ pháp trận xiềng xích vàng kim phức tạp.
+- **Đánh giá**: Dù nằm trên nền chuyển động và hiệu ứng đồ họa cao, cả 3 câu ngữ cảnh đều được lọc nhiễu tốt và nhận dạng chuẩn xác toàn bộ chữ Hán.
+
+---
+
+### 3. Đánh giá về độ nhiễu khi mở rộng ROI (Height 10%–80%, Width 0%–100%)
+
+Với vùng ROI rộng $1920 \times 756$, 3 cơ chế lọc trong code hiện tại hoạt động rất hiệu quả:
+
+1. **Lọc Watermark 2 góc trên**: Cả 2 dòng watermark `"内容由AI生成 无任何不良导向"` (góc trái) và `"架空世界虚构剧情 危险动作请勿模仿"` (góc phải) xuất hiện ở hầu hết mọi frame đều bị Phase 2 triệt tiêu hoàn toàn nhờ fingerprint tần suất ($> 40\%$).
+2. **Lọc chữ trong cảnh (Background artifacts)**: Các phù chú trên cột đá, phù văn phát sáng trên kiếm và vòng xoay pháp trận không bị nhận nhầm thành caption nhờ điều kiện kiểm tra quầng tối nét chữ (`box_pixel_stats`: `dark_frac >= 0.20 || lum_med <= 100.0`).
+3. **Lọc nhiễu lướt qua**: Nhờ `min_duration_sec: 1.0s` và `min_confidence: 0.80`, các tia sáng hay đốm hiệu ứng lóe lên trong 1–2 frame không tạo ra caption rác.
+
+---
+
+### 4. Về phần Phụ đề (Subtitle - 20 tập đối chiếu `input/` vs `output/`)
+
+Chạy công cụ đối chiếu `tools/compare_subs.py` trên toàn bộ 20 tập:
+
+- **Độ chính xác thô**: **99.20%** (753/758 câu khớp, sai lệch chỉ 44/5482 ký tự).
+- **Độ chính xác sau khi chuẩn hoá giản/phồn thể**: **99.82%** (trong 44 chữ lệch thì có tới 34 chữ là do reference dùng chữ phồn thể như `強/强, 於/于, 別/别, 能夠/能够`, trong khi pipeline OCR xuất chữ giản thể chuẩn theo từ điển; 4 trường hợp còn lại là do chính file reference gõ sai như `眼晴` thay vì `眼睛`).
