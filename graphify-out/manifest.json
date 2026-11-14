@@ -1,8 +1,8 @@
 {
   "Cargo.toml": {
-    "mtime": 1794645177.6503155,
-    "seen": 1794645253.7951586,
-    "ast_hash": "fa16e52a726e610c5bee4e351b9bb3ee",
+    "mtime": 1794645823.4038117,
+    "seen": 1794645860.1168833,
+    "ast_hash": "9f25f76ce59dd17862d4cb61c1c3d057",
     "semantic_hash": ""
   },
   "cli_gui_form/Cargo.toml": {
@@ -222,9 +222,9 @@
     "semantic_hash": ""
   },
   "src/lib.rs": {
-    "mtime": 1794645177.718242,
-    "seen": 1794645253.79617,
-    "ast_hash": "b8ba08a04a43528403e8caa2adb58981",
+    "mtime": 1794645710.04594,
+    "seen": 1794645860.1168833,
+    "ast_hash": "e606bc0223a5f1bae33af3cc8f196d27",
     "semantic_hash": ""
   },
   "src/main.rs": {
@@ -276,9 +276,9 @@
     "semantic_hash": ""
   },
   "evaluate.md": {
-    "mtime": 1794643610.08609,
-    "seen": 1794644786.205369,
-    "ast_hash": "a85099ab777625f03e44f62a103beb59",
+    "mtime": 1794645392.2668312,
+    "seen": 1794645860.1168833,
+    "ast_hash": "4a9786c4da1caceee23270cfa7c20109",
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
@@ -306,9 +306,9 @@
     "semantic_hash": ""
   },
   "examples/proofread_subtitles.rs": {
-    "mtime": 1794645177.6853802,
-    "seen": 1794645253.79617,
-    "ast_hash": "29f55007136c6d3485be7b3665e07a25",
+    "mtime": 1794645639.513717,
+    "seen": 1794645860.1168833,
+    "ast_hash": "cef26e92ffda9dd59934ed491dac82a4",
     "semantic_hash": ""
   },
   "src/glossary.rs": {
@@ -318,15 +318,15 @@
     "semantic_hash": ""
   },
   "src/proofread.rs": {
-    "mtime": 1794645177.7840776,
-    "seen": 1794645253.79617,
-    "ast_hash": "0e136a19f337f2267a0b4e748e1b0b57",
+    "mtime": 1794645624.3884215,
+    "seen": 1794645860.1168833,
+    "ast_hash": "95438f5ea192d4ddf88eeba0732b8108",
     "semantic_hash": ""
   },
   "src/ollama.rs": {
-    "mtime": 1794645187.389195,
-    "seen": 1794645253.79617,
-    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "mtime": 1794645766.30243,
+    "seen": 1794645860.1168833,
+    "ast_hash": "717cfb6ca6e55b946f5b4179c5742a47",
     "semantic_hash": ""
   }
 }
