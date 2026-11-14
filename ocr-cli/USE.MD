@@ -67,6 +67,8 @@ C:\Videos\
 
 File merge được ghi trong output với tên `<tên-video>.merged.zh.vtt`. Nếu nhiều video trong folder có cùng tên gốc, CLI báo lỗi để tránh ghi đè VTT và thư mục tạm.
 
+Trong lúc OCR, terminal hiển thị hai thanh tiến trình riêng `[SUB]` và `[CAP]`.
+
 ## 4. Ảnh evidence
 
 Thêm `--caption-evidence` để tạo ảnh first/best/last cho cue subtitle và caption:

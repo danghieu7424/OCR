@@ -9,8 +9,10 @@ use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::Read;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov", "ts", "flv", "webm"];
 
@@ -23,6 +25,63 @@ struct CliArgs {
     caption_line: Option<String>,
     subtitle_roi: SubtitleRoi,
     caption_roi: (f32, f32, f32, f32),
+}
+
+#[derive(Default)]
+struct ProgressState {
+    subtitle_percent: f32,
+    caption_percent: f32,
+    elapsed: String,
+}
+
+fn register_progress_handler() -> Arc<Mutex<ProgressState>> {
+    let state = Arc::new(Mutex::new(ProgressState::default()));
+    let callback_state = Arc::clone(&state);
+    let (filled_char, empty_char) = cli_gui_form::Icons::PROGRESS_CHARS_PARALLELOGRAM;
+    let bar_width = 12usize;
+
+    ocr::on_progress(move |progress| {
+        let total = progress.total.max(1);
+        let current = progress.current.min(total);
+        let percent = (current as f32 / total as f32 * 100.0).clamp(0.0, 100.0);
+
+        if let Ok(mut state) = callback_state.lock() {
+            if progress.title.contains("Caption") {
+                state.caption_percent = percent;
+            } else {
+                state.subtitle_percent = percent;
+            }
+            state.elapsed.clone_from(&progress.elapsed);
+
+            let subtitle_filled = ((state.subtitle_percent / 100.0 * bar_width as f32).round()
+                as usize)
+                .min(bar_width);
+            let caption_filled = ((state.caption_percent / 100.0 * bar_width as f32).round()
+                as usize)
+                .min(bar_width);
+            let subtitle_bar = filled_char.repeat(subtitle_filled)
+                + &empty_char.repeat(bar_width - subtitle_filled);
+            let caption_bar =
+                filled_char.repeat(caption_filled) + &empty_char.repeat(bar_width - caption_filled);
+
+            print!(
+                "\r [SUB] [{}] {:5.1}% | [CAP] [{}] {:5.1}% | {}   ",
+                subtitle_bar,
+                state.subtitle_percent,
+                caption_bar,
+                state.caption_percent,
+                state.elapsed
+            );
+            let _ = io::stdout().flush();
+        }
+    });
+    state
+}
+
+fn reset_progress(state: &Mutex<ProgressState>) {
+    if let Ok(mut state) = state.lock() {
+        *state = ProgressState::default();
+    }
 }
 
 fn usage() -> &'static str {
@@ -376,7 +435,11 @@ fn export_subtitle_evidence(
     Ok(())
 }
 
-fn process_video(video: &Path, args: &CliArgs) -> Result<()> {
+fn process_video(
+    video: &Path,
+    args: &CliArgs,
+    progress_state: &Mutex<ProgressState>,
+) -> Result<()> {
     let stem = video
         .file_stem()
         .and_then(|value| value.to_str())
@@ -404,11 +467,16 @@ fn process_video(video: &Path, args: &CliArgs) -> Result<()> {
     }
 
     println!("[OCR] {} -> {:?}", video.display(), merged_vtt);
+    reset_progress(progress_state);
+    let subtitle_result =
+        extract_hardcoded_subtitles(video, &subtitle_vtt, &args.models, &subtitle_config);
+    println!();
     let subtitle_output =
-        extract_hardcoded_subtitles(video, &subtitle_vtt, &args.models, &subtitle_config)
-            .with_context(|| format!("Trích xuất subtitle thất bại cho {:?}", video))?;
-    let caption_output = extract_captions(video, &caption_vtt, &args.models, &caption_config)
-        .with_context(|| format!("Trích xuất caption thất bại cho {:?}", video))?;
+        subtitle_result.with_context(|| format!("Trích xuất subtitle thất bại cho {:?}", video))?;
+    let caption_result = extract_captions(video, &caption_vtt, &args.models, &caption_config);
+    println!();
+    let caption_output =
+        caption_result.with_context(|| format!("Trích xuất caption thất bại cho {:?}", video))?;
 
     if args.caption_evidence {
         export_subtitle_evidence(
@@ -452,9 +520,10 @@ fn run() -> Result<()> {
         }
     }
     let files = video_files(&args.input)?;
+    let progress_state = register_progress_handler();
     let mut failures = Vec::new();
     for video in &files {
-        if let Err(error) = process_video(video, &args) {
+        if let Err(error) = process_video(video, &args, &progress_state) {
             eprintln!("[ERROR] {}: {error:#}", video.display());
             failures.push(video.display().to_string());
         }
@@ -515,5 +584,18 @@ mod tests {
         let conflicting =
             ["--input", "videos", "other.mp4", "--output", "merged"].map(str::to_string);
         assert!(parse_args_from(conflicting.into_iter()).is_err());
+    }
+
+    #[test]
+    fn progress_callback_tracks_subtitle_and_caption_separately() {
+        let state = register_progress_handler();
+        ocr::emit_task_progress("OCR Video Subtitles", 25, 100, "frames", "2s", "25%");
+        ocr::emit_task_progress("Caption Phase 1", 50, 100, "frames", "5s", "50%");
+
+        let state = state.lock().unwrap();
+        assert_eq!(state.subtitle_percent, 25.0);
+        assert_eq!(state.caption_percent, 50.0);
+        assert_eq!(state.elapsed, "5s");
+        println!();
     }
 }
