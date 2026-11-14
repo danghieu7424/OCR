@@ -71,6 +71,10 @@ python tools\compare_subs.py
 
 `Conditional Character Accuracy` chỉ tính các cặp cue đã căn; `Overall CER` tính thêm ký tự của cue thiếu và thừa. Tùy chọn `--norm t2s` dùng để so sánh phồn thể/giản thể, cần cài `zhconv` riêng và không sửa file trong `input/`.
 
+## License
+
+Các package của workspace được cấp phép theo lựa chọn của bạn: **MIT hoặc Apache-2.0**. Xem [`LICENSE-MIT`](./LICENSE-MIT) hoặc [`LICENSE-APACHE`](./LICENSE-APACHE).
+
 ---
 
 ## 📦 Yêu cầu môi trường
