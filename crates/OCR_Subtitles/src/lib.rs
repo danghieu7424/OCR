@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 /****
  * [MODULE]: OCR (Video Subtitle Optical Character Recognition) - Industrial Grade
  * Chức năng: Trích xuất phụ đề cứng (Hardcoded Subtitles) từ video sang chuẩn WebVTT (.vtt)
@@ -22,10 +23,12 @@ use ort::{
     value::Tensor,
 };
 
-use crate::shared::icons::Icons;
-use crate::shared::terminal_color::NameUtilsExt;
+use ocr_shared::icons::Icons;
+use ocr_shared::terminal_color::NameUtilsExt;
 
 pub mod det_filter;
+pub mod temporal_voting;
+pub use temporal_voting::*;
 
 /// Cấu hình tọa độ vùng ROI (Region of Interest)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -159,7 +162,7 @@ impl PpOcrEngine {
         keys.insert(0, "<blank>".to_string());
         keys.push(" ".to_string());
 
-        let threads = crate::shared::CpuOptimizer::single_task_threads().max(2);
+        let threads = ocr_shared::CpuOptimizer::single_task_threads().max(2);
         let rec_session = Session::builder()
             .map_err(|e| anyhow::anyhow!("Builder error: {:?}", e))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
@@ -482,8 +485,8 @@ pub fn extract_hardcoded_subtitles(
         bail!("Video không tồn tại: {:?}", video_path);
     }
 
-    crate::shared::tui_events::emit_step(">>> [OCR] Trích xuất Hardcoded Subtitles từ Video (Industrial Engine)...");
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_step(">>> [OCR] Trích xuất Hardcoded Subtitles từ Video (Industrial Engine)...");
+    ocr_shared::tui_events::emit_log(format!(
         "   {} ROI: Y[{:.0}% - {:.0}%] | X[{:.0}% - {:.0}%] | Fps: {} | Lang: {}",
         "[OCR]".name_utils().violed(),
         config.roi.y_min * 100.0,
@@ -495,7 +498,7 @@ pub fn extract_hardcoded_subtitles(
     ));
 
     // Bước 0: Nạp mô hình OCR PP-OCRv4/v5
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Khởi tạo mô hình ONNX PP-OCRv4/v5 Text Recognition...",
         "[OCR]".name_utils().violed()
     ));
@@ -505,7 +508,7 @@ pub fn extract_hardcoded_subtitles(
     let rec_path = model_dir.join("ocr/rec.onnx");
     let keys_path = model_dir.join("ocr/keys.txt");
 
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Khởi tạo mô hình DBNet Text Detection...",
         "[OCR]".name_utils().violed()
     ));
@@ -579,7 +582,7 @@ pub fn extract_hardcoded_subtitles(
     let crop_y = (((src_h as f32 * config.roi.y_min).round() as usize) / 2) * 2;
 
     let vf_filter = format!("fps={},crop={}:{}:{}:{}", config.fps, crop_w, crop_h, crop_x, crop_y);
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Kích thước ROI: {}x{} @ ({},{}) | Filter: {}",
         "[OCR]".name_utils().violed(),
         crop_w,
@@ -624,7 +627,7 @@ pub fn extract_hardcoded_subtitles(
     let mut frame_records: Vec<(usize, f64, String)> = Vec::new();
     let total_frames_estimated = (total_duration_sec * config.fps as f64) as usize;
 
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Bắt đầu phân tích khung hình video (ước tính {} frames)...",
         "[OCR]".name_utils().violed(),
         total_frames_estimated
@@ -654,7 +657,7 @@ pub fn extract_hardcoded_subtitles(
 
         if frame_idx % (config.fps as usize * 3) == 0 {
             let progress_pct = (timestamp / total_duration_sec * 100.0).min(100.0);
-            crate::shared::tui_events::emit_task_progress(
+            ocr_shared::tui_events::emit_task_progress(
                 "OCR Video Subtitles",
                 frame_idx,
                 total_frames_estimated,
@@ -675,7 +678,7 @@ pub fn extract_hardcoded_subtitles(
             rec_time.as_secs_f64() * 1000.0 / total_frames as f64,
         );
     }
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Đã quét xong {} frames. Tiến hành khử nhiễu & phân đoạn...",
         "[OCR]".name_utils().violed(),
         total_frames
@@ -933,7 +936,7 @@ pub fn extract_hardcoded_subtitles(
     fs::write(output_vtt_path, vtt_content)
         .with_context(|| format!("Không thể ghi file WebVTT: {:?}", output_vtt_path))?;
 
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} {} Hoàn tất trích xuất phụ đề công nghiệp: {:?} (Tổng số câu: {})",
         "[OCR]".name_utils().violed(),
         Icons::SUCCESS,

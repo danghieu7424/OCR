@@ -36,6 +36,10 @@ pub struct ProofreadConfig {
 
 impl Default for ProofreadConfig {
     fn default() -> Self {
+        let use_ollama = std::env::var("OCR_USE_LLM")
+            .map(|v| v != "0" && v.to_lowercase() != "false" && v.to_lowercase() != "off")
+            .unwrap_or(true);
+
         Self {
             endpoint: std::env::var("OCR_LLM_ENDPOINT").ok(),
             model_name: std::env::var("OCR_LLM_MODEL")
@@ -43,7 +47,7 @@ impl Default for ProofreadConfig {
             api_key: std::env::var("OCR_LLM_API_KEY").ok(),
             enable_rule_engine: true,
             custom_replacements: HashMap::new(),
-            use_ollama: true,
+            use_ollama,
         }
     }
 }
@@ -88,6 +92,11 @@ impl Proofreader {
         Self::new(ProofreadConfig::default())
     }
 
+    /// Khởi tạo Proofreader ở chế độ siêu nhanh Fast Mode (tắt LLM, chỉ dùng Entity Glossary & Sanitizer, 0.00s/câu)
+    pub fn with_fast_mode() -> Self {
+        Self::with_rule_engine_only()
+    }
+
     /// Khởi tạo Proofreader chỉ dùng bộ luật CPU (không cần Ollama/LLM)
     pub fn with_rule_engine_only() -> Self {
         let mut config = ProofreadConfig::default();
@@ -97,6 +106,16 @@ impl Proofreader {
             config,
             ollama: None,
         }
+    }
+
+    /// Bật hoặc tắt LLM runtime
+    pub fn set_llm_enabled(&mut self, enabled: bool) {
+        self.config.use_ollama = enabled;
+    }
+
+    /// Kiểm tra xem LLM hiện tại có đang bật không
+    pub fn is_llm_enabled(&self) -> bool {
+        self.config.use_ollama && (self.ollama.is_some() || self.config.endpoint.is_some())
     }
 
     /// Hiệu đính một câu phụ đề đơn lẻ
@@ -121,21 +140,23 @@ impl Proofreader {
             text = g.normalize_sentence(&text);
         }
 
-        // 3. Hiệu đính ngữ cảnh nâng cao bằng mô hình ngôn ngữ (Qwen2.5-VL qua ollama-rs)
-        // Mô hình ngôn ngữ tự động phân tích ngữ pháp, xưng hô, hội thoại tự nhiên mà không cần hard-code!
-        if let Some(ref ollama) = self.ollama {
-            if let Ok(llm_out) = ollama.proofread_sentence_sync(&text, context_history, glossary) {
-                if !llm_out.trim().is_empty() {
-                    return llm_out.trim().to_string();
+        // 3. Hiệu đính ngữ cảnh nâng cao bằng mô hình ngôn ngữ (Qwen2.5-VL)
+        // Chỉ gọi khi LLM được bật (cho phép người dùng bật/tắt tùy ý để tối ưu tốc độ)
+        if self.config.use_ollama {
+            if let Some(ref ollama) = self.ollama {
+                if let Ok(llm_out) = ollama.proofread_sentence_sync(&text, context_history, glossary) {
+                    if !llm_out.trim().is_empty() {
+                        return llm_out.trim().to_string();
+                    }
                 }
             }
-        }
 
-        // 4. Thử gọi Qwen2.5-VL qua API endpoint nếu có cấu hình
-        if let Some(ref ep) = self.config.endpoint {
-            if let Ok(llm_out) = self.call_qwen_api(ep, &text, context_history, glossary) {
-                if !llm_out.trim().is_empty() {
-                    return llm_out.trim().to_string();
+            // 4. Thử gọi Qwen2.5-VL qua API endpoint nếu có cấu hình
+            if let Some(ref ep) = self.config.endpoint {
+                if let Ok(llm_out) = self.call_qwen_api(ep, &text, context_history, glossary) {
+                    if !llm_out.trim().is_empty() {
+                        return llm_out.trim().to_string();
+                    }
                 }
             }
         }

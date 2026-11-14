@@ -1,4 +1,4 @@
-// src/shared.rs
+// crates/ocr_shared/src/lib.rs
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub struct CpuOptimizer;
@@ -144,7 +144,6 @@ pub mod tui_events {
     }
 
     /// Cắm trực tiếp vào `TaskWidget` của `cli_gui_form` để đồng bộ tiến trình TUI!
-    /// Tự động cập nhật `current`, `duration`, `status` hoặc chuyển trạng thái sang `Running`.
     pub fn attach_cli_gui_task(task_widget: Arc<Mutex<cli_gui_form::TaskWidget>>) {
         on_progress(move |p| {
             if let Ok(mut w) = task_widget.lock() {
@@ -211,4 +210,3 @@ pub mod tui_events {
         }
     }
 }
-

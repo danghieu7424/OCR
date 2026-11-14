@@ -1,8 +1,11 @@
 //! Example: Hiệu đính phụ đề (Proofread) kết hợp Entity Glossary & Qwen2.5-VL Context Engine
 //!
-//! Chạy: cargo run --release --example proofread_subtitles -- [tập]
-//! Ví dụ: cargo run --release --example proofread_subtitles -- 002
-//!        cargo run --release --example proofread_subtitles -- all
+//! Chạy với LLM (mặc định):
+//!   cargo run --release --example proofread_subtitles -- 002
+//!
+//! Chạy siêu nhanh Fast Mode (tắt LLM, chỉ dùng Entity Glossary & Sanitizer, 0.00s/câu):
+//!   cargo run --release --example proofread_subtitles -- 002 --fast
+//!   cargo run --release --example proofread_subtitles -- all --fast
 
 use anyhow::Result;
 use std::env;
@@ -13,7 +16,17 @@ fn main() -> Result<()> {
     println!(">>> [PROOFREADER] Hậu xử lý & Hiệu đính ngữ cảnh phụ đề WebVTT\n");
 
     let args: Vec<String> = env::args().collect();
-    let target = args.get(1).map(|s| s.as_str()).unwrap_or("all");
+    let use_fast_mode = args.iter().any(|a| a == "--fast" || a == "--no-llm")
+        || std::env::var("OCR_USE_LLM")
+            .map(|v| v == "0" || v.to_lowercase() == "false" || v.to_lowercase() == "off")
+            .unwrap_or(false);
+
+    let target = args
+        .iter()
+        .skip(1)
+        .find(|a| !a.starts_with("--"))
+        .map(|s| s.as_str())
+        .unwrap_or("all");
 
     // 1. Tự động thu thập danh từ riêng từ tất cả các file caption
     println!(">>> [1/3] Quét danh từ riêng (Entity Glossary) từ Caption...");
@@ -35,19 +48,32 @@ fn main() -> Result<()> {
     }
     println!();
 
-    // 2. Khởi tạo Proofreader tự động qua thư viện Ollama của Rust
-    println!(">>> [2/3] Khởi tạo Proofreader (Tự động kích hoạt Ollama & mô hình Qwen2.5-VL)...");
-    let model = std::env::var("OCR_LLM_MODEL").unwrap_or_else(|_| "qwen2.5vl:3b".to_string());
-    println!("    [OLLAMA] Đang kết nối tới mô hình `{}` qua ollama-rs...", model);
+    // 2. Khởi tạo Proofreader (hỗ trợ bật/tắt LLM)
+    let proofreader = if use_fast_mode {
+        println!(">>> [2/3] Chế độ SIÊU NHANH (Fast Mode: Đã TẮT LLM để tiết kiệm thời gian)...");
+        println!("    \x1b[32m[FAST MODE]\x1b[0m Sử dụng Entity Glossary & Bộ lọc khử nhiễu (tốc độ 0.00s/câu)");
+        Proofreader::with_fast_mode()
+    } else {
+        println!(">>> [2/3] Khởi tạo Proofreader (Tự động kích hoạt Ollama & mô hình Qwen2.5-VL)...");
+        println!("    \x1b[33m[MẸO]\x1b[0m Thêm cờ `--fast` hoặc `--no-llm` để chạy tức thì không cần đợi LLM.");
+        let model = std::env::var("OCR_LLM_MODEL").unwrap_or_else(|_| "qwen2.5vl:3b".to_string());
+        println!("    [OLLAMA] Đang kết nối tới mô hình `{}` qua ollama-rs...", model);
 
-    let proofreader = match Proofreader::with_ollama(&model) {
-        Ok(p) => {
-            println!("    \x1b[32m[OLLAMA]\x1b[0m Thư viện Ollama Rust đã sẵn sàng với mô hình `{}`", model);
-            p
-        }
-        Err(e) => {
-            println!("    \x1b[33m[FALLBACK]\x1b[0m Không thể kết nối Ollama ({}). Sử dụng Engine nội bộ CPU", e);
-            Proofreader::with_default_config()
+        match Proofreader::with_ollama(&model) {
+            Ok(p) => {
+                println!(
+                    "    \x1b[32m[OLLAMA]\x1b[0m Thư viện Ollama Rust đã sẵn sàng với mô hình `{}`",
+                    model
+                );
+                p
+            }
+            Err(e) => {
+                println!(
+                    "    \x1b[33m[FALLBACK]\x1b[0m Không thể kết nối Ollama ({}). Sử dụng Fast Engine nội bộ CPU",
+                    e
+                );
+                Proofreader::with_fast_mode()
+            }
         }
     };
     println!();
@@ -75,7 +101,7 @@ fn main() -> Result<()> {
         let summary = proofreader.proofread_vtt_file(&in_vtt, &out_vtt, Some(&glossary))?;
         if summary.corrected_lines > 0 {
             println!(
-                "  ▶ Tập {}: Đã sửa {}/{} dòng câu",
+                "  ▶ Tập {}: Đã chuẩn hóa {}/{} dòng câu",
                 ep_str, summary.corrected_lines, summary.total_lines
             );
             for (old, new) in &summary.corrections {

@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 /****
  * [MODULE]: Caption Extractor (Video Caption OCR) - Industrial Grade
  * Chức năng: Trích xuất chú thích (caption) từ video sang chuẩn WebVTT (.captions.zh.vtt)
@@ -26,8 +27,8 @@ use std::process::{Command, Stdio};
 use image::{DynamicImage, RgbImage};
 use pure_onnx_ocr::OcrEngine;
 
-use crate::shared::icons::Icons;
-use crate::shared::terminal_color::NameUtilsExt;
+use ocr_shared::icons::Icons;
+use ocr_shared::terminal_color::NameUtilsExt;
 
 /// Cấu hình vùng ROI cho caption
 #[derive(Debug, Clone)]
@@ -652,8 +653,8 @@ pub fn extract_captions(
         anyhow::bail!("Video không tồn tại: {:?}", video_path);
     }
 
-    crate::shared::tui_events::emit_step(">>> [CAPTION] Trích xuất Caption/Chú thích từ Video...");
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_step(">>> [CAPTION] Trích xuất Caption/Chú thích từ Video...");
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Caption ROI: Y[{:.0}%-{:.0}%] X[{:.0}%-{:.0}%] | Fps: {}",
         "[CAPTION]".name_utils().violed(),
         config.roi.y_min * 100.0, config.roi.y_max * 100.0,
@@ -664,10 +665,10 @@ pub fn extract_captions(
     let rec_path = model_dir.join("ocr/rec.onnx");
     let keys_path = model_dir.join("ocr/keys.txt");
 
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Khởi tạo Caption OCR Engine...", "[CAPTION]".name_utils().violed()
     ));
-    let ocr_engine = crate::ocr::det_filter::create_det_engine(
+    let ocr_engine = OCR_Subtitles::det_filter::create_det_engine(
         &det_path.to_string_lossy(), &rec_path.to_string_lossy(), &keys_path.to_string_lossy(),
     )?;
 
@@ -694,7 +695,7 @@ pub fn extract_captions(
     let crop_y = (((src_h as f32 * config.roi.y_min).round() as usize) / 2) * 2;
 
     let vf_filter = format!("fps={},crop={}:{}:{}:{}", config.fps, crop_w, crop_h, crop_x, crop_y);
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} ROI: {}x{} @ ({},{}) | {}", "[CAPTION]".name_utils().violed(),
         crop_w, crop_h, crop_x, crop_y, vf_filter
     ));
@@ -716,7 +717,7 @@ pub fn extract_captions(
     let est_frames = (total_duration * config.fps as f64) as usize;
 
     // ===== PHASE 1: Thu thập raw boxes mọi frame =====
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Phase 1: Quét {} frames...", "[CAPTION]".name_utils().violed(), est_frames
     ));
 
@@ -737,7 +738,7 @@ pub fn extract_captions(
 
         if frame_idx % (config.fps as usize * 5) == 0 {
             let pct = (ts / total_duration * 100.0).min(100.0);
-            crate::shared::tui_events::emit_task_progress(
+            ocr_shared::tui_events::emit_task_progress(
                 "Caption Phase 1", frame_idx, est_frames, "frames",
                 format!("{:.1}s", ts), format!("{:.1}%", pct),
             );
@@ -747,7 +748,7 @@ pub fn extract_captions(
     let total = all_frame_boxes.len();
 
     // ===== PHASE 2: Xác định & loại bỏ watermark =====
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Phase 2: Lọc watermark ({} frames)...", "[CAPTION]".name_utils().violed(), total
     ));
 
@@ -755,7 +756,7 @@ pub fn extract_captions(
         &all_frame_boxes, crop_w as f64, crop_h as f64, config.watermark_freq_threshold,
     );
 
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Phát hiện {} vùng watermark cố định", "[CAPTION]".name_utils().violed(), watermarks.len()
     ));
 
@@ -770,7 +771,7 @@ pub fn extract_captions(
     }
 
     // ===== PHASE 4: Temporal denoising =====
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} Phase 3: Khử nhiễu temporal...", "[CAPTION]".name_utils().violed()
     ));
 
@@ -884,7 +885,7 @@ pub fn extract_captions(
     fs::write(output_vtt_path, vtt)
         .with_context(|| format!("Không thể ghi caption: {:?}", output_vtt_path))?;
 
-    crate::shared::tui_events::emit_log(format!(
+    ocr_shared::tui_events::emit_log(format!(
         "   {} {} Hoàn tất: {:?} ({} caption)",
         "[CAPTION]".name_utils().violed(), Icons::SUCCESS, output_vtt_path, final_segs.len()
     ));

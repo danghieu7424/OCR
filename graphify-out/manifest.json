@@ -1,8 +1,8 @@
 {
   "Cargo.toml": {
-    "mtime": 1794646695.0129113,
-    "seen": 1794646923.6957815,
-    "ast_hash": "64939088e6d3faf3b9a68389a0059739",
+    "mtime": 1794648013.3648417,
+    "seen": 1794648051.1851919,
+    "ast_hash": "3166d47ef430726ea5972bb1bf79f068",
     "semantic_hash": ""
   },
   "cli_gui_form/Cargo.toml": {
@@ -203,40 +203,16 @@
     "ast_hash": "3aa0be15eca10051f08c9a05223f37b9",
     "semantic_hash": ""
   },
-  "src/OCR/det_filter.rs": {
-    "mtime": 1794638329.1678607,
-    "seen": 1794640022.9724364,
-    "ast_hash": "7db0453b337f03d2ad934643e05529a3",
-    "semantic_hash": ""
-  },
-  "src/OCR/mod.rs": {
-    "mtime": 1794639987.8307462,
-    "seen": 1794640022.9724364,
-    "ast_hash": "b9355db6843ba8ff85f98988e15890fd",
-    "semantic_hash": ""
-  },
-  "src/caption.rs": {
-    "mtime": 1794597027.16173,
-    "seen": 1794597521.6175303,
-    "ast_hash": "d2e7fdae11357f8875944e0c2d07d72b",
-    "semantic_hash": ""
-  },
   "src/lib.rs": {
-    "mtime": 1794645710.04594,
-    "seen": 1794645860.1168833,
-    "ast_hash": "e606bc0223a5f1bae33af3cc8f196d27",
+    "mtime": 1794647828.8291388,
+    "seen": 1794648051.1851919,
+    "ast_hash": "db161db7fd8bc58ab8707c5667712149",
     "semantic_hash": ""
   },
   "src/main.rs": {
     "mtime": 1793983214.0485392,
     "seen": 1794577826.5737367,
     "ast_hash": "9d54dd19acb67c0146b23ed92961c024",
-    "semantic_hash": ""
-  },
-  "src/shared.rs": {
-    "mtime": 1793983288.4040866,
-    "seen": 1794577826.5737367,
-    "ast_hash": "9346d0c1857c7dd08418466b78934338",
     "semantic_hash": ""
   },
   "cli_gui_form/DESIGN.md": {
@@ -263,18 +239,6 @@
     "ast_hash": "2b99ab88e380799dda4e469d8409fbf4",
     "semantic_hash": ""
   },
-  "src/OCR/OCR.md": {
-    "mtime": 1793343588.7834642,
-    "seen": 1794577826.5737367,
-    "ast_hash": "a920cadb80d6e7632180172b0cfa9d75",
-    "semantic_hash": ""
-  },
-  "src/OCR/plan.md": {
-    "mtime": 1793689344.3999283,
-    "seen": 1794577826.5737367,
-    "ast_hash": "936c1f3789a645c93c8cb0887c4e1c92",
-    "semantic_hash": ""
-  },
   "evaluate.md": {
     "mtime": 1794646658.0528145,
     "seen": 1794646923.6957815,
@@ -282,9 +246,9 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1794646916.549267,
-    "seen": 1794646923.6957815,
-    "ast_hash": "dc6e24be2d5176bb59e3adb540914437",
+    "mtime": 1794648040.2683663,
+    "seen": 1794648051.1851919,
+    "ast_hash": "817507f0696c3b1a93ab8146826c4937",
     "semantic_hash": ""
   },
   "tools/compare_subs.py": {
@@ -299,34 +263,106 @@
     "ast_hash": "b098c8097fb6d41dd3b7b3aa4ffb1718",
     "semantic_hash": ""
   },
-  "src/temporal_voting.rs": {
-    "mtime": 1794642418.1593113,
-    "seen": 1794642452.3629358,
-    "ast_hash": "ec8452020550fa18d636ba4fc207fe82",
-    "semantic_hash": ""
-  },
   "examples/proofread_subtitles.rs": {
-    "mtime": 1794645639.513717,
-    "seen": 1794645860.1168833,
-    "ast_hash": "cef26e92ffda9dd59934ed491dac82a4",
+    "mtime": 1794647859.365658,
+    "seen": 1794648051.1851919,
+    "ast_hash": "746d6d46a908c17bd9f10381ca5027f8",
     "semantic_hash": ""
   },
-  "src/glossary.rs": {
+  "crates/OCR_Captions/Cargo.toml": {
+    "mtime": 1794648024.8479602,
+    "seen": 1794648051.1851919,
+    "ast_hash": "d316e76112417044cc58c088423f156e",
+    "semantic_hash": ""
+  },
+  "crates/OCR_Captions/src/lib.rs": {
+    "mtime": 1794647902.0284765,
+    "seen": 1794648051.1851919,
+    "ast_hash": "4f9960e39eada76001f1ea22aa6f2168",
+    "semantic_hash": ""
+  },
+  "crates/OCR_LLM/Cargo.toml": {
+    "mtime": 1794648029.2113507,
+    "seen": 1794648051.1851919,
+    "ast_hash": "2c4b2793d06cbc74401d3e449925b586",
+    "semantic_hash": ""
+  },
+  "crates/OCR_LLM/src/glossary.rs": {
     "mtime": 1794642929.390609,
-    "seen": 1794643033.4224806,
+    "seen": 1794648051.1851919,
     "ast_hash": "c5357717c5a609dc79b7ff819e2375cb",
     "semantic_hash": ""
   },
-  "src/proofread.rs": {
-    "mtime": 1794646884.3834016,
-    "seen": 1794646923.6957815,
-    "ast_hash": "a49f07cddf8f2a997ea5e94016a79ec8",
+  "crates/OCR_LLM/src/lib.rs": {
+    "mtime": 1794647914.146718,
+    "seen": 1794648051.1851919,
+    "ast_hash": "712df7e91e6440f16250ac0090e2a9ad",
     "semantic_hash": ""
   },
-  "src/ollama.rs": {
-    "mtime": 1794646694.936381,
-    "seen": 1794646923.6957815,
-    "ast_hash": "b4a65143a0ad58484fadc001c378c61f",
+  "crates/OCR_LLM/src/ollama.rs": {
+    "mtime": 1794647723.008879,
+    "seen": 1794648051.1851919,
+    "ast_hash": "866d0e5ee59889a3f1a35521260ad59e",
+    "semantic_hash": ""
+  },
+  "crates/OCR_LLM/src/proofread.rs": {
+    "mtime": 1794647768.5286102,
+    "seen": 1794648051.1851919,
+    "ast_hash": "34ff7ff4604e05a6e7e0cccd03d2db2d",
+    "semantic_hash": ""
+  },
+  "crates/OCR_Merge/Cargo.toml": {
+    "mtime": 1794648033.7154415,
+    "seen": 1794648051.1851919,
+    "ast_hash": "0d4eb7e602fcb2a64773f77810eec8a6",
+    "semantic_hash": ""
+  },
+  "crates/OCR_Merge/src/lib.rs": {
+    "mtime": 1794647917.976668,
+    "seen": 1794648051.1851919,
+    "ast_hash": "5a8f465bccac73f2d2e77e897e57b94e",
+    "semantic_hash": ""
+  },
+  "crates/OCR_Subtitles/Cargo.toml": {
+    "mtime": 1794648021.2556584,
+    "seen": 1794648051.1851919,
+    "ast_hash": "95066110d250608a191ea3f7b093b275",
+    "semantic_hash": ""
+  },
+  "crates/OCR_Subtitles/src/det_filter.rs": {
+    "mtime": 1794638329.1678607,
+    "seen": 1794648051.1851919,
+    "ast_hash": "7db0453b337f03d2ad934643e05529a3",
+    "semantic_hash": ""
+  },
+  "crates/OCR_Subtitles/src/lib.rs": {
+    "mtime": 1794647909.9553409,
+    "seen": 1794648051.1851919,
+    "ast_hash": "3189ebc2d749e3d89de6f51235cd4bdb",
+    "semantic_hash": ""
+  },
+  "crates/OCR_Subtitles/src/temporal_voting.rs": {
+    "mtime": 1794642418.1593113,
+    "seen": 1794648051.1851919,
+    "ast_hash": "ec8452020550fa18d636ba4fc207fe82",
+    "semantic_hash": ""
+  },
+  "crates/ocr_shared/Cargo.toml": {
+    "mtime": 1794648017.432906,
+    "seen": 1794648051.1851919,
+    "ast_hash": "2a6122e2edd71374b5a0bef7bed5e2b9",
+    "semantic_hash": ""
+  },
+  "crates/ocr_shared/src/lib.rs": {
+    "mtime": 1794647610.198684,
+    "seen": 1794648051.1851919,
+    "ast_hash": "f074046b8d42e0160d3311ca777e9d81",
+    "semantic_hash": ""
+  },
+  "examples/merge_subtitles_captions.rs": {
+    "mtime": 1794647867.7784438,
+    "seen": 1794648051.1851919,
+    "ast_hash": "83cc9b957db4ed2179e78dca9caf61db",
     "semantic_hash": ""
   }
 }

@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::glossary::EntityGlossary;
-use crate::shared::terminal_color::NameUtilsExt;
+use ocr_shared::terminal_color::NameUtilsExt;
 
 /// Quản lý vòng đời và kết nối tới Ollama từ Rust
 #[derive(Clone)]
@@ -87,7 +87,7 @@ impl OllamaManager {
     /// Kiểm tra cổng 11434, nếu chưa chạy thì tự khởi động `ollama serve` ngầm
     pub fn ensure_daemon_running(&self) -> Result<()> {
         if self.is_server_responsive() {
-            crate::shared::tui_events::emit_log(format!(
+            ocr_shared::tui_events::emit_log(format!(
                 "   {} Ollama daemon đã sẵn sàng tại {}:{}",
                 "[OLLAMA]".name_utils().violed(),
                 self.host,
@@ -96,7 +96,7 @@ impl OllamaManager {
             return Ok(());
         }
 
-        crate::shared::tui_events::emit_log(format!(
+        ocr_shared::tui_events::emit_log(format!(
             "   {} Phát hiện Ollama daemon chưa chạy. Đang tự động khởi động...",
             "[OLLAMA]".name_utils().violed()
         ));
@@ -119,7 +119,7 @@ impl OllamaManager {
         while start.elapsed() < timeout {
             std::thread::sleep(Duration::from_millis(600));
             if self.is_server_responsive() {
-                crate::shared::tui_events::emit_log(format!(
+                ocr_shared::tui_events::emit_log(format!(
                     "   {} Ollama daemon tự khởi động thành công!",
                     "[OLLAMA]".name_utils().violed()
                 ));
@@ -155,7 +155,7 @@ impl OllamaManager {
         });
 
         if has_model {
-            crate::shared::tui_events::emit_log(format!(
+            ocr_shared::tui_events::emit_log(format!(
                 "   {} Mô hình `{}` đã sẵn sàng",
                 "[OLLAMA]".name_utils().violed(),
                 self.model_name
@@ -163,7 +163,7 @@ impl OllamaManager {
             return Ok(());
         }
 
-        crate::shared::tui_events::emit_log(format!(
+        ocr_shared::tui_events::emit_log(format!(
             "   {} Chưa có mô hình `{}`. Bắt đầu tự động tải (ollama pull)...",
             "[OLLAMA]".name_utils().violed(),
             self.model_name
@@ -179,7 +179,7 @@ impl OllamaManager {
             bail!("Tải mô hình `{}` thất bại", self.model_name);
         }
 
-        crate::shared::tui_events::emit_log(format!(
+        ocr_shared::tui_events::emit_log(format!(
             "   {} Tải thành công mô hình `{}`!",
             "[OLLAMA]".name_utils().violed(),
             self.model_name

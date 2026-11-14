@@ -7,6 +7,26 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-14
+
+### Thêm
+
+- Tái cấu trúc toàn bộ dự án thành hệ sinh thái Cargo Workspace đa crate chuyên biệt:
+  - `crates/OCR_Subtitles`: Chuyên trách trích xuất phụ đề lời thoại (khu vực dưới khung hình), tích hợp bộ lọc DBNet và temporal voting.
+  - `crates/OCR_Captions`: Chuyên trách trích xuất chú thích nhân vật/công pháp (khu vực trên/trái khung hình), hỗ trợ chữ dọc và ngang.
+  - `crates/OCR_LLM`: Tầng hậu xử lý thông minh tích hợp mô hình ngôn ngữ lớn Qwen2.5-VL qua Ollama, bộ học thực thể động `EntityGlossary` và bộ lọc khử nhiễu.
+  - `crates/OCR_Merge`: Crate chuyên trách ghép nối (merge) file WebVTT phụ đề và chú thích thành 1 file WebVTT hoàn chỉnh đồng bộ theo trục thời gian tuyến tính (`.merged.zh.vtt`).
+  - `crates/ocr_shared`: Cung cấp các cấu trúc dùng chung (TUI events, CPU optimizer, terminal colors).
+- Tính năng bật/tắt LLM linh hoạt:
+  - Hỗ trợ cờ CLI `--fast` hoặc `--no-llm` (và biến môi trường `OCR_USE_LLM=0`) trong `examples/proofread_subtitles.rs` giúp hoàn tất hiệu đính 100+ câu trong **0.01 giây** trên CPU khi không muốn chờ LLM.
+  - Thêm phương thức `Proofreader::with_fast_mode()` và `Proofreader::set_llm_enabled()`.
+- Example `examples/merge_subtitles_captions.rs`: công cụ CLI ghép nối tự động phụ đề lời thoại và chú thích cho 20 tập.
+
+### Thay đổi
+
+- `Cargo.toml` root: chuyển sang cấu hình Cargo Workspace và re-export các crate con tại `src/lib.rs` đảm bảo tương thích ngược 100% với toàn bộ mã nguồn cũ.
+- `src/`: tinh giản cấu trúc thư mục gốc chỉ còn `lib.rs` và `main.rs`, dọn sạch các file mã nguồn rải rác.
+
 ## [0.4.2] — 2026-11-14
 
 ### Gỡ bỏ
