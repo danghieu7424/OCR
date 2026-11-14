@@ -18,6 +18,8 @@ pub struct VttCue {
     pub end_ms: u64,
     pub text: String,
     pub is_caption: bool,
+    /// Thiết lập vị trí hiển thị chuẩn WebVTT cue settings (ví dụ: `line:20%`, `position:50%`, `align:start`,...)
+    pub settings: Option<String>,
 }
 
 /// Thống kê kết quả hợp nhất
@@ -75,7 +77,19 @@ pub fn parse_vtt(content: &str, is_caption: bool) -> Vec<VttCue> {
             let parts: Vec<&str> = line.split("-->").collect();
             if parts.len() >= 2 {
                 let start_part = parts[0].split_whitespace().next().unwrap_or("");
-                let end_part = parts[1].split_whitespace().next().unwrap_or("");
+                let after_arrow = parts[1].trim();
+
+                let mut ws = after_arrow.split_whitespace();
+                let end_part = ws.next().unwrap_or("");
+                let remaining_settings: Vec<&str> = ws.collect();
+                let settings = if !remaining_settings.is_empty() {
+                    Some(remaining_settings.join(" "))
+                } else if is_caption {
+                    // Fallback mặc định cho caption nếu file nguồn chưa có thiết lập dòng
+                    Some("line:20%".to_string())
+                } else {
+                    None
+                };
 
                 if let (Some(start_ms), Some(end_ms)) =
                     (parse_vtt_timestamp(start_part), parse_vtt_timestamp(end_part))
@@ -95,6 +109,7 @@ pub fn parse_vtt(content: &str, is_caption: bool) -> Vec<VttCue> {
                             end_ms,
                             text,
                             is_caption,
+                            settings,
                         });
                     }
                 }
@@ -127,11 +142,28 @@ pub fn serialize_vtt(cues: &[VttCue]) -> String {
     let mut out = String::from("WEBVTT\n\n");
     for (idx, cue) in cues.iter().enumerate() {
         out.push_str(&format!("{}\n", idx + 1));
-        out.push_str(&format!(
-            "{} --> {}\n",
-            format_vtt_timestamp(cue.start_ms),
-            format_vtt_timestamp(cue.end_ms)
-        ));
+        if let Some(ref s) = cue.settings {
+            if !s.is_empty() {
+                out.push_str(&format!(
+                    "{} --> {} {}\n",
+                    format_vtt_timestamp(cue.start_ms),
+                    format_vtt_timestamp(cue.end_ms),
+                    s
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{} --> {}\n",
+                    format_vtt_timestamp(cue.start_ms),
+                    format_vtt_timestamp(cue.end_ms)
+                ));
+            }
+        } else {
+            out.push_str(&format!(
+                "{} --> {}\n",
+                format_vtt_timestamp(cue.start_ms),
+                format_vtt_timestamp(cue.end_ms)
+            ));
+        }
         out.push_str(&format!("{}\n\n", cue.text));
     }
     out
@@ -200,12 +232,14 @@ mod tests {
                 end_ms: 8000,
                 text: "Lời thoại 1".into(),
                 is_caption: false,
+                settings: None,
             },
             VttCue {
                 start_ms: 12000,
                 end_ms: 15000,
                 text: "Lời thoại 2".into(),
                 is_caption: false,
+                settings: None,
             },
         ];
 
@@ -214,6 +248,7 @@ mod tests {
             end_ms: 6000,
             text: "《Nhân vật A》".into(),
             is_caption: true,
+            settings: Some("line:20%".into()),
         }];
 
         let merged = merge_cues(&sub, &cap);
@@ -224,6 +259,29 @@ mod tests {
 
         let serialized = serialize_vtt(&merged);
         assert!(serialized.contains("WEBVTT"));
-        assert!(serialized.contains("00:00:03.000 --> 00:00:06.000"));
+        assert!(serialized.contains("00:00:03.000 --> 00:00:06.000 line:20%"));
+    }
+
+    #[test]
+    fn test_preserve_vtt_cue_settings_parsing_and_serialization() {
+        let sample_vtt = r#"WEBVTT
+
+00:00:25.800 --> 00:00:27.900 line:20% position:50% align:center
+《小女儿-陆淼淼》
+
+00:00:38.400 --> 00:00:39.700 line:20%
+《老二-陆正然》
+"#;
+        let cues = parse_vtt(sample_vtt, true);
+        assert_eq!(cues.len(), 2);
+        assert_eq!(
+            cues[0].settings.as_deref(),
+            Some("line:20% position:50% align:center")
+        );
+        assert_eq!(cues[1].settings.as_deref(), Some("line:20%"));
+
+        let serialized = serialize_vtt(&cues);
+        assert!(serialized.contains("00:00:25.800 --> 00:00:27.900 line:20% position:50% align:center"));
+        assert!(serialized.contains("00:00:38.400 --> 00:00:39.700 line:20%"));
     }
 }

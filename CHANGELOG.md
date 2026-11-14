@@ -7,6 +7,10 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ## [Unreleased]
 
+### Sửa
+
+- `crates/OCR_Merge`: Sửa lỗi thất thoát thiết lập vị trí WebVTT cue settings (`line:20%`, `position:...`, `align:...`) khi phân tích cú pháp và hợp nhất. Trường `settings: Option<String>` được bổ sung vào `VttCue` để bảo tồn nguyên vẹn 100% tọa độ hiển thị của caption (đặt ở phía trên màn hình `line:20%`), ngăn chặn hiện tượng caption bị hiển thị đè xuống dưới chân màn hình trùng với lời thoại.
+
 ### Thêm
 
 - `examples/extract_and_merge.rs`: Hỗ trợ chạy trích xuất phụ đề (Subtitles) và chú thích (Captions) hoàn toàn **SONG SONG (Parallel)** bằng `std::thread::scope`, giúp rút ngắn ~40% tổng thời gian xử lý video. Hỗ trợ hiển thị thanh tiến trình kép thời gian thực (`[SUB]` và `[CAP]`) trên cùng một dòng console và cờ tùy chọn `--sequential` khi cần chạy tuần tự.
