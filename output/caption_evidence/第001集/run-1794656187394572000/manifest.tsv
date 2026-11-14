@@ -1,0 +1,8 @@
+cue	text	start_sec	end_sec	duration_sec	mean_confidence	warnings	images
+1	《陆清安》	3.200	5.100	1.900	0.9999		cue_001_first_frame_000016_t_000003200ms.png;cue_001_best_frame_000017_t_000003400ms.png;cue_001_last_frame_000025_t_000005000ms.png
+2	《系统》	11.000	12.500	1.500	0.9975		cue_002_first_best_frame_000055_t_000011000ms.png;cue_002_last_frame_000062_t_000012400ms.png
+3	《直到徐清莹突破大帝这天》	26.600	29.500	2.900	0.9829		cue_003_first_frame_000133_t_000026600ms.png;cue_003_best_frame_000143_t_000028600ms.png;cue_003_last_frame_000147_t_000029400ms.png
+4	《林清雪》	33.800	35.100	1.300	0.9999		cue_004_first_frame_000169_t_000033800ms.png;cue_004_best_frame_000171_t_000034200ms.png;cue_004_last_frame_000175_t_000035000ms.png
+5	《徐清莹》	50.600	52.700	2.100	0.9945		cue_005_first_best_frame_000253_t_000050600ms.png;cue_005_last_frame_000263_t_000052600ms.png
+6	《大女儿-陆紫萱》	71.200	72.500	1.300	0.9977		cue_006_first_frame_000356_t_000071200ms.png;cue_006_best_frame_000357_t_000071400ms.png;cue_006_last_frame_000362_t_000072400ms.png
+7	《传音秘术只有两人能听见》	98.800	101.100	2.300	0.9795		cue_007_first_frame_000494_t_000098800ms.png;cue_007_best_frame_000500_t_000100000ms.png;cue_007_last_frame_000505_t_000101000ms.png

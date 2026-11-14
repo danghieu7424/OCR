@@ -1,7 +1,7 @@
 # Graph Report - OCR  (2026-11-14)
 
 ## Corpus Check
-- 63 files · ~93,605 words
+- 63 files · ~93,609 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 12 file(s) not represented in the graph (top: (none) 5, .tsv 4, .onnx 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `68d3f0a3`
+- Built from commit: `f57d26ad`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -84,10 +84,10 @@
 ## Surprising Connections (you probably didn't know these)
 - `main()` --calls--> `merge_vtt_files()`  [INFERRED]
   examples/merge_subtitles_captions.rs → crates/OCR_Merge/src/lib.rs
-- `process_video()` --calls--> `extract_captions()`  [INFERRED]
-  examples/extract_and_merge.rs → crates/OCR_Captions/src/lib.rs
 - `extract_and_report()` --calls--> `extract_captions()`  [INFERRED]
   examples/extract_captions.rs → crates/OCR_Captions/src/lib.rs
+- `process_video()` --calls--> `extract_captions()`  [INFERRED]
+  examples/extract_and_merge.rs → crates/OCR_Captions/src/lib.rs
 - `process_video()` --calls--> `merge_vtt_files()`  [INFERRED]
   examples/extract_and_merge.rs → crates/OCR_Merge/src/lib.rs
 - `process_video()` --calls--> `extract_hardcoded_subtitles()`  [INFERRED]
@@ -243,7 +243,7 @@ Cohesion: 0.39
 Nodes (11): format_vtt_timestamp(), merge_cues(), merge_vtt_files(), MergeSummary, parse_vtt(), parse_vtt_timestamp(), serialize_vtt(), test_merge_cues_ordering() (+3 more)
 
 ## Knowledge Gaps
-- **25 isolated node(s):** `Adding`, `Browsing`, `Editing`, `Loading`, `Running` (+20 more)
+- **25 isolated node(s):** `Adding`, `Browsing`, `Editing`, `Arc`, `Braille6` (+20 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 590 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **23 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -251,16 +251,16 @@ Nodes (11): format_vtt_timestamp(), merge_cues(), merge_vtt_files(), MergeSummar
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Icons` connect `Icons` to `icons.rs`?**
-  _High betweenness centrality (0.185) - this node is a cross-community bridge._
+  _High betweenness centrality (0.205) - this node is a cross-community bridge._
 - **What connects `Adding`, `Browsing`, `Editing` to the rest of the system?**
   _25 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Icons` be split into smaller, more focused modules?**
   _Cohesion score 0.013422818791946308 - nodes in this community are weakly interconnected._
 - **Why does `Tags` connect `Tags` to `ListWidget`, `demo_master.rs`, `tags.rs`?**
-  _High betweenness centrality (0.128) - this node is a cross-community bridge._
+  _High betweenness centrality (0.140) - this node is a cross-community bridge._
 - **Should `Tags` be split into smaller, more focused modules?**
   _Cohesion score 0.027777777777777776 - nodes in this community are weakly interconnected._
-- **Why does `Theme` connect `Theme` to `demo_master.rs`, `StatusBarWidget`, `EventResult`, `editable_list.rs`, `ListWidget`, `demo_master.rs`?**
-  _High betweenness centrality (0.109) - this node is a cross-community bridge._
+- **Why does `FormWidget` connect `FormWidget` to `demo_master.rs`, `InputWidget`, `TabsWidget`, `SelectWidget`, `editable_list.rs`, `ShimmerWidget`, `ListWidget`, `ButtonWidget`, `TaskWidget`, `TaskShared`, `TaskShared`, `task.rs`, `demo_master.rs`, `TaskShared`, `TaskShared`, `TaskShared`, `EventResult`, `CheckboxWidget`, `RadioWidget`, `FormManager`?**
+  _High betweenness centrality (0.085) - this node is a cross-community bridge._
 - **Should `Theme` be split into smaller, more focused modules?**
   _Cohesion score 0.0539906103286385 - nodes in this community are weakly interconnected._

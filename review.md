@@ -492,6 +492,6 @@ Code hiện có đúng ROI caption bạn mô tả: **Y 10–80%, X 0–100%**. N
 
 **Kết luận:** OCR subtitle hiện khá tốt trên bộ 20 tập này nhưng tỷ lệ 99.2% chưa bao gồm đầy đủ cue thiếu/thừa; caption có kết quả văn bản rất tốt trên 18 cue đầu, song cần kiểm lại một frame và timestamp trước khi gọi là xác nhận thị giác hoàn tất. Bước tiếp theo phù hợp là cập nhật bốn tài liệu để bỏ hướng LLM, chốt cách đo có tính cả miss/extra, rồi tách pipeline OCR–merge thuần khỏi `OCR_LLM`.
 
+---
+---
 
----
----

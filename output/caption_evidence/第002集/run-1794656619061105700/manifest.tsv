@@ -1,0 +1,7 @@
+cue	text	start_sec	end_sec	duration_sec	mean_confidence	warnings	images
+1	《小女儿-陆淼淼》	25.800	27.900	2.100	0.9940		cue_001_first_frame_000129_t_000025800ms.png;cue_001_best_frame_000138_t_000027600ms.png;cue_001_last_frame_000139_t_000027800ms.png
+2	《老二-陆正然》	38.400	39.700	1.300	0.9976		cue_002_first_best_frame_000192_t_000038400ms.png;cue_002_last_frame_000198_t_000039600ms.png
+3	《何訇》	44.800	46.300	1.500	0.9980		cue_003_first_best_frame_000224_t_000044800ms.png;cue_003_last_frame_000231_t_000046200ms.png
+4	《徐清莹弟弟-徐轩宇》	202.600	205.500	2.900	0.9371		cue_004_first_frame_001013_t_000202600ms.png;cue_004_best_frame_001014_t_000202800ms.png;cue_004_last_frame_001027_t_000205400ms.png
+5	《徐清莹妹妹-徐韵怡》	206.800	209.700	2.900	0.9884		cue_005_first_best_frame_001034_t_000206800ms.png;cue_005_last_frame_001048_t_000209600ms.png
+6	《陆清安的家》	215.800	218.300	2.500	0.9997		cue_006_first_frame_001079_t_000215800ms.png;cue_006_best_last_frame_001091_t_000218200ms.png
