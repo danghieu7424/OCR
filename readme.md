@@ -39,6 +39,26 @@ cargo run --release --example extract_and_merge -- 001 --caption-evidence
 
 Ảnh first/best/last cùng timestamp, `manifest.tsv` và `warnings.tsv` được lưu dưới `output/caption_evidence/<episode>/run-<id>/`. Ngưỡng cảnh báo confidence và thời lượng là chỉ dấu để duyệt, không phải xác suất hiệu chỉnh.
 
+## CLI độc lập
+
+Binary `ocr-cli` nhận một video hoặc quét không đệ quy một folder video. Mỗi file tạo một thư mục `.tmp_<tên-video>` cạnh video, luôn giữ `subtitles.zh.vtt` và `captions.zh.vtt` ở đó; file merge được ghi vào folder chỉ định:
+
+```powershell
+cargo build --release --bin ocr-cli
+cargo run --release --bin ocr-cli -- input\第001集.mp4 --output output
+cargo run --release --bin ocr-cli -- input --output output --caption-evidence
+```
+
+`--caption-evidence` xuất ảnh first/best/last cho cue subtitle (crop ROI subtitle) và caption (crop detector caption), kèm manifest cho từng loại. Không bật cờ thì không tạo ảnh evidence. Các tùy chọn sau điều chỉnh riêng profile trích xuất và vị trí hiển thị trong file merge; ROI dùng thứ tự `Y_MIN,Y_MAX,X_MIN,X_MAX`, giá trị tỷ lệ từ `0` đến `1`:
+
+```powershell
+cargo run --release --bin ocr-cli -- input --output output `
+  --subtitle-roi 0.85,1.0,0.05,0.95 --caption-roi 0.10,0.80,0,1 `
+  --subtitle-line 85% --caption-line 20%
+```
+
+`--subtitle-line` và `--caption-line` chỉ ghi đè WebVTT `line` khi merge, giữ nguyên các cue settings khác như `position` và `align`; raw VTT trong `.tmp_<tên-video>` không bị sửa. Xem `ocr-cli --help` để biết các cờ và cú pháp đầy đủ.
+
 ## Đối chiếu VTT
 
 Script đọc được cả output mới `.subtitles.zh.vtt` và tên cũ `.zh.vtt`. Mặc định không cần cài gói chuẩn hóa:

@@ -40,8 +40,8 @@ pub use ocr_captions::{
 
 // 3. Hợp nhất phụ đề và chú thích (Merge)
 pub use ocr_merge::{
-    MergeSummary, VttCue, format_vtt_timestamp, merge_cues, merge_vtt_files, parse_vtt,
-    parse_vtt_timestamp, serialize_vtt,
+    MergeSummary, VttCue, format_vtt_timestamp, merge_cues, merge_vtt_files,
+    merge_vtt_files_with_line_overrides, parse_vtt, parse_vtt_timestamp, serialize_vtt,
 };
 
 // 4. Shared & TUI Events

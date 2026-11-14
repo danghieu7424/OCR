@@ -175,6 +175,17 @@ pub fn merge_vtt_files(
     caption_path: &Path,
     output_path: &Path,
 ) -> Result<MergeSummary> {
+    merge_vtt_files_with_line_overrides(subtitle_path, caption_path, output_path, None, None)
+}
+
+/// Merge raw subtitle/caption VTTs and optionally replace only the `line` setting.
+pub fn merge_vtt_files_with_line_overrides(
+    subtitle_path: &Path,
+    caption_path: &Path,
+    output_path: &Path,
+    subtitle_line: Option<&str>,
+    caption_line: Option<&str>,
+) -> Result<MergeSummary> {
     let sub_content = if subtitle_path.exists() {
         fs::read_to_string(subtitle_path)
             .with_context(|| format!("Không thể đọc file phụ đề {:?}", subtitle_path))?
@@ -189,8 +200,10 @@ pub fn merge_vtt_files(
         String::new()
     };
 
-    let sub_cues = parse_vtt(&sub_content, false);
-    let cap_cues = parse_vtt(&cap_content, true);
+    let mut sub_cues = parse_vtt(&sub_content, false);
+    let mut cap_cues = parse_vtt(&cap_content, true);
+    apply_line_override(&mut sub_cues, subtitle_line)?;
+    apply_line_override(&mut cap_cues, caption_line)?;
 
     let summary = MergeSummary {
         subtitle_cues: sub_cues.len(),
@@ -207,6 +220,30 @@ pub fn merge_vtt_files(
     fs::write(output_path, serialized)?;
 
     Ok(summary)
+}
+
+fn apply_line_override(cues: &mut [VttCue], line: Option<&str>) -> Result<()> {
+    let Some(line) = line else {
+        return Ok(());
+    };
+    let line = line.strip_prefix("line:").unwrap_or(line);
+    if line.is_empty() || line.chars().any(char::is_whitespace) {
+        anyhow::bail!("Giá trị line phải là một token WebVTT không rỗng");
+    }
+    let line_setting = format!("line:{line}");
+
+    for cue in cues {
+        let mut settings: Vec<&str> = cue
+            .settings
+            .as_deref()
+            .unwrap_or_default()
+            .split_whitespace()
+            .filter(|setting| !setting.starts_with("line:"))
+            .collect();
+        settings.insert(0, &line_setting);
+        cue.settings = Some(settings.join(" "));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -433,5 +470,57 @@ mod tests {
             serialized.contains("00:00:25.800 --> 00:00:27.900 line:20% position:50% align:center")
         );
         assert!(serialized.contains("00:00:38.400 --> 00:00:39.700 line:20%"));
+    }
+
+    #[test]
+    fn line_overrides_preserve_other_cue_settings_and_leave_raw_files_unchanged() {
+        let temp = tempfile::tempdir().unwrap();
+        let subtitle = temp.path().join("subtitles.vtt");
+        let caption = temp.path().join("captions.vtt");
+        let output = temp.path().join("merged.vtt");
+        let subtitle_content = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nsubtitle\n\n";
+        let caption_content = "WEBVTT\n\n00:00:01.500 --> 00:00:02.500 line:20% position:45% align:start\ncaption\n\n";
+        fs::write(&subtitle, subtitle_content).unwrap();
+        fs::write(&caption, caption_content).unwrap();
+
+        merge_vtt_files_with_line_overrides(
+            &subtitle,
+            &caption,
+            &output,
+            Some("85%"),
+            Some("line:30%"),
+        )
+        .unwrap();
+
+        let merged = fs::read_to_string(output).unwrap();
+        assert!(merged.contains("00:00:01.000 --> 00:00:02.000 line:85%"));
+        assert!(merged.contains("00:00:01.500 --> 00:00:02.500 line:30% position:45% align:start"));
+        assert_eq!(fs::read_to_string(subtitle).unwrap(), subtitle_content);
+        assert_eq!(fs::read_to_string(caption).unwrap(), caption_content);
+    }
+
+    #[test]
+    fn line_override_rejects_empty_or_whitespace_values() {
+        let temp = tempfile::tempdir().unwrap();
+        let subtitle = temp.path().join("subtitles.vtt");
+        let caption = temp.path().join("captions.vtt");
+        let output = temp.path().join("merged.vtt");
+        fs::write(&subtitle, "WEBVTT\n").unwrap();
+        fs::write(&caption, "WEBVTT\n").unwrap();
+
+        assert!(
+            merge_vtt_files_with_line_overrides(&subtitle, &caption, &output, Some(""), None)
+                .is_err()
+        );
+        assert!(
+            merge_vtt_files_with_line_overrides(
+                &subtitle,
+                &caption,
+                &output,
+                None,
+                Some("20% position:50%"),
+            )
+            .is_err()
+        );
     }
 }
