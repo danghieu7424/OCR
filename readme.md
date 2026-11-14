@@ -2,7 +2,7 @@
 
 Thư viện và công cụ Rust chuẩn công nghiệp dùng để phát hiện và trích xuất phụ đề cứng (Hardcoded Subtitles) từ video sang định dạng WebVTT (`.zh.vtt`).
 
-Được xây dựng trên nền tảng **ONNX Runtime**, **DBNet Text Detection**, **PP-OCRv4/v5 CTC Recognition**, kết hợp máy trạng thái thời gian (**Temporal State Machine**) và thuật toán đối sánh chuỗi thông minh (Levenshtein + Prefix/Suffix Sequence Matching) đạt độ chính xác >99%:
+Được xây dựng trên nền tảng **ONNX Runtime**, **DBNet Text Detection**, **PP-OCRv6 CTC Recognition**, kết hợp máy trạng thái thời gian (**Temporal State Machine**) và thuật toán đối sánh chuỗi thông minh (Levenshtein + Prefix/Suffix Sequence Matching) đạt độ chính xác >99%:
 - **Bảo toàn 100% Sub 1 ký tự**: Nhận diện chuẩn xác các từ đơn lẻ ngắn (`爹`, `嗯`, `姐`, `哼`, `啊`).
 - **Chống gộp cụm & rụng câu**: Phân tách chuẩn xác các câu thoại nói nhanh liền kề.
 - **Khử nhiễu nhấp nháy**: Triệt tiêu hiện tượng chữ nháy nét, vệt sáng kiếm quang hoặc typo 1-frame.
@@ -16,7 +16,7 @@ Thư viện và công cụ Rust chuẩn công nghiệp dùng để phát hiện 
 2. **Rust Toolchain**: Rust 2024 Edition.
 3. **Mô hình AI ONNX**: Đặt trong thư mục `models/ocr/`:
    - `det.onnx`: DBNet Text Detection.
-   - `rec.onnx`: PP-OCRv4 hoặc PP-OCRv5 Text Recognition.
+   - `rec.onnx`: PP-OCRv6 Text Recognition.
    - `keys.txt`: Từ điển ký tự tương ứng.
 
 ---
@@ -138,52 +138,37 @@ cargo run --release
 
 ---
 
-## 📥 Tải mô hình và từ điển ký tự
+## 📥 Tải mô hình và từ điển ký tự (PP-OCRv6)
 
-Hệ thống OCR yêu cầu trọn bộ 3 tệp mô hình đặt tại thư mục `models/ocr/` (chương trình sẽ tự động tải về nếu phát hiện thiếu):
+Hệ thống OCR yêu cầu trọn bộ 3 tệp mô hình PP-OCRv6 đặt tại thư mục `models/ocr/` (chương trình sẽ tự động tải về hoặc giải nén từ `models/ocr.zip` nếu phát hiện thiếu):
 
-### 🔍 1. Tải mô hình phát hiện vị trí chữ (`det.onnx`)
+### 🔍 1. Tải mô hình phát hiện vị trí chữ (`det.onnx`) - PP-OCRv6 Medium
 
 Mô hình DBNet dùng để quét toàn khung hình và định vị tọa độ (bounding box) của từng dòng phụ đề:
-- **Tên mô hình chuẩn:** `ch_PP-OCRv4_det_infer.onnx` (đổi tên thành `det.onnx`)
-- **Link tải:** [https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx](https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx)
+- **Link tải:** [https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/main/inference.onnx](https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/main/inference.onnx)
 - **Lệnh tải nhanh:**
   ```bash
-  curl.exe -L -o models/ocr/det.onnx https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx
+  curl.exe -L -o models/ocr/det.onnx https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/main/inference.onnx
   ```
 
 ---
 
-### 🔤 2. Từ điển ký tự (`keys.txt`)
+### 🔤 2. Từ điển ký tự (`keys.txt`) - PP-OCRv6 Dictionary
 
-Model OCR CTC yêu cầu file từ điển tương thích đúng số lớp ký tự (18,384 dòng ký tự + blank index 0 = 18,385 class):
-- **File từ điển chuẩn PP-OCRv5:** `ppocrv5_dict.txt` (đổi tên thành `keys.txt`)
-- **Link tải:** [https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt](https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt)
+File từ điển ký tự chính thức của PP-OCRv6:
+- **Link tải:** [https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt](https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt)
 - **Lệnh tải nhanh:**
   ```bash
-  curl.exe -L -o models/ocr/keys.txt https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_dict.txt
+  curl.exe -L -o models/ocr/keys.txt https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt
   ```
 
 ---
 
-### 📥 3. Tải mô hình nhận diện chữ (`rec.onnx`)
+### 📥 3. Tải mô hình nhận diện chữ (`rec.onnx`) - PP-OCRv6 Medium
 
-Mô hình PP-OCR CTC dùng để dịch các mẩu ảnh chữ thành văn bản tiếng Trung:
-- **Bản PP-OCRv5 Server Rec ONNX:** `ppocrv5_server_rec.onnx` (đổi tên thành `rec.onnx`)
-- **Link tải:** [https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_server_rec.onnx](https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_server_rec.onnx)
+Mô hình PP-OCRv6 CTC dùng để dịch các mẩu ảnh chữ thành văn bản tiếng Trung:
+- **Link tải:** [https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx](https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx)
 - **Lệnh tải nhanh:**
   ```bash
-  curl.exe -L -o models/ocr/rec.onnx https://github.com/GreatV/oar-ocr/releases/download/v0.1.0/ppocrv5_server_rec.onnx
+  curl.exe -L -o models/ocr/rec.onnx https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx
   ```
-
-# Download v6
-```Bash
-# Tải Detection v6 (Medium)
-curl.exe -L -o models/ocr/det.onnx https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/main/inference.onnx
-
-# Dictionary
-curl.exe -L -o models/ocr/keys.txt https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt
-
-# Tải Recognition v6 (Medium)
-curl.exe -L -o models/ocr/rec.onnx https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx
-```

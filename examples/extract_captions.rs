@@ -24,7 +24,39 @@ use OCR::{extract_captions, CaptionExtractorConfig, CaptionRoi};
 
 
 
-/// Kiểm tra & nạp model PP-OCRv6 nếu thiếu
+/// Tải file mô hình PP-OCRv6 từ URL
+fn download_file(url: &str, output: &Path) -> Result<()> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    println!("    [DOWNLOAD] {}", url);
+
+    let status = Command::new("curl.exe")
+        .args(&["-L", "--progress-bar", "-o", &output.to_string_lossy(), url])
+        .status();
+
+    match status {
+        Ok(s) if s.success() && output.exists() => {
+            println!("    \x1b[32m[OK]\x1b[0m {:?}", output.file_name().unwrap_or_default());
+            Ok(())
+        }
+        _ => {
+            println!("    [FALLBACK] PowerShell...");
+            let ps = format!(
+                "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
+                url, output.to_string_lossy()
+            );
+            Command::new("powershell").args(&["-Command", &ps]).status()?;
+            if output.exists() {
+                Ok(())
+            } else {
+                anyhow::bail!("Tải thất bại: {}", url);
+            }
+        }
+    }
+}
+
+/// Kiểm tra & nạp model PP-OCRv6 (giải nén từ ocr.zip hoặc tải tự động từ HuggingFace PP-OCRv6 Medium)
 fn ensure_models(model_dir: &Path) -> Result<()> {
     let ocr = model_dir.join("ocr");
     let det = ocr.join("det.onnx");
@@ -58,10 +90,33 @@ fn ensure_models(model_dir: &Path) -> Result<()> {
         }
     }
 
-    anyhow::bail!(
-        "Thiếu bộ mô hình PP-OCRv6 trong {:?}. Vui lòng đảm bảo các file 'det.onnx', 'rec.onnx', 'keys.txt' tồn tại trong 'models/ocr/' (hoặc cung cấp file 'models/ocr.zip').",
-        ocr
-    );
+    println!(">>> [MODEL] Tự động tải bộ mô hình PP-OCRv6 (Medium)...");
+    std::fs::create_dir_all(&ocr)?;
+
+    if !det.exists() {
+        println!(">>> [1/3] det.onnx (PP-OCRv6 Medium Detection)...");
+        download_file(
+            "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/main/inference.onnx",
+            &det,
+        )?;
+    }
+    if !keys.exists() {
+        println!(">>> [2/3] keys.txt (PP-OCRv6 Dictionary)...");
+        download_file(
+            "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt",
+            &keys,
+        )?;
+    }
+    if !rec.exists() {
+        println!(">>> [3/3] rec.onnx (PP-OCRv6 Medium Recognition)...");
+        download_file(
+            "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx",
+            &rec,
+        )?;
+    }
+
+    println!(">>> [MODEL] Sẵn sàng bộ mô hình PP-OCRv6!\n");
+    Ok(())
 }
 
 fn main() -> Result<()> {

@@ -6,7 +6,7 @@
  * Quy trình 4 bước chuẩn công nghiệp:
  * 1. ROI Adaptive Cropping & High-Precision FFmpeg Streaming (fps = 10-12, rawvideo rgb24).
  * 2. Deep Learning Text Detection (DBNet) & Text Line Clustering.
- * 3. PP-OCRv4/v5 CTC Recognition với chuẩn hóa PaddleOCR ([-1.0, 1.0] BGR).
+ * 3. PP-OCRv6 CTC Recognition với chuẩn hóa PaddleOCR ([-1.0, 1.0] BGR).
  * 4. Temporal State Machine: Frame Denoising, Text Transition Boundary Detection & Majority Voting.
  ****/
 
@@ -136,7 +136,7 @@ pub struct OcrExtractorOutput {
     pub segments: Vec<SubtitleSegment>,
 }
 
-/// Bộ máy nhận dạng chữ PP-OCRv4 bằng ONNX Runtime
+/// Bộ máy nhận dạng chữ PP-OCRv6 bằng ONNX Runtime
 struct PpOcrEngine {
     rec_session: Session,
     keys: Vec<String>,
@@ -499,7 +499,7 @@ pub fn extract_hardcoded_subtitles(
 
     // Bước 0: Nạp mô hình OCR PP-OCRv4/v5
     ocr_shared::tui_events::emit_log(format!(
-        "   {} Khởi tạo mô hình ONNX PP-OCRv4/v5 Text Recognition...",
+        "   {} Khởi tạo mô hình ONNX PP-OCRv6 Text Recognition...",
         "[OCR]".name_utils().violed()
     ));
     let mut ocr_engine = PpOcrEngine::new(model_dir)?;
