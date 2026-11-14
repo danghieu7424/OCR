@@ -61,13 +61,27 @@ Mỗi video tạo một thư mục `.tmp_<tên-video>` cạnh file đầu vào, 
 C:\Videos\
   episode.mp4
   .tmp_episode\
+    state.json
     subtitles.zh.vtt
     captions.zh.vtt
 ```
 
 File merge được ghi trong output với tên `<tên-video>.merged.zh.vtt`. Nếu nhiều video trong folder có cùng tên gốc, CLI báo lỗi để tránh ghi đè VTT và thư mục tạm.
 
-Trong lúc OCR, terminal hiển thị hai thanh tiến trình riêng `[SUB]` và `[CAP]`.
+Trong lúc OCR, subtitle và caption được trích xuất song song. Hai thanh `[SUB]` và `[CAP]` có màu riêng: thanh tiến trình xanh dương; nhãn đang chạy xanh cyan; hoàn tất xanh lá; cần duyệt/cảnh báo cam; lỗi đỏ. Khi bước trích xuất thành công, phần trăm được chốt ở 100%.
+
+### Tiếp tục sau khi bị gián đoạn
+
+Mỗi video lưu checkpoint tại `.tmp_<tên-video>\state.json`. Lần chạy sau, CLI kiểm tra trạng thái từng bước subtitle, caption và merge, rồi bỏ qua bước đã hoàn tất và còn đầu ra hợp lệ. Bước chưa xong sẽ tiếp tục; file video, model hoặc cấu hình OCR thay đổi sẽ làm bước liên quan chạy lại. Thay đổi riêng `--subtitle-line`/`--caption-line` chỉ chạy lại bước merge.
+
+Thêm `--force` để chạy lại toàn bộ subtitle, caption và merge, kể cả khi checkpoint cho biết đã hoàn tất:
+
+```powershell
+.\ocr-cli.exe -i "C:\Videos\episode.mp4" -o "C:\Videos\output" `
+  --models ".\models" --caption-evidence --force
+```
+
+Khi dùng `--force`, raw VTT được tạo lại; nếu bật `--caption-evidence`, thư mục evidence của từng bộ OCR cũng được tạo lại.
 
 ## 4. Ảnh evidence
 
@@ -95,6 +109,14 @@ Ví dụ điều chỉnh cả hai ROI và vị trí WebVTT:
   --subtitle-roi 0.85,1.0,0.05,0.95 `
   --caption-roi 0.10,0.80,0,1 `
   --subtitle-line 85% `
+  --caption-line 20%
+```
+
+```powershell
+./ocr-cli/ocr-cli.exe -i input -o input  --caption-evidence `
+  --subtitle-roi 0.85,1.0,0.05,0.95 `
+  --caption-roi 0.10,0.80,0,1 `
+  --subtitle-line 90% `
   --caption-line 20%
 ```
 

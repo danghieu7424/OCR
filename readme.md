@@ -49,7 +49,9 @@ cargo run --release --bin ocr-cli -- --input input\第001集.mp4 --output output
 cargo run --release --bin ocr-cli -- -i input -o output --caption-evidence
 ```
 
-`--caption-evidence` xuất ảnh first/best/last cho cue subtitle (crop ROI subtitle) và caption (crop detector caption), kèm manifest cho từng loại. Không bật cờ thì không tạo ảnh evidence. Các tùy chọn sau điều chỉnh riêng profile trích xuất và vị trí hiển thị trong file merge; ROI dùng thứ tự `Y_MIN,Y_MAX,X_MIN,X_MAX`, giá trị tỷ lệ từ `0` đến `1`:
+Subtitle và caption được trích xuất song song. Mỗi video lưu checkpoint `.tmp_<tên-video>\state.json`, nên lần chạy lại sẽ bỏ qua từng bước đã hoàn tất và tiếp tục bước còn thiếu; thay đổi input/model/cấu hình OCR làm bước liên quan chạy lại. Thay đổi riêng `--subtitle-line`/`--caption-line` chỉ tạo lại file merge. Dùng `--force` để chạy lại toàn bộ các bước.
+
+`--caption-evidence` xuất ảnh first/best/last cho cue subtitle (crop ROI subtitle) và caption (crop detector caption), kèm manifest cho từng loại. Không bật cờ thì không tạo ảnh evidence. Hai thanh `[SUB]`/`[CAP]` hiển thị tiến trình riêng; thanh xanh dương, hoàn tất xanh lá, cảnh báo cam và lỗi đỏ. Khi bước thành công, phần trăm được chốt ở 100%. Các tùy chọn sau điều chỉnh riêng profile trích xuất và vị trí hiển thị trong file merge; ROI dùng thứ tự `Y_MIN,Y_MAX,X_MIN,X_MAX`, giá trị tỷ lệ từ `0` đến `1`:
 
 ```powershell
 cargo run --release --bin ocr-cli -- input --output output `
@@ -57,7 +59,7 @@ cargo run --release --bin ocr-cli -- input --output output `
   --subtitle-line 85% --caption-line 20%
 ```
 
-`--subtitle-line` và `--caption-line` chỉ ghi đè WebVTT `line` khi merge, giữ nguyên các cue settings khác như `position` và `align`; raw VTT trong `.tmp_<tên-video>` không bị sửa. Xem `ocr-cli --help` để biết các cờ và cú pháp đầy đủ.
+`--subtitle-line` và `--caption-line` chỉ ghi đè WebVTT `line` khi merge, giữ nguyên các cue settings khác như `position` và `align`; raw VTT trong `.tmp_<tên-video>` không bị sửa. Thêm `--force` để bỏ qua checkpoint và OCR lại toàn bộ. Xem `ocr-cli --help` để biết các cờ và cú pháp đầy đủ.
 
 ## Đối chiếu VTT
 
