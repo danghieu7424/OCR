@@ -10,6 +10,7 @@
 pub mod ocr;
 
 pub mod caption;
+pub mod temporal_voting;
 pub mod shared;
 
 // Re-export Subtitle extraction (phụ đề lời thoại — vùng dưới màn hình)

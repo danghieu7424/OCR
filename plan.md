@@ -93,3 +93,51 @@ Bạn **không cần gõ tay** danh sách này. Trong phim hoạt hình Trung Qu
 2. **Trong `src/OCR/mod.rs` (Subtitle)**:
    - Đã có phân đoạn thời gian (`cluster_records`), thuật toán làm mịn (`temporal_smooth`), lấp chỗ trống 1–2 frame (`dropout fill`), và so khớp tương đồng chuỗi (`is_same_subtitle` bằng khoảng cách Levenshtein).
    - Điểm khác biệt duy nhất: Code phụ đề hiện tại đang chọn chuỗi có độ dài tốt nhất/ổn định nhất của cụm. Trong nhật ký `evaluate.md`, agent trước cũng đã ghi chú: _Nếu sau này muốn cứu những ca chữ bị che khuất tạm thời trên nền bùa chú như `挡住`, hướng đi chuẩn là nâng cấp bầu phiếu ký tự con theo cửa sổ lân cận $\pm 0.5\text{s}$ như cách Caption đang làm._
+
+---
+
+---
+
+Analyzed plan.md:L1-95
+Analyzed graphify.md:L1-60
+Analyzed graphify.md:L1-10
+
+Theo đúng nguyên tắc **"1. Think Before Coding"** trong [graphify.md](file:///c:/DATA/OCR/.agents/rules/graphify.md) (_nêu rõ các giả định, làm rõ phương án trước khi triển khai, không đoán mò_), tôi đã tổng hợp thành kế hoạch cụ thể dưới đây và cập nhật vào [plan.md](file:///c:/DATA/OCR/plan.md):
+
+---
+
+### Kế hoạch triển khai (Plan) cho 3 mục
+
+#### 1. Mục 1: Tích hợp Qwen2.5-VL-3B-Instruct (Hậu xử lý trên CPU)
+
+- **Vấn đề trên CPU**: Mô hình Vision-Language 3B nếu nạp cả video hoặc chạy toàn bộ từng frame sẽ rất nặng (khoảng 3–5 giây/ảnh trên CPU).
+- **Giải pháp tối ưu**:
+  - Không chạy VLM cho toàn bộ frame. Chỉ kích hoạt Qwen2.5-VL cho những đoạn **"nghi ngờ"**:
+    - Độ tin cậy OCR thấp (`confidence < 0.85`),
+    - Hoặc câu văn bị đứt gãy / chứa ký tự hiếm / bất thường ngữ pháp.
+  - Chỉ crop duy nhất hộp chữ (crop box nhỏ) kèm câu văn thô và prompt ngắn cho Qwen2.5-VL xác nhận lại.
+  - Sử dụng runtime nhẹ tương thích CPU (như llama.cpp GGUF Q4_K_M hoặc ONNX Runtime GenAI).
+
+#### 2. Mục 2: Tự động tạo Entity Glossary từ Caption
+
+- **Nguyên lý**:
+  - Module `caption` đã bóc tách chính xác toàn bộ danh xưng nhân vật, địa danh, công pháp (các thẻ `《...》`).
+  - Tự động quét các file `.captions.zh.vtt` của toàn bộ các tập, trích xuất danh sách thực thể chuẩn (ví dụ: `陆清安`, `何訇`, `陆紫萱`, `九狱弑仙剑`, `大帝境中期`...).
+- **Ứng dụng**:
+  - Dùng bảng thực thể này để tự động kiểm tra và hiệu đính phụ đề (subtitle) sau OCR: nếu phát hiện biến thể mờ/thiếu như `防安` / `陆安` $\rightarrow$ nắn về `陆清安`.
+
+#### 3. Mục 3: Nâng cấp Bỏ phiếu đa khung hình (Temporal Voting cho Subtitle)
+
+- **Phạm vi an toàn**: Tuân thủ luật cấm sửa lung tung, chỉ bổ sung thuật toán chọn câu trong cụm thời gian.
+- **Nguyên lý**:
+  - Khi một cụm phụ đề kéo dài $N$ khung hình (ví dụ 10–15 frame): Thay vì chỉ lấy chuỗi dài nhất của 1 frame đơn lẻ, hệ thống gom tất cả kết quả nhận diện của từng frame và bỏ phiếu tần suất theo từng vị trí ký tự (character-level majority voting).
+  - Giúp loại bỏ hoàn toàn các khung hình bị bùa chú/tia sáng lóe che khuất tạm thời (cứu các ca như `挡住`).
+
+---
+
+### Xác nhận trước khi bắt đầu
+
+Để đảm bảo đúng ý bạn và không làm phức tạp hóa hệ thống:
+
+1. Bạn muốn tích hợp module này dưới dạng **một công cụ hậu xử lý độc lập** (CLI script / tool trong `tools/` nhận file VTT + video rồi sửa lại), hay **tích hợp trực tiếp thành một cờ/tùy chọn (flag) trong pipeline Rust**?
+2. Về mô hình Qwen2.5-VL-3B-Instruct: Bạn đã có sẵn file model trọng số GGUF/HuggingFace cục bộ trên máy chưa, hay muốn viết lệnh tự động tải bản lượng tử hóa GGUF?
