@@ -1,6 +1,6 @@
 # Kết quả kiểm chứng OCR
 
-Ngày chạy: 2026-11-15. Bảng dưới đây ghi lại lần chạy lại 20 tập S01 sau các thay đổi OCR, so sánh bằng `tools/compare_subs.py` trên VTT subtitle OCR thô, không chuẩn hóa phồn/giản thể (`--norm none`). Ground truth trong `input/` được giữ nguyên; đầu vào và kết quả chạy được lưu tạm dưới `scratch/s01-recheck-input/` và `scratch/s01-recheck-raw/`.
+Ngày chạy: 2026-11-15. Bảng dưới đây ghi lại lần chạy lại 20 tập S01 sau các thay đổi OCR, so sánh bằng `tools/compare_subs.py` trên VTT subtitle OCR thô, không chuẩn hóa phồn/giản thể (`--norm none`). Ground truth trong `input/` được giữ nguyên; dữ liệu chạy lại trong `scratch/` đã được dọn sau khi đối chiếu.
 
 ## Subtitle: 20 tập
 
@@ -33,9 +33,32 @@ Ngày chạy: 2026-11-15. Bảng dưới đây ghi lại lần chạy lại 20 t
 - Script căn cue theo overlap thời gian (ngưỡng 40%), sau đó dùng start-time cách nhau tối đa 2 giây để ghép bù. Chỉ số trên là so nguyên văn, không dùng `zhconv`; không nên so trực tiếp với các tỷ lệ lịch sử dùng chuẩn hóa t2s.
 - Tổng số cue: 758 tham chiếu, 754 OCR, 753 cặp đã căn, 711 cue khớp nguyên văn, 5 cue thiếu và 1 cue thừa.
 
-## Kiểm chứng trước đó về ảnh caption evidence (001–002)
+## S02 pipeline acceptance: 7 tập gốc
 
-Các lệnh evidence dưới đây thuộc lượt kiểm chứng trước, tách biệt với lần chạy lại 20 tập S01 ở trên:
+Đã chạy `ocr-cli --force --caption-evidence` trên bản sao byte-identical (SHA-256 khớp) của `S02E001`, `S02E003`, `S02E005`, `S02E006`, `S02E007`, `S02E017` và `S02E019` từ `in/`. Ground truth không bị sửa. Log, merged VTT, hai VTT OCR thô và crop evidence được giữ tại `output/s02-acceptance-20261115/`.
+
+| Tập | Kết quả merge | Caption |
+|---|---:|---:|
+| S02E001 | 58 cues (52 subtitle + 6 caption) | 6 |
+| S02E003 | 52 cues (52 subtitle + 0 caption) | 0 |
+| S02E005 | 15 cues (15 subtitle + 0 caption) | 0 |
+| S02E006 | 27 cues (26 subtitle + 1 caption) | 1 |
+| S02E007 | 27 cues (27 subtitle + 0 caption) | 0 |
+| S02E017 | 28 cues (26 subtitle + 2 caption) | 2 |
+| S02E019 | 22 cues (21 subtitle + 1 caption) | 1 |
+
+### Kiểm tra các lỗi đã báo
+
+- **S02E001:** crop evidence xác nhận `《雪天妃》` và `《陆清安-妖魔体状态》` là hai cue/crop riêng ở 9.8–11.5s; `《骆丹茲》` và `《肖清逸》` cũng tách riêng ở 116.2–117.5s. Mốc 197s không thuộc thời lượng video.
+- **S02E005:** `武司` không còn; cue là `永夜魔帝`, không dính `富`.
+- **S02E006:** cụm rác `富龙麗龍龍黑龙` không còn; cue tại 27.85–28.65s là `黑龙`.
+- **S02E007:** `龙流` và hậu tố `光` không còn; giữ đủ `一路上所有虚空都得被你破坏`.
+- **S02E017:** crop xác nhận caption `《何訇》` tại 5.6–7.1s đã được khôi phục.
+- **S02E019:** crop xác nhận `《骆丹茲》` tại 32.8–34.3s; false positive `《区》` không có trong VTT caption của lượt chạy mới. Đã kiểm tra thêm clip debug, các box `区` nhỏ/confidence 0.41–0.66 bị loại khỏi track cứu.
+
+## Kiểm chứng trước đó về ảnh caption evidence S01 (001–002)
+
+Các lệnh và phạm vi dưới đây thuộc lượt kiểm chứng ảnh S01 trước đó, tách biệt với lần chạy lại 20 tập S01 và nghiệm thu 7 tập S02 ở trên:
 
 ```powershell
 cargo run --release --example extract_and_merge -- 001 --caption-evidence
@@ -55,12 +78,13 @@ Thư mục `output/caption_evidence/` không có trong working copy hiện tại
 
 - **001:** Đã xem ảnh first/best/last của cue 6. Manifest ghi `《大女儿-陆紫萱》`, thời gian 71.2–72.5 giây; frame 71.2, 71.4 và 72.4 giây đều cho thấy dòng chữ dọc `大女儿 陆紫萱` trên bia. Nội dung phù hợp cue và ảnh nằm trong khoảng thời gian cue; nghi vấn lệch timestamp của `ep01_06_danver.png` được giải tỏa trên evidence mới.
 - **002:** Đã xem ảnh cue 4 tại 202.6, 202.8 và 205.4 giây; chữ dọc tương ứng `《徐清莹弟弟-徐轩宇》`. Sáu cue đều có trong manifest.
-- **Phạm vi:** hiện có evidence mới chỉ cho 001–002 (13 cue); 003–020 chưa được tạo ảnh evidence trong lượt kiểm chứng này nên chưa thể kết luận đã duyệt hình ảnh 20/20 tập. Không dùng thống kê caption cũ thay thế cho việc xem ảnh mới.
+- **Phạm vi của lượt S01 trước đó:** evidence chỉ được tạo cho 001–002 (13 cue); 003–020 không có ảnh trong lượt đó. Không dùng thống kê caption cũ thay thế cho việc xem ảnh mới.
 
 ## Kiểm thử
 
-- `cargo test --workspace`: pass, gồm 89 unit tests và 1 doctest.
+- `cargo test --workspace`: pass, gồm 90 unit tests và 1 doctest.
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass, không có cảnh báo.
 - `cargo fmt --all -- --check`: pass.
 - `python -m unittest tools.test_compare_subs`: pass (5 tests).
-- `python tools\compare_subs.py`: lần chạy trước đã đọc đủ 20 tập; không thể tái chạy trong working copy hiện tại vì thiếu VTT OCR trong `output/`.
+- `python tools\compare_subs.py`: đã đối chiếu đủ 20 tập S01 với `--norm none`; VTT tạm được dọn sau khi ghi số liệu ở trên.
+- `ocr-cli --force --caption-evidence`: hoàn tất đủ 7/7 video S02 gốc; merged/raw VTT, crop evidence, hai frame kiểm tra false positive và log được giữ tại `output/s02-acceptance-20261115/`.

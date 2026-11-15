@@ -365,6 +365,8 @@ fn detect_and_recognize(
 /// Ngưỡng bão hoà màu tối đa của nét chữ caption.
 /// Caption là chữ trắng/nhạt nên các điểm sáng nhất trong box gần như vô màu;
 /// chữ nằm trong cảnh (chữ đỏ 囍, chữ vàng trên sách/cuộn) có độ bão hoà cao.
+const WEAK_CAPTION_CONFIDENCE_RATIO: f32 = 0.75;
+const WEAK_CAPTION_MIN_EXTENT_RATIO: f64 = 0.04;
 const CAPTION_MAX_INK_SAT: f32 = 0.33;
 
 /// Caption luôn có quầng tối (viền/bóng) ngay sau nét chữ: đo trên các box
@@ -974,6 +976,12 @@ fn has_confident_caption_anchor(
     })
 }
 
+#[derive(Clone, Copy)]
+struct WeakCaptionThresholds {
+    min_confidence: f32,
+    min_box_extent: f64,
+}
+
 fn has_stable_weak_caption_track(
     candidate: &str,
     candidate_boxes: &[TextBox],
@@ -981,6 +989,7 @@ fn has_stable_weak_caption_track(
     weak_records: &[String],
     weak_boxes: &[Vec<TextBox>],
     max_gap: usize,
+    thresholds: WeakCaptionThresholds,
 ) -> bool {
     let start = frame_idx.saturating_sub(max_gap);
     let end = frame_idx
@@ -1003,7 +1012,35 @@ fn has_stable_weak_caption_track(
                 })
         })
         .collect();
-    matching_frames.len() >= 2
+    if matching_frames.len() < 2 {
+        return false;
+    }
+
+    let matching_boxes: Vec<&TextBox> = matching_frames
+        .iter()
+        .flat_map(|&track_idx| {
+            weak_boxes[track_idx].iter().filter(|track_box| {
+                candidate_boxes
+                    .iter()
+                    .any(|candidate_box| boxes_overlap(candidate_box, track_box))
+            })
+        })
+        .collect();
+    if matching_boxes.is_empty() {
+        return false;
+    }
+
+    let mean_confidence = matching_boxes
+        .iter()
+        .map(|text_box| text_box.confidence)
+        .sum::<f32>()
+        / matching_boxes.len() as f32;
+    let mean_extent = matching_boxes
+        .iter()
+        .map(|text_box| text_box.width.max(text_box.height))
+        .sum::<f64>()
+        / matching_boxes.len() as f64;
+    mean_confidence >= thresholds.min_confidence && mean_extent >= thresholds.min_box_extent
 }
 
 fn levenshtein_distance(s1: &str, s2: &str) -> usize {
@@ -1575,8 +1612,27 @@ pub fn extract_captions(
     let strong_records = records.clone();
     let strong_frame_boxes = filtered_frame_boxes.clone();
     let boundary_lookaround = (config.fps as usize).div_ceil(2).max(1);
+    let weak_caption_thresholds = WeakCaptionThresholds {
+        min_confidence: config.min_confidence * WEAK_CAPTION_CONFIDENCE_RATIO,
+        min_box_extent: src_w.min(src_h) as f64 * WEAK_CAPTION_MIN_EXTENT_RATIO,
+    };
     for frame_idx in 0..total {
         if weak_records[frame_idx].is_empty() {
+            continue;
+        }
+        let candidate_confidence = weak_frame_boxes[frame_idx]
+            .iter()
+            .map(|text_box| text_box.confidence)
+            .sum::<f32>()
+            / weak_frame_boxes[frame_idx].len() as f32;
+        let candidate_extent = weak_frame_boxes[frame_idx]
+            .iter()
+            .map(|text_box| text_box.width.max(text_box.height))
+            .sum::<f64>()
+            / weak_frame_boxes[frame_idx].len() as f64;
+        if candidate_confidence < weak_caption_thresholds.min_confidence
+            || candidate_extent < weak_caption_thresholds.min_box_extent
+        {
             continue;
         }
         let has_strong_anchor = has_confident_caption_anchor(
@@ -1594,6 +1650,7 @@ pub fn extract_captions(
             &weak_records,
             &weak_frame_boxes,
             boundary_lookaround,
+            weak_caption_thresholds,
         );
         if !has_strong_anchor && !has_stable_track {
             continue;
@@ -1995,9 +2052,10 @@ mod evidence_tests {
     #[cfg(test)]
     mod boundary_hysteresis_tests {
         use super::{
-            TextBox, expected_vertical_char_count, has_confident_caption_anchor,
-            has_stable_weak_caption_track, is_same_caption_observation,
-            restore_clipped_vertical_boxes, retain_caption_candidate, select_best_caption,
+            TextBox, WeakCaptionThresholds, expected_vertical_char_count,
+            has_confident_caption_anchor, has_stable_weak_caption_track,
+            is_same_caption_observation, restore_clipped_vertical_boxes, retain_caption_candidate,
+            select_best_caption,
         };
 
         fn text_box(min_x: f64, confidence: f32) -> TextBox {
@@ -2067,6 +2125,63 @@ mod evidence_tests {
                 &weak_records,
                 &weak_boxes,
                 1,
+                WeakCaptionThresholds {
+                    min_confidence: 0.60,
+                    min_box_extent: 28.8,
+                },
+            ));
+        }
+
+        #[test]
+        fn weak_caption_recovery_uses_confidence_and_geometry_not_text_length() {
+            let mut first = text_box(100.0, 0.41);
+            first.text = "区".to_string();
+            first.width = 22.0;
+            first.height = 15.0;
+            first.max_x = first.min_x + first.width;
+            first.max_y = first.min_y + first.height;
+            first.center_x = (first.min_x + first.max_x) / 2.0;
+            first.center_y = (first.min_y + first.max_y) / 2.0;
+            first.is_vertical = false;
+            let mut second = first.clone();
+            second.min_x += 2.0;
+            second.max_x += 2.0;
+            second.center_x += 2.0;
+            second.confidence = 0.66;
+            let weak_records = vec!["区".to_string(), "区".to_string()];
+            let weak_boxes = vec![vec![first.clone()], vec![second]];
+
+            assert!(!has_stable_weak_caption_track(
+                "区",
+                std::slice::from_ref(&first),
+                0,
+                &weak_records,
+                &weak_boxes,
+                1,
+                WeakCaptionThresholds {
+                    min_confidence: 0.60,
+                    min_box_extent: 28.8,
+                },
+            ));
+
+            let mut good_first = text_box(100.0, 0.65);
+            good_first.text = "区".to_string();
+            let mut good_second = good_first.clone();
+            good_second.min_x += 2.0;
+            good_second.max_x += 2.0;
+            good_second.center_x += 2.0;
+            let good_boxes = vec![vec![good_first.clone()], vec![good_second]];
+            assert!(has_stable_weak_caption_track(
+                "区",
+                std::slice::from_ref(&good_first),
+                0,
+                &weak_records,
+                &good_boxes,
+                1,
+                WeakCaptionThresholds {
+                    min_confidence: 0.60,
+                    min_box_extent: 28.8,
+                },
             ));
         }
 

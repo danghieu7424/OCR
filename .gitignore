@@ -9,6 +9,7 @@ ocr-cli/*
 !ocr-cli/USE.MD
 input/
 in/
+output/
 
 Cargo.lock
 *.vtt

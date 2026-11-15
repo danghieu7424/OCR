@@ -17,7 +17,7 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 ### Sửa
 
 - `crates/ocr_merge`: Sửa lỗi thất thoát thiết lập vị trí WebVTT cue settings (`line:20%`, `position:...`, `align:...`) khi phân tích cú pháp và hợp nhất. Trường `settings: Option<String>` được bổ sung vào `VttCue` để bảo tồn nguyên vẹn 100% tọa độ hiển thị của caption (đặt ở phía trên màn hình `line:20%`), ngăn chặn hiện tượng caption bị hiển thị đè xuống dưới chân màn hình trùng với lời thoại.
-- `ocr_captions`: Chia các cột dọc thành từng thẻ theo khoảng cách ngang và độ chồng lấp Y; xuất cue đồng thời riêng biệt, đồng thời đối chiếu watermark bằng fingerprint chữ và IoU. Track confidence thấp chỉ được giữ khi có quan sát yếu lặp lại tại box chồng lấp ổn định.
+- `ocr_captions`: Chia các cột dọc thành từng thẻ theo khoảng cách ngang và độ chồng lấp Y; xuất cue đồng thời riêng biệt, đồng thời đối chiếu watermark bằng fingerprint chữ và IoU. Track confidence thấp chỉ được cứu khi có quan sát lặp lại, box đủ lớn theo tỷ lệ khung hình và confidence trung bình đạt ngưỡng chung, không dựa trên nội dung ký tự.
 - `ocr_captions`: Crop ảnh evidence riêng theo box của từng thẻ, không gộp các thẻ xuất hiện đồng thời vào một ảnh.
 - `ocr_subtitles`: Tách cụm box cùng dòng theo tính liền mạch và vị trí, mở rộng padding ngang để giữ nét đầu dòng; tổng hợp ký tự bằng căn chỉnh LCS có trọng số confidence và kiểm tra track box/confidence cho cue ngắn.
 
