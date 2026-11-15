@@ -8,6 +8,7 @@ __pycache__/
 ocr-cli/*
 !ocr-cli/USE.MD
 input/
+in/
 
 Cargo.lock
 *.vtt

@@ -224,12 +224,12 @@ fn restore_clipped_vertical_boxes(
     roi_boxes
 }
 
-/// Fingerprint cho watermark detection: vị trí trung bình + text
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct RegionKey {
-    /// Vị trí lượng tử hóa (chia grid 10x10)
-    qx: u32,
-    qy: u32,
+#[derive(Debug, Clone)]
+struct WatermarkFingerprint {
+    text: String,
+    bounds: (f64, f64, f64, f64),
+    frame_count: usize,
+    last_frame: usize,
 }
 
 fn detect_and_recognize(
@@ -592,76 +592,76 @@ fn sanitize_caption_text(raw: &str) -> String {
     cleaned
 }
 
-/// Lượng tử hóa vị trí box thành grid key (để nhóm boxes ở vị trí tương tự)
-fn region_key(center_x: f64, center_y: f64, img_w: f64, img_h: f64) -> RegionKey {
-    let qx = ((center_x / img_w) * 10.0).floor() as u32;
-    let qy = ((center_y / img_h) * 10.0).floor() as u32;
-    RegionKey {
-        qx: qx.min(9),
-        qy: qy.min(9),
-    }
-}
-
 /// Phase 2: Xác định watermark fingerprints
-/// Watermark = text xuất hiện ở cùng vùng trong >threshold% tổng frames
+/// Watermark = chữ ổn định lặp lại ở cùng vị trí, xác nhận bằng IoU.
 fn build_watermark_set(
     all_frame_boxes: &[Vec<TextBox>],
-    img_w: f64,
-    img_h: f64,
     threshold: f32,
-) -> HashMap<RegionKey, String> {
+) -> Vec<WatermarkFingerprint> {
     let total_frames = all_frame_boxes.len();
     if total_frames == 0 {
-        return HashMap::new();
+        return Vec::new();
     }
 
-    // Đếm: (region, text_prefix_4chars) → số frame xuất hiện
-    let mut freq: HashMap<(RegionKey, String), usize> = HashMap::new();
-    // Lưu text đại diện cho mỗi (region, prefix)
-    let mut representative: HashMap<(RegionKey, String), String> = HashMap::new();
+    let mut fingerprints: Vec<WatermarkFingerprint> = Vec::new();
+    for (frame_index, frame_boxes) in all_frame_boxes.iter().enumerate() {
+        for text_box in frame_boxes {
+            let bounds = (
+                text_box.min_x,
+                text_box.min_y,
+                text_box.max_x,
+                text_box.max_y,
+            );
+            let matches_fingerprint = |fingerprint: &WatermarkFingerprint| {
+                is_same_caption(&fingerprint.text, &text_box.text)
+                    && rect_iou(fingerprint.bounds, bounds) >= 0.25
+            };
+            if fingerprints.iter().any(|fingerprint| {
+                fingerprint.last_frame == frame_index && matches_fingerprint(fingerprint)
+            }) {
+                continue;
+            }
 
-    for frame_boxes in all_frame_boxes {
-        // Đánh dấu để không đếm trùng trong 1 frame
-        let mut seen_this_frame: HashMap<(RegionKey, String), bool> = HashMap::new();
-
-        for b in frame_boxes {
-            let rk = region_key(b.center_x, b.center_y, img_w, img_h);
-            // Dùng 3 ký tự đầu làm prefix key (để nhóm các biến thể OCR của cùng watermark)
-            let prefix: String = b.text.chars().take(3).collect();
-            let key = (rk.clone(), prefix);
-
-            if !seen_this_frame.contains_key(&key) {
-                seen_this_frame.insert(key.clone(), true);
-                *freq.entry(key.clone()).or_insert(0) += 1;
-                representative.entry(key).or_insert_with(|| b.text.clone());
+            if let Some(fingerprint) = fingerprints
+                .iter_mut()
+                .filter(|fingerprint| {
+                    fingerprint.last_frame < frame_index && matches_fingerprint(fingerprint)
+                })
+                .max_by(|a, b| rect_iou(a.bounds, bounds).total_cmp(&rect_iou(b.bounds, bounds)))
+            {
+                let old_count = fingerprint.frame_count as f64;
+                let new_count = old_count + 1.0;
+                fingerprint.bounds = (
+                    (fingerprint.bounds.0 * old_count + bounds.0) / new_count,
+                    (fingerprint.bounds.1 * old_count + bounds.1) / new_count,
+                    (fingerprint.bounds.2 * old_count + bounds.2) / new_count,
+                    (fingerprint.bounds.3 * old_count + bounds.3) / new_count,
+                );
+                fingerprint.text = text_box.text.clone();
+                fingerprint.frame_count += 1;
+                fingerprint.last_frame = frame_index;
+            } else {
+                fingerprints.push(WatermarkFingerprint {
+                    text: text_box.text.clone(),
+                    bounds,
+                    frame_count: 1,
+                    last_frame: frame_index,
+                });
             }
         }
     }
 
-    // Xác định watermark: region+prefix xuất hiện trong >threshold% frames
-    let mut watermarks = HashMap::new();
-    let min_count = (total_frames as f32 * threshold) as usize;
-
-    for ((rk, _prefix), count) in &freq {
-        if *count >= min_count
-            && let Some(rep) = representative.get(&(rk.clone(), _prefix.clone()))
-        {
-            watermarks.insert(rk.clone(), rep.clone());
-        }
-    }
-
-    watermarks
+    let min_count = (total_frames as f32 * threshold.clamp(0.0, 1.0)).ceil() as usize;
+    fingerprints.retain(|fingerprint| fingerprint.frame_count >= min_count.max(1));
+    fingerprints
 }
 
 /// Kiểm tra box có phải watermark không
-fn is_watermark(
-    b: &TextBox,
-    watermarks: &HashMap<RegionKey, String>,
-    img_w: f64,
-    img_h: f64,
-) -> bool {
-    let rk = region_key(b.center_x, b.center_y, img_w, img_h);
-    watermarks.contains_key(&rk)
+fn is_watermark(b: &TextBox, watermarks: &[WatermarkFingerprint]) -> bool {
+    let bounds = (b.min_x, b.min_y, b.max_x, b.max_y);
+    watermarks.iter().any(|fingerprint| {
+        is_same_caption(&fingerprint.text, &b.text) && rect_iou(fingerprint.bounds, bounds) >= 0.25
+    })
 }
 
 /// Nhóm boxes dọc thành cột, sắp xếp: mỗi cột y↓, các cột x→
@@ -706,6 +706,78 @@ fn group_vertical_columns(boxes: &[TextBox], tolerance_px: f64) -> Vec<Vec<&Text
     columns
 }
 
+fn vertical_column_bounds(column: &[&TextBox]) -> (f64, f64, f64, f64) {
+    (
+        column
+            .iter()
+            .map(|text_box| text_box.min_x)
+            .fold(f64::MAX, f64::min),
+        column
+            .iter()
+            .map(|text_box| text_box.min_y)
+            .fold(f64::MAX, f64::min),
+        column
+            .iter()
+            .map(|text_box| text_box.max_x)
+            .fold(f64::MIN, f64::max),
+        column
+            .iter()
+            .map(|text_box| text_box.max_y)
+            .fold(f64::MIN, f64::max),
+    )
+}
+
+fn group_vertical_caption_blocks(
+    columns: Vec<Vec<&TextBox>>,
+    roi_width: f64,
+) -> Vec<Vec<Vec<&TextBox>>> {
+    let mut blocks: Vec<Vec<Vec<&TextBox>>> = Vec::new();
+    for column in columns {
+        let current = vertical_column_bounds(&column);
+        let joins_previous = blocks
+            .last()
+            .and_then(|block| block.last())
+            .is_some_and(|previous| {
+                let previous = vertical_column_bounds(previous);
+                let horizontal_gap = (current.0 - previous.2).max(0.0);
+                let vertical_overlap =
+                    (current.3.min(previous.3) - current.1.max(previous.1)).max(0.0);
+                let shorter_height = (current.3 - current.1).min(previous.3 - previous.1);
+                let max_gap = ((current.2 - current.0).min(previous.2 - previous.0) * 1.25)
+                    .max(roi_width * 0.025);
+
+                shorter_height > 0.0
+                    && horizontal_gap <= max_gap
+                    && vertical_overlap / shorter_height >= 0.25
+            });
+        if joins_previous {
+            blocks.last_mut().unwrap().push(column);
+        } else {
+            blocks.push(vec![column]);
+        }
+    }
+    blocks
+}
+
+fn vertical_caption_block_text(block: &[Vec<&TextBox>]) -> String {
+    let column_texts: Vec<String> = block
+        .iter()
+        .map(|column| {
+            column
+                .iter()
+                .map(|text_box| text_box.text.as_str())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .filter(|text| !text.is_empty())
+        .collect();
+    if column_texts.len() > 1 && column_texts.iter().all(|text| text.chars().count() <= 5) {
+        column_texts.join("-")
+    } else {
+        column_texts.join("")
+    }
+}
+
 /// Ghép filtered boxes thành caption text cho 1 frame
 fn assemble_caption(boxes: &[TextBox], column_x_tol: f64) -> String {
     if boxes.is_empty() {
@@ -715,20 +787,17 @@ fn assemble_caption(boxes: &[TextBox], column_x_tol: f64) -> String {
     let vert: Vec<&TextBox> = boxes.iter().filter(|b| b.is_vertical).collect();
     let horiz: Vec<&TextBox> = boxes.iter().filter(|b| !b.is_vertical).collect();
 
-    let mut parts: Vec<String> = Vec::new();
+    let mut blocks: Vec<String> = Vec::new();
 
     // Chữ dọc: nhóm cột
     if !vert.is_empty() {
         let vert_owned: Vec<TextBox> = vert.iter().map(|b| (*b).clone()).collect();
         let columns = group_vertical_columns(&vert_owned, column_x_tol);
-        for col in &columns {
-            let col_text: String = col
-                .iter()
-                .map(|b| b.text.as_str())
-                .collect::<Vec<_>>()
-                .join("");
-            if !col_text.is_empty() {
-                parts.push(col_text);
+        let caption_blocks = group_vertical_caption_blocks(columns, boxes_bounds_width(boxes));
+        for block in caption_blocks {
+            let block_text = vertical_caption_block_text(&block);
+            if !block_text.is_empty() {
+                blocks.push(block_text);
             }
         }
     }
@@ -742,26 +811,94 @@ fn assemble_caption(boxes: &[TextBox], column_x_tol: f64) -> String {
                 .unwrap()
                 .then_with(|| a.center_x.partial_cmp(&b.center_x).unwrap())
         });
-        for hb in &h_sorted {
-            if !hb.text.is_empty() {
-                parts.push(hb.text.clone());
+        let horizontal_texts: Vec<String> = h_sorted
+            .iter()
+            .filter(|text_box| !text_box.text.is_empty())
+            .map(|text_box| text_box.text.clone())
+            .collect();
+        if !horizontal_texts.is_empty() {
+            let all_short = horizontal_texts
+                .iter()
+                .all(|text| text.chars().count() <= 5);
+            blocks.push(if horizontal_texts.len() > 1 && all_short {
+                horizontal_texts.join("-")
+            } else {
+                horizontal_texts.join("")
+            });
+        }
+    }
+
+    blocks.join("\n")
+}
+
+fn caption_boxes_for_text(boxes: &[TextBox], cue_text: &str, column_x_tol: f64) -> Vec<TextBox> {
+    let vertical: Vec<TextBox> = boxes
+        .iter()
+        .filter(|text_box| text_box.is_vertical)
+        .cloned()
+        .collect();
+    if !vertical.is_empty() {
+        let columns = group_vertical_columns(&vertical, column_x_tol);
+        for block in group_vertical_caption_blocks(columns, boxes_bounds_width(boxes)) {
+            if is_same_caption(cue_text, &vertical_caption_block_text(&block)) {
+                return block.into_iter().flatten().cloned().collect();
             }
         }
     }
 
-    if parts.len() > 1 {
-        let all_short = parts.iter().all(|p| p.chars().count() <= 5);
-        if all_short {
-            parts.join("-")
-        } else {
-            parts.join("")
-        }
+    let horizontal: Vec<TextBox> = boxes
+        .iter()
+        .filter(|text_box| !text_box.is_vertical)
+        .cloned()
+        .collect();
+    if !horizontal.is_empty()
+        && is_same_caption(cue_text, &assemble_caption(&horizontal, column_x_tol))
+    {
+        return horizontal;
+    }
+
+    if is_same_caption(cue_text, &assemble_caption(boxes, column_x_tol)) {
+        boxes.to_vec()
     } else {
-        parts.into_iter().next().unwrap_or_default()
+        Vec::new()
     }
 }
 
+fn boxes_bounds_width(boxes: &[TextBox]) -> f64 {
+    let min_x = boxes
+        .iter()
+        .map(|text_box| text_box.min_x)
+        .fold(f64::MAX, f64::min);
+    let max_x = boxes
+        .iter()
+        .map(|text_box| text_box.max_x)
+        .fold(f64::MIN, f64::max);
+    (max_x - min_x).max(0.0)
+}
+
+fn rect_iou(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> f64 {
+    let intersection_w = (a.2.min(b.2) - a.0.max(b.0)).max(0.0);
+    let intersection_h = (a.3.min(b.3) - a.1.max(b.1)).max(0.0);
+    let intersection = intersection_w * intersection_h;
+    let area_a = (a.2 - a.0).max(0.0) * (a.3 - a.1).max(0.0);
+    let area_b = (b.2 - b.0).max(0.0) * (b.3 - b.1).max(0.0);
+    let union = area_a + area_b - intersection;
+    if union > 0.0 {
+        intersection / union
+    } else {
+        0.0
+    }
+}
+
+fn caption_record_matches(cue_text: &str, record: &str) -> bool {
+    record
+        .split('\n')
+        .any(|caption_block| is_same_caption(cue_text, caption_block))
+}
+
 fn is_same_caption(s1: &str, s2: &str) -> bool {
+    let s1 = caption_key(s1);
+    let s2 = caption_key(s2);
     if s1 == s2 {
         return true;
     }
@@ -775,7 +912,7 @@ fn is_same_caption(s1: &str, s2: &str) -> bool {
     if mn <= 2 {
         return s1 == s2;
     }
-    let dist = levenshtein_distance(s1, s2);
+    let dist = levenshtein_distance(&s1, &s2);
     if mn <= 4 {
         dist <= 1
     } else {
@@ -837,6 +974,38 @@ fn has_confident_caption_anchor(
     })
 }
 
+fn has_stable_weak_caption_track(
+    candidate: &str,
+    candidate_boxes: &[TextBox],
+    frame_idx: usize,
+    weak_records: &[String],
+    weak_boxes: &[Vec<TextBox>],
+    max_gap: usize,
+) -> bool {
+    let start = frame_idx.saturating_sub(max_gap);
+    let end = frame_idx
+        .saturating_add(max_gap)
+        .saturating_add(1)
+        .min(weak_records.len());
+    let matching_frames: Vec<usize> = (start..end)
+        .filter(|&track_idx| {
+            !weak_records[track_idx].is_empty()
+                && is_same_caption_observation(
+                    candidate,
+                    &weak_records[track_idx],
+                    candidate_boxes,
+                    &weak_boxes[track_idx],
+                )
+                && candidate_boxes.iter().any(|candidate_box| {
+                    weak_boxes[track_idx]
+                        .iter()
+                        .any(|track_box| boxes_overlap(candidate_box, track_box))
+                })
+        })
+        .collect();
+    matching_frames.len() >= 2
+}
+
 fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     let c1: Vec<char> = s1.chars().collect();
     let c2: Vec<char> = s2.chars().collect();
@@ -860,9 +1029,9 @@ fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     curr[l2]
 }
 
-/// Chuẩn hóa khoá so sánh: bỏ dấu nối giữa các cột chữ dọc.
+/// Chuẩn hóa khóa so sánh: bỏ dấu phân tách giữa các khối/cột caption.
 fn caption_key(s: &str) -> String {
-    s.chars().filter(|c| *c != '-').collect()
+    s.chars().filter(|c| *c != '-' && *c != '\n').collect()
 }
 
 fn expected_vertical_char_count(boxes: &[TextBox]) -> Option<usize> {
@@ -900,7 +1069,7 @@ fn select_best_caption(texts: &[String], weights: &[f32], expected_chars: Option
         };
         entry.1 += 1;
         if (t.contains('-') && !entry.2.contains('-'))
-            || t.chars().count() > entry.2.chars().count()
+            || caption_key(t).chars().count() > caption_key(&entry.2).chars().count()
         {
             entry.2 = t.clone();
         }
@@ -976,6 +1145,7 @@ fn export_caption_evidence(
     crop_w: usize,
     crop_h: usize,
     fps: u32,
+    column_x_tol: f64,
     segments: &[IndexedCaption],
     records: &[String],
     frame_boxes: &[Vec<TextBox>],
@@ -995,9 +1165,9 @@ fn export_caption_evidence(
             .trim_end_matches('》');
         let candidates: Vec<usize> = (cue.start_frame..=cue.end_frame)
             .filter(|&i| {
-                !frame_boxes[i].is_empty()
+                !caption_boxes_for_text(&frame_boxes[i], text, column_x_tol).is_empty()
                     && !records[i].is_empty()
-                    && is_same_caption(text, &records[i])
+                    && caption_record_matches(text, &records[i])
             })
             .collect();
         if candidates.is_empty() {
@@ -1012,8 +1182,10 @@ fn export_caption_evidence(
             .iter()
             .copied()
             .max_by(|&a, &b| {
-                mean_box_confidence(&frame_boxes[a])
-                    .partial_cmp(&mean_box_confidence(&frame_boxes[b]))
+                let boxes_a = caption_boxes_for_text(&frame_boxes[a], text, column_x_tol);
+                let boxes_b = caption_boxes_for_text(&frame_boxes[b], text, column_x_tol);
+                mean_box_confidence(&boxes_a)
+                    .partial_cmp(&mean_box_confidence(&boxes_b))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .unwrap_or(candidates[0]);
@@ -1081,7 +1253,14 @@ fn export_caption_evidence(
                 .ok_or_else(|| anyhow::anyhow!("Không thể tạo ảnh frame bằng chứng"))?;
             let timestamp_ms = (frame_index as f64 * 1000.0 / fps as f64).round() as u64;
             for (&cue_index, stages) in frame_targets {
-                let crop = crop_caption_boxes(&image, &frame_boxes[frame_index])?;
+                let cue_text = segments[cue_index]
+                    .segment
+                    .text
+                    .trim_start_matches('《')
+                    .trim_end_matches('》');
+                let caption_boxes =
+                    caption_boxes_for_text(&frame_boxes[frame_index], cue_text, column_x_tol);
+                let crop = crop_caption_boxes(&image, &caption_boxes)?;
                 let stage_name = stages.join("_");
                 let file_name = format!(
                     "cue_{:03}_{}_frame_{:06}_t_{:09}ms.png",
@@ -1365,15 +1544,10 @@ pub fn extract_captions(
         total
     ));
 
-    let watermarks = build_watermark_set(
-        &all_frame_boxes,
-        crop_w as f64,
-        crop_h as f64,
-        config.watermark_freq_threshold,
-    );
+    let watermarks = build_watermark_set(&all_frame_boxes, config.watermark_freq_threshold);
 
     ocr_shared::tui_events::emit_log(format!(
-        "   {} Phát hiện {} vùng watermark cố định",
+        "   {} Phát hiện {} fingerprint watermark ổn định",
         "[CAPTION]".name_utils().violed(),
         watermarks.len()
     ));
@@ -1386,7 +1560,7 @@ pub fn extract_captions(
     for frame_boxes in &all_frame_boxes {
         let filtered: Vec<TextBox> = frame_boxes
             .iter()
-            .filter(|b| !is_watermark(b, &watermarks, crop_w as f64, crop_h as f64))
+            .filter(|b| !is_watermark(b, &watermarks))
             .cloned()
             .collect();
         let (strong, weak): (Vec<TextBox>, Vec<TextBox>) = filtered
@@ -1402,16 +1576,26 @@ pub fn extract_captions(
     let strong_frame_boxes = filtered_frame_boxes.clone();
     let boundary_lookaround = (config.fps as usize).div_ceil(2).max(1);
     for frame_idx in 0..total {
-        if weak_records[frame_idx].is_empty()
-            || !has_confident_caption_anchor(
-                &weak_records[frame_idx],
-                &weak_frame_boxes[frame_idx],
-                frame_idx,
-                &strong_records,
-                &strong_frame_boxes,
-                boundary_lookaround,
-            )
-        {
+        if weak_records[frame_idx].is_empty() {
+            continue;
+        }
+        let has_strong_anchor = has_confident_caption_anchor(
+            &weak_records[frame_idx],
+            &weak_frame_boxes[frame_idx],
+            frame_idx,
+            &strong_records,
+            &strong_frame_boxes,
+            boundary_lookaround,
+        );
+        let has_stable_track = has_stable_weak_caption_track(
+            &weak_records[frame_idx],
+            &weak_frame_boxes[frame_idx],
+            frame_idx,
+            &weak_records,
+            &weak_frame_boxes,
+            boundary_lookaround,
+        );
+        if !has_strong_anchor && !has_stable_track {
             continue;
         }
         records[frame_idx] = weak_records[frame_idx].clone();
@@ -1550,43 +1734,38 @@ pub fn extract_captions(
             continue;
         }
 
-        let confidence_values: Vec<f32> = (seg.start..=seg.end)
-            .filter(|&i| {
-                !records[i].is_empty()
-                    && is_same_caption_observation(
-                        &best,
-                        &records[i],
-                        &filtered_frame_boxes[seg.start],
-                        &filtered_frame_boxes[i],
-                    )
-            })
-            .flat_map(|i| filtered_frame_boxes[i].iter().map(|b| b.confidence))
-            .collect();
-        let confidence = if confidence_values.is_empty() {
-            0.0
-        } else {
-            confidence_values.iter().sum::<f32>() / confidence_values.len() as f32
-        };
-
         let start_sec = (seg.start as f64 * dt).max(0.0);
         let end_sec = seg.end as f64 * dt + dt * 0.5;
-        let start_sec = if let Some(last) = segments.last() {
-            start_sec.max(last.segment.end_sec + 0.001)
-        } else {
-            start_sec
-        };
-
+        let cue_texts: Vec<&str> = best
+            .split('\n')
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .collect();
         if end_sec > start_sec + 0.1 {
-            segments.push(IndexedCaption {
-                segment: CaptionSegment {
-                    start_sec,
-                    end_sec,
-                    text: format!("《{}》", best),
-                },
-                start_frame: seg.start,
-                end_frame: seg.end,
-                confidence,
-            });
+            for cue_text in cue_texts {
+                let confidence_values: Vec<f32> = (seg.start..=seg.end)
+                    .filter(|&i| caption_record_matches(cue_text, &records[i]))
+                    .flat_map(|i| {
+                        caption_boxes_for_text(&filtered_frame_boxes[i], cue_text, column_x_tol)
+                    })
+                    .map(|text_box| text_box.confidence)
+                    .collect();
+                let confidence = if confidence_values.is_empty() {
+                    0.0
+                } else {
+                    confidence_values.iter().sum::<f32>() / confidence_values.len() as f32
+                };
+                segments.push(IndexedCaption {
+                    segment: CaptionSegment {
+                        start_sec,
+                        end_sec,
+                        text: format!("《{}》", cue_text),
+                    },
+                    start_frame: seg.start,
+                    end_frame: seg.end,
+                    confidence,
+                });
+            }
         }
     }
 
@@ -1653,6 +1832,7 @@ pub fn extract_captions(
             crop_w,
             crop_h,
             config.fps,
+            column_x_tol,
             &final_segs,
             &records,
             &filtered_frame_boxes,
@@ -1699,6 +1879,83 @@ mod evidence_tests {
         assert_eq!(crop_rgb_rows(&frame, 2, 1, 2), frame[6..18].to_vec());
     }
 
+    #[cfg(test)]
+    mod caption_layout_tests {
+        use super::{
+            TextBox, assemble_caption, build_watermark_set, caption_boxes_for_text, is_watermark,
+        };
+
+        fn text_box(bounds: (f64, f64, f64, f64), text: &str, is_vertical: bool) -> TextBox {
+            let (min_x, min_y, max_x, max_y) = bounds;
+            TextBox {
+                min_x,
+                min_y,
+                max_x,
+                max_y,
+                width: max_x - min_x,
+                height: max_y - min_y,
+                center_x: (min_x + max_x) * 0.5,
+                center_y: (min_y + max_y) * 0.5,
+                is_vertical,
+                text: text.to_string(),
+                confidence: 0.95,
+            }
+        }
+
+        #[test]
+        fn distant_vertical_caption_cards_are_separate_blocks() {
+            let boxes = vec![
+                text_box((50.0, 20.0, 70.0, 120.0), "雪天妃", true),
+                text_box((850.0, 20.0, 870.0, 120.0), "陆清安", true),
+                text_box((880.0, 10.0, 900.0, 130.0), "妖魔体状态", true),
+            ];
+
+            assert_eq!(assemble_caption(&boxes, 100.0), "雪天妃\n陆清安-妖魔体状态");
+        }
+
+        #[test]
+        fn vertical_columns_with_nonoverlapping_y_bands_are_separate_blocks() {
+            let boxes = vec![
+                text_box((100.0, 10.0, 120.0, 100.0), "上方", true),
+                text_box((130.0, 130.0, 150.0, 220.0), "下方", true),
+            ];
+
+            assert_eq!(assemble_caption(&boxes, 100.0), "上方\n下方");
+        }
+
+        #[test]
+        fn caption_evidence_selects_only_the_matching_card_boxes() {
+            let boxes = vec![
+                text_box((50.0, 20.0, 70.0, 120.0), "雪天妃", true),
+                text_box((850.0, 20.0, 870.0, 120.0), "陆清安", true),
+                text_box((880.0, 10.0, 900.0, 130.0), "妖魔体状态", true),
+            ];
+
+            let selected = caption_boxes_for_text(&boxes, "雪天妃", 100.0);
+            assert_eq!(selected.len(), 1);
+            assert_eq!(selected[0].text, "雪天妃");
+            let selected = caption_boxes_for_text(&boxes, "陆清安-妖魔体状态", 100.0);
+            assert_eq!(selected.len(), 2);
+        }
+
+        #[test]
+        fn watermark_match_requires_stable_text_and_box_overlap() {
+            let watermark = text_box((10.0, 10.0, 50.0, 40.0), "固定水印", false);
+            let frames = vec![vec![watermark.clone()]; 4];
+            let fingerprints = build_watermark_set(&frames, 0.5);
+
+            assert!(is_watermark(&watermark, &fingerprints));
+            assert!(!is_watermark(
+                &text_box((10.0, 10.0, 50.0, 40.0), "场景文字", false),
+                &fingerprints
+            ));
+            assert!(!is_watermark(
+                &text_box((55.0, 10.0, 95.0, 40.0), "固定水印", false),
+                &fingerprints
+            ));
+        }
+    }
+
     #[test]
     fn evidence_crop_is_padded_and_clamped_to_frame() {
         let image = RgbImage::new(100, 80);
@@ -1739,8 +1996,8 @@ mod evidence_tests {
     mod boundary_hysteresis_tests {
         use super::{
             TextBox, expected_vertical_char_count, has_confident_caption_anchor,
-            is_same_caption_observation, restore_clipped_vertical_boxes, retain_caption_candidate,
-            select_best_caption,
+            has_stable_weak_caption_track, is_same_caption_observation,
+            restore_clipped_vertical_boxes, retain_caption_candidate, select_best_caption,
         };
 
         fn text_box(min_x: f64, confidence: f32) -> TextBox {
@@ -1792,6 +2049,23 @@ mod evidence_tests {
                 0,
                 &strong_records,
                 &strong_boxes,
+                1,
+            ));
+        }
+
+        #[test]
+        fn repeated_overlapping_weak_boxes_can_confirm_a_caption_track() {
+            let first = text_box(100.0, 0.65);
+            let second = text_box(102.0, 0.60);
+            let weak_records = vec!["张三姓名".to_string(), "张三姓名".to_string()];
+            let weak_boxes = vec![vec![first.clone()], vec![second]];
+
+            assert!(has_stable_weak_caption_track(
+                "张三姓名",
+                std::slice::from_ref(&first),
+                0,
+                &weak_records,
+                &weak_boxes,
                 1,
             ));
         }

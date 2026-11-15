@@ -37,7 +37,7 @@ Kết quả nằm trong `output/`: `.subtitles.zh.vtt`, `.captions.zh.vtt` và `
 cargo run --release --example extract_and_merge -- 001 --caption-evidence
 ```
 
-Ảnh first/best/last cùng timestamp, `manifest.tsv` và `warnings.tsv` được lưu dưới `output/caption_evidence/<episode>/run-<id>/`. Ngưỡng cảnh báo confidence và thời lượng là chỉ dấu để duyệt, không phải xác suất hiệu chỉnh.
+Ảnh first/best/last cùng timestamp, `manifest.tsv` và `warnings.tsv` được lưu dưới `output/caption_evidence/<episode>/run-<id>/`. Nếu nhiều thẻ xuất hiện cùng lúc, mỗi cue caption có crop riêng theo box của thẻ đó. Ngưỡng cảnh báo confidence và thời lượng là chỉ dấu để duyệt, không phải xác suất hiệu chỉnh.
 
 ## CLI độc lập
 

@@ -344,13 +344,105 @@ mod sanitize_tests {
 
 #[cfg(test)]
 mod observation_tests {
-    use super::{has_stable_single_character_track, select_best_subtitle_text};
+    use super::{
+        has_stable_short_subtitle_track, has_stable_single_character_track,
+        is_same_subtitle_observation, select_best_subtitle_text,
+    };
 
     #[test]
     fn temporal_voting_prefers_the_higher_confidence_character() {
         let texts = vec!["参".to_string(), "爹".to_string(), "参".to_string()];
         let confidence = [0.2, 0.95, 0.2];
         assert_eq!(select_best_subtitle_text(&texts, &confidence), "爹");
+    }
+
+    #[test]
+    fn temporal_character_support_removes_unstable_edge_characters() {
+        let texts = vec![
+            "小啊".to_string(),
+            "啊".to_string(),
+            "啊".to_string(),
+            "啊".to_string(),
+        ];
+        assert_eq!(
+            select_best_subtitle_text(&texts, &[0.9, 0.9, 0.9, 0.9]),
+            "啊"
+        );
+
+        let texts = vec![
+            "可还有遗言要说光".to_string(),
+            "可还有遗言要说光".to_string(),
+            "可还有遗言要说".to_string(),
+            "可还有遗言要说".to_string(),
+            "可还有遗言要说".to_string(),
+        ];
+        assert_eq!(
+            select_best_subtitle_text(&texts, &[0.9; 5]),
+            "可还有遗言要说"
+        );
+    }
+
+    #[test]
+    fn temporal_character_support_preserves_a_repeated_thin_edge_character() {
+        let texts = vec![
+            "一路上所有虚空都得被你破坏".to_string(),
+            "一路上所有虚空都得被你破坏".to_string(),
+            "一路上所有虚空都得被你破坏".to_string(),
+            "一路上所有虚空都得被你破坏".to_string(),
+            "路上所有虚空都得被你破坏".to_string(),
+            "路上所有虚空都得被你破坏".to_string(),
+        ];
+        assert_eq!(
+            select_best_subtitle_text(&texts, &[0.9; 6]),
+            "一路上所有虚空都得被你破坏"
+        );
+    }
+
+    #[test]
+    fn short_multicharacter_tracks_require_stable_confidence_and_geometry() {
+        assert!(has_stable_short_subtitle_track(
+            &[
+                Some((100.0, 40.0, 200.0, 90.0)),
+                Some((102.0, 41.0, 202.0, 91.0)),
+            ],
+            &[0.9, 0.85],
+            Some(50.0),
+            2,
+        ));
+        assert!(!has_stable_short_subtitle_track(
+            &[
+                Some((100.0, 40.0, 200.0, 90.0)),
+                Some((102.0, 41.0, 202.0, 91.0)),
+            ],
+            &[0.65, 0.70],
+            Some(50.0),
+            2,
+        ));
+        assert!(!has_stable_short_subtitle_track(
+            &[
+                Some((100.0, 40.0, 200.0, 90.0)),
+                Some((500.0, 40.0, 600.0, 90.0)),
+            ],
+            &[0.9, 0.9],
+            Some(50.0),
+            2,
+        ));
+    }
+
+    #[test]
+    fn edge_character_variants_join_only_on_the_same_box_edge() {
+        assert!(is_same_subtitle_observation(
+            "小啊",
+            "啊",
+            Some((100.0, 20.0, 200.0, 60.0)),
+            Some((150.0, 20.0, 200.0, 60.0)),
+        ));
+        assert!(!is_same_subtitle_observation(
+            "小啊",
+            "啊",
+            Some((100.0, 20.0, 200.0, 60.0)),
+            Some((150.0, 90.0, 200.0, 130.0)),
+        ));
     }
 
     #[test]
@@ -539,6 +631,43 @@ fn is_same_subtitle(s1: &str, s2: &str) -> bool {
     }
 }
 
+fn is_same_subtitle_observation(
+    s1: &str,
+    s2: &str,
+    bounds1: Option<(f64, f64, f64, f64)>,
+    bounds2: Option<(f64, f64, f64, f64)>,
+) -> bool {
+    if is_same_subtitle(s1, s2) {
+        return true;
+    }
+    let (Some(a), Some(b)) = (bounds1, bounds2) else {
+        return false;
+    };
+    let (longer, shorter) = if s1.chars().count() > s2.chars().count() {
+        (s1, s2)
+    } else {
+        (s2, s1)
+    };
+    if longer.chars().count() - shorter.chars().count() > 2 {
+        return false;
+    }
+
+    let aligns_left =
+        longer.starts_with(shorter) && (a.0 - b.0).abs() <= (a.2 - a.0).max(b.2 - b.0) * 0.25;
+    let aligns_right =
+        longer.ends_with(shorter) && (a.2 - b.2).abs() <= (a.2 - a.0).max(b.2 - b.0) * 0.25;
+    let overlap_y = (a.3.min(b.3) - a.1.max(b.1)).max(0.0);
+    let min_height = (a.3 - a.1).min(b.3 - b.1);
+    let horizontal_overlap = (a.2.min(b.2) - a.0.max(b.0)).max(0.0);
+    let min_width = (a.2 - a.0).min(b.2 - b.0);
+
+    min_height > 0.0
+        && min_width > 0.0
+        && overlap_y / min_height >= 0.6
+        && horizontal_overlap / min_width >= 0.6
+        && (aligns_left || aligns_right)
+}
+
 /****
  * select_best_subtitle_text
  * Thuật toán Majority Voting thông minh cho OCR:
@@ -572,54 +701,74 @@ fn select_best_subtitle_text(texts: &[String], weights: &[f32]) -> String {
         };
     }
 
-    let total = texts.len();
-    let mut best_text = String::new();
-    let mut best_score = -1.0f32;
-
-    for (cand, &(count, weight)) in &counts {
-        let cand_len = cand.chars().count();
-        let mut score = weight;
-
-        // Nếu ứng viên này xuất hiện ít nhất 20% số frame hoặc >= 3 lần:
-        if count >= 3 || (total <= 5 && count >= 2) || (count as f32 / total as f32) >= 0.20 {
+    let total_weight = counts.values().map(|(_, weight)| weight).sum::<f32>();
+    let mut candidates: Vec<(&String, usize, f32, f32)> = counts
+        .iter()
+        .map(|(candidate, (count, weight))| {
+            let chars: Vec<char> = candidate.chars().collect();
+            let mut support = vec![0.0f32; chars.len()];
             for (other, &(_, other_weight)) in &counts {
-                if cand != other {
-                    if cand.contains(other) {
-                        // other là chuỗi con bị rụng nét (ví dụ: "定是错觉" trong "一定是错觉")
-                        score += other_weight * 0.95;
-                    } else if cand_len > other.chars().count()
-                        && common_suffix_len(cand, other) >= 2
-                    {
-                        // other có chung đuôi nhưng bị mờ nét đầu (ví dụ: "珍我们走" so với "爹爹我们走")
-                        score += other_weight * 0.50;
-                    }
+                for position in lcs_candidate_positions(candidate, other) {
+                    support[position] += other_weight;
                 }
             }
-            score += cand_len as f32 * 0.15 * weight / count as f32;
-        }
 
-        if score > best_score {
-            best_score = score;
-            best_text = cand.clone();
+            let mut score = 0.0f32;
+            for character_support in support {
+                let ratio = if total_weight > 0.0 {
+                    character_support / total_weight
+                } else {
+                    0.0
+                };
+                score += if ratio >= 0.60 { ratio } else { -0.25 };
+            }
+            if total_weight > 0.0 {
+                score += 0.35 * weight / total_weight;
+            }
+            score += *count as f32 * 0.001;
+            (candidate, *count, *weight, score)
+        })
+        .collect();
+    candidates.sort_by(|a, b| {
+        a.3.total_cmp(&b.3)
+            .then_with(|| a.2.total_cmp(&b.2))
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.0.cmp(b.0))
+    });
+    candidates
+        .last()
+        .map(|(text, _, _, _)| (*text).clone())
+        .unwrap_or_default()
+}
+
+fn lcs_candidate_positions(candidate: &str, other: &str) -> Vec<usize> {
+    let candidate_chars: Vec<char> = candidate.chars().collect();
+    let other_chars: Vec<char> = other.chars().collect();
+    let mut lengths = vec![vec![0usize; other_chars.len() + 1]; candidate_chars.len() + 1];
+    for (i, candidate_char) in candidate_chars.iter().enumerate() {
+        for (j, other_char) in other_chars.iter().enumerate() {
+            lengths[i + 1][j + 1] = if candidate_char == other_char {
+                lengths[i][j] + 1
+            } else {
+                lengths[i][j + 1].max(lengths[i + 1][j])
+            };
         }
     }
 
-    if best_text.is_empty() {
-        counts
-            .into_iter()
-            .max_by(
-                |(text_a, (count_a, weight_a)), (text_b, (count_b, weight_b))| {
-                    weight_a
-                        .total_cmp(weight_b)
-                        .then_with(|| count_a.cmp(count_b))
-                        .then_with(|| text_a.cmp(text_b))
-                },
-            )
-            .map(|(text, _)| text)
-            .unwrap_or_default()
-    } else {
-        best_text
+    let mut positions = Vec::new();
+    let (mut i, mut j) = (candidate_chars.len(), other_chars.len());
+    while i > 0 && j > 0 {
+        if candidate_chars[i - 1] == other_chars[j - 1] {
+            positions.push(i - 1);
+            i -= 1;
+            j -= 1;
+        } else if lengths[i - 1][j] >= lengths[i][j - 1] {
+            i -= 1;
+        } else {
+            j -= 1;
+        }
     }
+    positions
 }
 
 fn bounds_iou(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> f64 {
@@ -672,6 +821,7 @@ fn has_stable_single_character_track(
     {
         return false;
     }
+
     observed_confidences.sort_by(f32::total_cmp);
     let middle = observed_confidences.len() / 2;
     let median_confidence = if observed_confidences.len().is_multiple_of(2) {
@@ -698,6 +848,61 @@ fn has_stable_single_character_track(
                 width > 0.0
                     && height > 0.0
                     && (width / height).max(height / width) <= MAX_ASPECT_RATIO
+                    && height_consistent
+            };
+            glyph_shaped(a) && glyph_shaped(b) && bounds_iou(a, b) >= 0.25
+        })
+    })
+}
+
+fn has_stable_short_subtitle_track(
+    bounds: &[Option<(f64, f64, f64, f64)>],
+    confidences: &[f32],
+    typical_glyph_height: Option<f64>,
+    char_count: usize,
+) -> bool {
+    const MIN_MEDIAN_CONFIDENCE: f32 = 0.75;
+    const MIN_HEIGHT_RATIO: f64 = 0.5;
+    const MAX_HEIGHT_RATIO: f64 = 1.5;
+
+    let mut observed_confidences: Vec<f32> = bounds
+        .iter()
+        .zip(confidences)
+        .filter_map(|(rect, &confidence)| rect.map(|_| confidence))
+        .collect();
+    if observed_confidences.len() < 2
+        || observed_confidences
+            .iter()
+            .any(|confidence| !confidence.is_finite())
+    {
+        return false;
+    }
+    observed_confidences.sort_by(f32::total_cmp);
+    let middle = observed_confidences.len() / 2;
+    let median_confidence = if observed_confidences.len().is_multiple_of(2) {
+        (observed_confidences[middle - 1] + observed_confidences[middle]) / 2.0
+    } else {
+        observed_confidences[middle]
+    };
+    if median_confidence < MIN_MEDIAN_CONFIDENCE {
+        return false;
+    }
+
+    let max_aspect_ratio = (char_count as f64 * 2.5).clamp(2.5, 16.0);
+    bounds.windows(2).any(|pair| {
+        pair[0].zip(pair[1]).is_some_and(|(a, b)| {
+            let glyph_shaped = |rect: (f64, f64, f64, f64)| {
+                let width = rect.2 - rect.0;
+                let height = rect.3 - rect.1;
+                let height_consistent = match typical_glyph_height {
+                    Some(reference_height) => {
+                        (MIN_HEIGHT_RATIO..=MAX_HEIGHT_RATIO).contains(&(height / reference_height))
+                    }
+                    None => true,
+                };
+                width > 0.0
+                    && height > 0.0
+                    && width / height <= max_aspect_ratio
                     && height_consistent
             };
             glyph_shaped(a) && glyph_shaped(b) && bounds_iou(a, b) >= 0.25
@@ -961,7 +1166,12 @@ pub fn extract_hardcoded_subtitles(
         if smoothed_text[i].is_empty()
             && !smoothed_text[i - 1].is_empty()
             && !smoothed_text[i + 1].is_empty()
-            && is_same_subtitle(&smoothed_text[i - 1], &smoothed_text[i + 1])
+            && is_same_subtitle_observation(
+                &smoothed_text[i - 1],
+                &smoothed_text[i + 1],
+                frame_records[i - 1].bounds,
+                frame_records[i + 1].bounds,
+            )
         {
             smoothed_text[i] = smoothed_text[i - 1].clone();
         }
@@ -973,7 +1183,12 @@ pub fn extract_hardcoded_subtitles(
             && smoothed_text[i + 1].is_empty()
             && !smoothed_text[i - 1].is_empty()
             && !smoothed_text[i + 2].is_empty()
-            && is_same_subtitle(&smoothed_text[i - 1], &smoothed_text[i + 2])
+            && is_same_subtitle_observation(
+                &smoothed_text[i - 1],
+                &smoothed_text[i + 2],
+                frame_records[i - 1].bounds,
+                frame_records[i + 2].bounds,
+            )
         {
             smoothed_text[i] = smoothed_text[i - 1].clone();
             smoothed_text[i + 1] = smoothed_text[i - 1].clone();
@@ -997,7 +1212,12 @@ pub fn extract_hardcoded_subtitles(
             && !smoothed_text[i].is_empty()
             && smoothed_text[i] != smoothed_text[i - 1]
             && smoothed_text[i - 1] == smoothed_text[i + 1]
-            && is_same_subtitle(&smoothed_text[i - 1], &smoothed_text[i])
+            && is_same_subtitle_observation(
+                &smoothed_text[i - 1],
+                &smoothed_text[i],
+                frame_records[i - 1].bounds,
+                frame_records[i].bounds,
+            )
         {
             // Tuyệt đối không làm suy thoái bản đầy đủ ký tự thành bản bị rụng nét!
             if smoothed_text[i].chars().count() <= smoothed_text[i - 1].chars().count() {
@@ -1017,7 +1237,12 @@ pub fn extract_hardcoded_subtitles(
             && smoothed_text[i - 1] == smoothed_text[i + 2]
             && smoothed_text[i] == smoothed_text[i + 1]
             && smoothed_text[i] != smoothed_text[i - 1]
-            && is_same_subtitle(&smoothed_text[i - 1], &smoothed_text[i])
+            && is_same_subtitle_observation(
+                &smoothed_text[i - 1],
+                &smoothed_text[i],
+                frame_records[i - 1].bounds,
+                frame_records[i].bounds,
+            )
         {
             if smoothed_text[i].chars().count() <= smoothed_text[i - 1].chars().count() {
                 smoothed_text[i] = smoothed_text[i - 1].clone();
@@ -1050,7 +1275,12 @@ pub fn extract_hardcoded_subtitles(
             match current_seg.as_mut() {
                 Some(seg) => {
                     let dominant = select_best_subtitle_text(&seg.texts, &seg.confidences);
-                    if is_same_subtitle(&dominant, text) {
+                    if is_same_subtitle_observation(
+                        &dominant,
+                        text,
+                        frame_records[seg.end_frame].bounds,
+                        frame_records[i].bounds,
+                    ) {
                         seg.end_frame = i;
                         seg.texts.push(text.clone());
                         seg.confidences.push(frame_records[i].confidence);
@@ -1154,6 +1384,18 @@ pub fn extract_hardcoded_subtitles(
             {
                 continue;
             }
+        } else if duration <= 0.40
+            && !has_stable_short_subtitle_track(
+                &seg.bounds,
+                &seg.confidences,
+                typical_glyph_height,
+                char_count,
+            )
+        {
+            if dbg {
+                eprintln!("       -> DROP unstable short track ({duration:.3}s)");
+            }
+            continue;
         } else if duration < 0.10 {
             if std::env::var_os("OCR_SUB_DEBUG").is_some() {
                 eprintln!("       -> DROP duration {:.3}s", duration);

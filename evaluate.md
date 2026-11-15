@@ -1,40 +1,41 @@
 # Kết quả kiểm chứng OCR
 
-Ngày chạy: 2026-11-14. Báo cáo này thay thế các số liệu lịch sử cũ; các chỉ số bên dưới ghi lại lần đo 20 tập bằng `tools/compare_subs.py`, không chuẩn hóa phồn/giản thể (`--norm none`). Các VTT OCR của lần đo đó không còn trong working copy hiện tại; `final/` chỉ còn VTT của tập 001–004 và không phải bộ dữ liệu của bảng dưới đây.
+Ngày chạy: 2026-11-15. Bảng dưới đây ghi lại lần chạy lại 20 tập S01 sau các thay đổi OCR, so sánh bằng `tools/compare_subs.py` trên VTT subtitle OCR thô, không chuẩn hóa phồn/giản thể (`--norm none`). Ground truth trong `input/` được giữ nguyên; đầu vào và kết quả chạy được lưu tạm dưới `scratch/s01-recheck-input/` và `scratch/s01-recheck-raw/`.
 
 ## Subtitle: 20 tập
 
 | Tập | Ref cues | OCR cues | Cặp căn | Cue đúng | Thiếu | Thừa | Conditional Character Accuracy | Overall CER |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 001 | 61 | 64 | 61 | 57 | 0 | 3 | 99.07% | 2.10% |
-| 002 | 108 | 108 | 107 | 97 | 1 | 1 | 98.64% | 1.63% |
-| 003 | 44 | 44 | 44 | 41 | 0 | 0 | 99.09% | 0.91% |
-| 004 | 79 | 80 | 79 | 77 | 0 | 1 | 99.65% | 0.53% |
+| 001 | 61 | 62 | 61 | 57 | 0 | 1 | 99.07% | 1.17% |
+| 002 | 108 | 108 | 108 | 98 | 0 | 0 | 98.64% | 1.36% |
+| 003 | 44 | 44 | 44 | 42 | 0 | 0 | 99.39% | 0.61% |
+| 004 | 79 | 79 | 79 | 77 | 0 | 0 | 99.65% | 0.35% |
 | 005 | 26 | 26 | 26 | 26 | 0 | 0 | 100.00% | 0.00% |
-| 006 | 23 | 21 | 21 | 18 | 2 | 0 | 97.93% | 5.33% |
+| 006 | 23 | 21 | 21 | 18 | 2 | 0 | 97.26% | 5.33% |
 | 007 | 30 | 29 | 29 | 26 | 1 | 0 | 98.08% | 2.55% |
 | 008 | 24 | 24 | 24 | 23 | 0 | 0 | 99.50% | 0.50% |
 | 009 | 28 | 28 | 28 | 26 | 0 | 0 | 99.00% | 1.00% |
-| 010 | 36 | 38 | 36 | 34 | 0 | 2 | 99.17% | 2.08% |
-| 011 | 37 | 37 | 37 | 36 | 0 | 0 | 99.58% | 0.42% |
+| 010 | 36 | 36 | 36 | 34 | 0 | 0 | 99.17% | 0.83% |
+| 011 | 37 | 37 | 37 | 35 | 0 | 0 | 99.17% | 0.83% |
 | 012 | 26 | 26 | 26 | 26 | 0 | 0 | 100.00% | 0.00% |
-| 013 | 32 | 32 | 32 | 31 | 0 | 0 | 99.59% | 0.41% |
-| 014 | 30 | 30 | 30 | 26 | 0 | 0 | 98.13% | 1.87% |
+| 013 | 32 | 32 | 32 | 32 | 0 | 0 | 100.00% | 0.00% |
+| 014 | 30 | 30 | 30 | 27 | 0 | 0 | 98.60% | 1.40% |
 | 015 | 26 | 26 | 26 | 25 | 0 | 0 | 99.54% | 0.46% |
-| 016 | 30 | 30 | 30 | 30 | 0 | 0 | 100.00% | 0.00% |
+| 016 | 30 | 29 | 29 | 29 | 1 | 0 | 100.00% | 0.40% |
 | 017 | 31 | 30 | 30 | 27 | 1 | 0 | 98.62% | 2.73% |
 | 018 | 28 | 28 | 28 | 27 | 0 | 0 | 99.58% | 0.42% |
 | 019 | 27 | 27 | 27 | 25 | 0 | 0 | 99.08% | 0.92% |
 | 020 | 32 | 32 | 32 | 31 | 0 | 0 | 99.60% | 0.40% |
-| **Tổng** | **758** | **760** | **753** | **709** | **5** | **7** | **99.20%** | **1.17%** |
+| **Tổng** | **758** | **754** | **753** | **711** | **5** | **1** | **99.22%** | **0.97%** |
 
-- **Conditional Character Accuracy:** 99.20% (44 lỗi ký tự / 5.482 ký tự tham chiếu trong các cặp cue đã căn). Không tính ký tự của cue thiếu/thừa.
-- **Overall CER:** 1.17% (64 / 5.492 ký tự tham chiếu). 64 lỗi gồm 44 phép sửa trong cue đã căn, 10 ký tự thuộc cue thiếu và 10 ký tự thuộc cue thừa.
+- **Conditional Character Accuracy:** 99.22% (43 lỗi ký tự / 5.483 ký tự tham chiếu trong các cặp cue đã căn). Không tính ký tự của cue thiếu/thừa.
+- **Overall CER:** 0.97% (53 / 5.492 ký tự tham chiếu). 53 lỗi gồm 43 phép sửa trong cue đã căn, 9 ký tự thuộc cue thiếu và 1 ký tự thuộc cue thừa.
 - Script căn cue theo overlap thời gian (ngưỡng 40%), sau đó dùng start-time cách nhau tối đa 2 giây để ghép bù. Chỉ số trên là so nguyên văn, không dùng `zhconv`; không nên so trực tiếp với các tỷ lệ lịch sử dùng chuẩn hóa t2s.
+- Tổng số cue: 758 tham chiếu, 754 OCR, 753 cặp đã căn, 711 cue khớp nguyên văn, 5 cue thiếu và 1 cue thừa.
 
-## Kiểm chứng lệnh trích xuất và ảnh caption evidence
+## Kiểm chứng trước đó về ảnh caption evidence (001–002)
 
-Đã chạy thành công trong lượt kiểm chứng ghi ở trên:
+Các lệnh evidence dưới đây thuộc lượt kiểm chứng trước, tách biệt với lần chạy lại 20 tập S01 ở trên:
 
 ```powershell
 cargo run --release --example extract_and_merge -- 001 --caption-evidence
@@ -58,7 +59,7 @@ Thư mục `output/caption_evidence/` không có trong working copy hiện tại
 
 ## Kiểm thử
 
-- `cargo test --workspace`: pass, gồm 54 unit tests và 1 doctest.
+- `cargo test --workspace`: pass, gồm 89 unit tests và 1 doctest.
 - `cargo clippy --workspace --all-targets -- -D warnings`: pass, không có cảnh báo.
 - `cargo fmt --all -- --check`: pass.
 - `python -m unittest tools.test_compare_subs`: pass (5 tests).
