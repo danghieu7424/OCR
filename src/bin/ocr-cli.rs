@@ -1,8 +1,4 @@
-#[path = "ocr_cli/deepseek_fallback.rs"]
-mod deepseek_fallback;
-
 use anyhow::{Context, Result, anyhow, bail};
-use deepseek_fallback::CaptionMode;
 use image::RgbImage;
 use ocr::{
     CaptionExtractorConfig, CaptionExtractorOutput, OcrExtractorConfig, SubtitleRoi,
@@ -10,6 +6,7 @@ use ocr::{
     extract_hardcoded_subtitles, extract_hardcoded_subtitles_with_fallback_crops,
     merge_vtt_files_with_line_overrides, parse_vtt,
 };
+use ocr_deepseek::{CaptionMode, DeepseekClient, FallbackOptions, FallbackPaths, run_fallback};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::env;
@@ -20,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov", "ts", "flv", "webm"];
 const STATE_VERSION: u32 = 2;
@@ -49,6 +46,7 @@ struct CliArgs {
     deepseek_max_sub_cues: usize,
     deepseek_caption_mode: CaptionMode,
     no_deepseek_auto_start: bool,
+    deepseek_timeout_sec: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -298,6 +296,7 @@ Options:\n\
       --deepseek-sub-threshold <n>  Fallback confidence threshold (default: 0.80)\n\
       --deepseek-max-sub-cues <n>   Maximum weak subtitle cues per video (default: 4)\n\
       --deepseek-caption-mode <mode> prefer-deepseek (default) or audit-only\n\
+      --deepseek-timeout-sec <n>    Timeout per OCR request in seconds (default: 20)\n\
       --no-deepseek-auto-start      Do not launch a local Ollama daemon automatically\n\
       --force                    Reprocess completed subtitles, captions, and merge\n\
   -h, --help                     Show this help\n\
@@ -345,6 +344,7 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
     let mut deepseek_max_sub_cues = 4usize;
     let mut deepseek_caption_mode = CaptionMode::PreferDeepseek;
     let mut no_deepseek_auto_start = false;
+    let mut deepseek_timeout_sec = 20u64;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -373,6 +373,16 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
             "--force" => force = true,
             "--deepseek-fallback" => deepseek_fallback = true,
             "--no-deepseek-auto-start" => no_deepseek_auto_start = true,
+            "--deepseek-timeout-sec" => {
+                deepseek_timeout_sec = args
+                    .next()
+                    .context("--deepseek-timeout-sec cần số giây")?
+                    .parse()
+                    .context("--deepseek-timeout-sec phải là số nguyên dương")?;
+                if deepseek_timeout_sec == 0 {
+                    bail!("--deepseek-timeout-sec phải lớn hơn 0");
+                }
+            }
             "--deepseek-model" => {
                 deepseek_model = args.next().context("--deepseek-model cần tên model")?;
             }
@@ -464,6 +474,7 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
         deepseek_max_sub_cues,
         deepseek_caption_mode,
         no_deepseek_auto_start,
+        deepseek_timeout_sec,
     }))
 }
 
@@ -1016,15 +1027,34 @@ fn deepseek_signature(
         args.deepseek_sub_threshold,
         args.deepseek_max_sub_cues,
         args.deepseek_caption_mode,
+        args.deepseek_timeout_sec,
     ))
     .context("Không thể tạo chữ ký cấu hình DeepSeek")
+}
+
+fn is_project_root(path: &Path) -> bool {
+    path.join("Cargo.toml").is_file()
+        || path.join("models").join("deepseek-ocr").is_dir()
+        || path.join("tools").join("ollama").is_dir()
+}
+
+fn project_root() -> Result<PathBuf> {
+    let current_dir = env::current_dir().context("Could not determine current directory")?;
+    if is_project_root(&current_dir) {
+        return Ok(current_dir);
+    }
+    let executable = env::current_exe().context("Could not determine ocr-cli executable path")?;
+    if let Some(root) = executable.ancestors().find(|path| is_project_root(path)) {
+        return Ok(root.to_path_buf());
+    }
+    Ok(current_dir)
 }
 
 fn process_video(
     video: &Path,
     args: &CliArgs,
     progress_state: &Mutex<ProgressState>,
-    deepseek_agent: Option<&ureq::Agent>,
+    deepseek_client: Option<&DeepseekClient>,
 ) -> Result<()> {
     reset_progress(progress_state);
     let stem = video
@@ -1382,16 +1412,16 @@ fn process_video(
         if deepseek_done {
             println!("  [DEEPSEEK: SKIP] Đã hoàn tất; dùng lại kết quả hậu kỳ.");
         } else {
-            let summary = deepseek_fallback::run(
-                deepseek_agent,
-                &deepseek_fallback::FallbackOptions {
+            let summary = run_fallback(
+                deepseek_client,
+                &FallbackOptions {
                     base_url: &args.deepseek_url,
                     model: &args.deepseek_model,
                     max_sub_cues: args.deepseek_max_sub_cues,
                     caption_mode: args.deepseek_caption_mode,
                     subtitle_threshold: args.deepseek_sub_threshold,
                 },
-                &deepseek_fallback::FallbackPaths {
+                &FallbackPaths {
                     crops_dir: &fallback_crops_dir,
                     raw_subtitle_path: &subtitle_vtt,
                     raw_caption_path: &caption_vtt,
@@ -1479,21 +1509,29 @@ fn run() -> Result<()> {
     }
     let files = video_files(&args.input)?;
     let progress_state = register_progress_handler();
-    let deepseek_agent = if args.deepseek_fallback {
-        let agent = deepseek_fallback::create_agent();
-        deepseek_fallback::prepare_ollama(
-            &args.deepseek_url,
-            &args.deepseek_model,
-            !args.no_deepseek_auto_start,
-        )
-        .then_some(agent)
+    let deepseek_client = if args.deepseek_fallback {
+        match project_root() {
+            Ok(project_root) => ocr_deepseek::prepare_ollama(
+                &args.deepseek_url,
+                &args.deepseek_model,
+                !args.no_deepseek_auto_start,
+                &project_root,
+            )
+            .then(|| DeepseekClient::new(Duration::from_secs(args.deepseek_timeout_sec))),
+            Err(error) => {
+                eprintln!(
+                    "[DEEPSEEK: WARN] Could not locate the project model directory; keeping PP-OCRv6 results ({error:#})."
+                );
+                None
+            }
+        }
     } else {
         None
     };
     let mut failures = Vec::new();
     for video in &files {
         println!("========================================");
-        if let Err(error) = process_video(video, &args, &progress_state, deepseek_agent.as_ref()) {
+        if let Err(error) = process_video(video, &args, &progress_state, deepseek_client.as_ref()) {
             eprintln!(
                 "{ANSI_RED}[ERROR]{ANSI_RESET} {}: {error:#}",
                 video.display()
@@ -1558,6 +1596,7 @@ mod tests {
         assert!(!parsed.no_deepseek_auto_start);
         assert_eq!(parsed.deepseek_model, "deepseek-ocr");
         assert_eq!(parsed.deepseek_url, "http://127.0.0.1:11434");
+        assert_eq!(parsed.deepseek_timeout_sec, 20);
         let positional = ["videos", "--output", "merged"].map(str::to_string);
         assert!(parse_args_from(positional.into_iter()).unwrap().is_some());
 
@@ -1578,6 +1617,8 @@ mod tests {
             "--deepseek-caption-mode",
             "audit-only",
             "--no-deepseek-auto-start",
+            "--deepseek-timeout-sec",
+            "25",
         ]
         .map(str::to_string);
         let parsed = parse_args_from(deepseek.into_iter()).unwrap().unwrap();
@@ -1588,6 +1629,7 @@ mod tests {
         assert_eq!(parsed.deepseek_max_sub_cues, 2);
         assert_eq!(parsed.deepseek_caption_mode, CaptionMode::AuditOnly);
         assert!(parsed.no_deepseek_auto_start);
+        assert_eq!(parsed.deepseek_timeout_sec, 25);
         assert!(
             parse_args_from(
                 [
@@ -1612,6 +1654,21 @@ mod tests {
                     "merged",
                     "--deepseek-caption-mode",
                     "invalid",
+                ]
+                .map(str::to_string)
+                .into_iter()
+            )
+            .is_err()
+        );
+        assert!(
+            parse_args_from(
+                [
+                    "-i",
+                    "videos",
+                    "-o",
+                    "merged",
+                    "--deepseek-timeout-sec",
+                    "0",
                 ]
                 .map(str::to_string)
                 .into_iter()
@@ -1731,6 +1788,7 @@ mod tests {
             deepseek_max_sub_cues: 4,
             deepseek_caption_mode: CaptionMode::PreferDeepseek,
             no_deepseek_auto_start: false,
+            deepseek_timeout_sec: 20,
         };
         let original = signatures(&args.input, &args).unwrap();
 
@@ -1745,6 +1803,11 @@ mod tests {
         assert_eq!(line_changed.0, roi_changed.0);
         assert_ne!(line_changed.1, roi_changed.1);
         assert_ne!(line_changed.2, roi_changed.2);
+        let deepseek_default = deepseek_signature(&roi_changed.0, &roi_changed.1, &args).unwrap();
+        args.deepseek_timeout_sec = 60;
+        let deepseek_timeout_changed =
+            deepseek_signature(&roi_changed.0, &roi_changed.1, &args).unwrap();
+        assert_ne!(deepseek_default, deepseek_timeout_changed);
         fs::remove_dir_all(directory).unwrap();
     }
 

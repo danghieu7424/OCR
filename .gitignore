@@ -10,6 +10,9 @@ ocr-cli/*
 input/
 in/
 output/
+models/deepseek-ocr/**
+!models/deepseek-ocr/.gitkeep
+tools/ollama/ollama.exe
 
 Cargo.lock
 *.vtt

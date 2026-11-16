@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use ocr::{parse_vtt, serialize_vtt};
+use ocr_merge::{parse_vtt, serialize_vtt};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 const GENERATE_PROMPT: &str = "<image>\nFree OCR.";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
-pub(super) enum CaptionMode {
+pub enum CaptionMode {
     #[default]
     PreferDeepseek,
     AuditOnly,
@@ -31,7 +31,14 @@ struct GenerateRequest<'a> {
     prompt: &'static str,
     images: Vec<String>,
     stream: bool,
+    keep_alive: &'static str,
     options: GenerateOptions,
+}
+
+#[derive(Serialize)]
+struct WarmupRequest<'a> {
+    model: &'a str,
+    keep_alive: &'static str,
 }
 
 #[derive(Serialize)]
@@ -56,13 +63,13 @@ struct ModelEntry {
 }
 
 #[derive(Debug)]
-pub(super) struct FallbackSummary {
+pub struct FallbackSummary {
     pub subtitle_updates: usize,
     pub caption_updates: usize,
     pub fallback_kept: usize,
 }
 
-pub(super) struct FallbackOptions<'a> {
+pub struct FallbackOptions<'a> {
     pub base_url: &'a str,
     pub model: &'a str,
     pub max_sub_cues: usize,
@@ -70,7 +77,7 @@ pub(super) struct FallbackOptions<'a> {
     pub subtitle_threshold: f32,
 }
 
-pub(super) struct FallbackPaths<'a> {
+pub struct FallbackPaths<'a> {
     pub crops_dir: &'a Path,
     pub raw_subtitle_path: &'a Path,
     pub raw_caption_path: &'a Path,
@@ -131,7 +138,7 @@ fn normalize_text(text: &str, caption: bool) -> Option<String> {
 }
 
 fn request_ocr(
-    agent: &ureq::Agent,
+    client: &DeepseekClient,
     base_url: &str,
     model: &str,
     image_path: &Path,
@@ -143,6 +150,7 @@ fn request_ocr(
         prompt: GENERATE_PROMPT,
         images: vec![encode_base64(&image)],
         stream: false,
+        keep_alive: "15m",
         options: GenerateOptions {
             temperature: 0.0,
             num_predict: 64,
@@ -150,7 +158,8 @@ fn request_ocr(
     };
     let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
     let request_body = serde_json::to_string(&request)?;
-    let mut response = agent
+    let mut response = client
+        .agent
         .post(&url)
         .header("Content-Type", "application/json")
         .send(request_body)
@@ -202,8 +211,8 @@ fn clean_tsv(value: &str) -> String {
     value.replace(['\t', '\r', '\n'], " ")
 }
 
-pub(super) fn run(
-    agent: Option<&ureq::Agent>,
+pub fn run_fallback(
+    client: Option<&DeepseekClient>,
     options: &FallbackOptions<'_>,
     paths: &FallbackPaths<'_>,
 ) -> Result<FallbackSummary> {
@@ -228,7 +237,7 @@ pub(super) fn run(
     let mut subtitle_updates = 0;
     let mut fallback_kept = 0;
     for crop in subtitle_crops {
-        let Some(agent) = agent else {
+        let Some(client) = client else {
             fallback_kept += 1;
             continue;
         };
@@ -239,7 +248,7 @@ pub(super) fn run(
         else {
             continue;
         };
-        let text = match request_ocr(agent, options.base_url, options.model, &crop.path) {
+        let text = match request_ocr(client, options.base_url, options.model, &crop.path) {
             Ok(text) => text,
             Err(error) => {
                 eprintln!(
@@ -279,26 +288,28 @@ pub(super) fn run(
         let Some(cue) = captions.get_mut(index) else {
             continue;
         };
-        let normalized_text = match agent {
-            Some(agent) => match request_ocr(agent, options.base_url, options.model, &crop.path) {
-                Ok(text) => match normalize_text(&text, true) {
-                    Some(text) => Some(text),
-                    None => {
+        let normalized_text = match client {
+            Some(client) => {
+                match request_ocr(client, options.base_url, options.model, &crop.path) {
+                    Ok(text) => match normalize_text(&text, true) {
+                        Some(text) => Some(text),
+                        None => {
+                            eprintln!(
+                                "[DEEPSEEK: WARN] Caption cue {} trả về text rỗng/rác; giữ PP-OCRv6",
+                                crop.cue_index
+                            );
+                            None
+                        }
+                    },
+                    Err(error) => {
                         eprintln!(
-                            "[DEEPSEEK: WARN] Caption cue {} trả về text rỗng/rác; giữ PP-OCRv6",
+                            "[DEEPSEEK: WARN] Caption cue {} giữ PP-OCRv6: {error:#}",
                             crop.cue_index
                         );
                         None
                     }
-                },
-                Err(error) => {
-                    eprintln!(
-                        "[DEEPSEEK: WARN] Caption cue {} giữ PP-OCRv6: {error:#}",
-                        crop.cue_index
-                    );
-                    None
                 }
-            },
+            }
             None => None,
         };
         let (deepseek_text, status) = match normalized_text {
@@ -338,11 +349,43 @@ pub(super) fn run(
     })
 }
 
-pub(super) fn create_agent() -> ureq::Agent {
+pub struct DeepseekClient {
+    agent: ureq::Agent,
+}
+
+impl DeepseekClient {
+    pub fn new(timeout: Duration) -> Self {
+        Self {
+            agent: create_agent(timeout),
+        }
+    }
+}
+
+fn create_agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(8)))
+        .timeout_global(Some(timeout))
         .build()
         .into()
+}
+
+fn warm_up(agent: &ureq::Agent, base_url: &str, model: &str) -> Result<()> {
+    let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
+    let body = serde_json::to_string(&WarmupRequest {
+        model,
+        keep_alive: "15m",
+    })?;
+    let mut response = agent
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .send(body)
+        .context("Ollama model warm-up request failed")?;
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .context("Ollama warm-up response could not be read")?;
+    let _: serde_json::Value =
+        serde_json::from_str(&body).context("Ollama returned invalid warm-up JSON")?;
+    Ok(())
 }
 
 fn create_startup_agent(timeout: Duration) -> ureq::Agent {
@@ -386,22 +429,32 @@ fn should_start_local_server(base_url: &str, auto_start: bool) -> bool {
     auto_start && is_local_url(base_url)
 }
 
-fn find_ollama_binary() -> Option<PathBuf> {
+fn find_ollama_binary_with(
+    project_root: &Path,
+    configured_binary: Option<&Path>,
+    local_app_data: Option<&Path>,
+    path_directories: &[PathBuf],
+) -> Option<PathBuf> {
     #[cfg(windows)]
     let executable = ["ollama.exe", "ollama"];
     #[cfg(not(windows))]
     let executable = ["ollama", "ollama"];
-    for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
-        for name in executable {
-            let candidate = directory.join(name);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
+
+    let project_binary = project_root
+        .join("tools")
+        .join("ollama")
+        .join(executable[0]);
+    if project_binary.is_file() {
+        return Some(project_binary);
+    }
+    if let Some(binary) = configured_binary
+        && binary.is_file()
+    {
+        return Some(binary.to_path_buf());
     }
     #[cfg(windows)]
-    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-        let candidate = PathBuf::from(local_app_data)
+    if let Some(local_app_data) = local_app_data {
+        let candidate = local_app_data
             .join("Programs")
             .join("Ollama")
             .join("ollama.exe");
@@ -409,18 +462,47 @@ fn find_ollama_binary() -> Option<PathBuf> {
             return Some(candidate);
         }
     }
+    for directory in path_directories {
+        for name in executable {
+            let candidate = directory.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
     None
 }
 
-fn start_ollama() -> Result<()> {
-    let binary = find_ollama_binary()
-        .context("ollama executable was not found in PATH or its default Windows location")?;
+fn find_ollama_binary(project_root: &Path) -> Option<PathBuf> {
+    let configured_binary = std::env::var_os("OLLAMA_BIN").map(PathBuf::from);
+    let local_app_data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let path_directories =
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect::<Vec<_>>();
+    find_ollama_binary_with(
+        project_root,
+        configured_binary.as_deref(),
+        local_app_data.as_deref(),
+        &path_directories,
+    )
+}
+
+fn start_ollama(project_root: &Path) -> Result<()> {
+    let binary = find_ollama_binary(project_root).context(
+        "ollama executable was not found in tools/ollama, OLLAMA_BIN, LOCALAPPDATA, or PATH",
+    )?;
+    let model_directory = project_root.join("models").join("deepseek-ocr");
+    fs::create_dir_all(&model_directory)
+        .with_context(|| format!("could not create model directory {model_directory:?}"))?;
+    let model_directory = model_directory
+        .canonicalize()
+        .with_context(|| format!("could not resolve model directory {model_directory:?}"))?;
     let mut command = Command::new(binary);
     command
         .arg("serve")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::null())
+        .env("OLLAMA_MODELS", model_directory);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -522,17 +604,30 @@ fn pull_model(agent: &ureq::Agent, base_url: &str, model: &str) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn prepare_ollama(base_url: &str, model: &str, auto_start: bool) -> bool {
+pub fn prepare_ollama(base_url: &str, model: &str, auto_start: bool, project_root: &Path) -> bool {
     let probe_agent = create_startup_agent(Duration::from_secs(2));
     let pull_agent = create_startup_agent(Duration::from_secs(30 * 60));
-    prepare_ollama_with(
+    let model_ready = prepare_ollama_with(
         &probe_agent,
         &pull_agent,
         base_url,
         model,
         auto_start,
-        start_ollama,
-    )
+        || start_ollama(project_root),
+    );
+    if !model_ready {
+        return false;
+    }
+    let warmup_agent = create_startup_agent(Duration::from_secs(60));
+    match warm_up(&warmup_agent, base_url, model) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!(
+                "[DEEPSEEK: WARN] Ollama model warm-up failed; keeping PP-OCRv6 results ({error:#})."
+            );
+            false
+        }
+    }
 }
 
 #[cfg(test)]
@@ -574,6 +669,10 @@ mod tests {
             .timeout_global(Some(timeout))
             .build()
             .into()
+    }
+
+    fn client_with_timeout(timeout: Duration) -> DeepseekClient {
+        DeepseekClient::new(timeout)
     }
 
     fn mock_ollama_server(
@@ -747,6 +846,90 @@ mod tests {
     }
 
     #[test]
+    fn warmup_uses_model_and_keep_alive_without_image_work() {
+        let (url, server) = mock_ollama_server(vec![(
+            "POST /api/generate".into(),
+            r#"{"response":"","done":true}"#.into(),
+        )]);
+        let agent = agent_with_timeout(Duration::from_secs(2));
+        warm_up(&agent, &url, "deepseek-ocr").unwrap();
+
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].0, "POST /api/generate HTTP/1.1");
+        assert_eq!(requests[0].1["model"], "deepseek-ocr");
+        assert_eq!(requests[0].1["keep_alive"], "15m");
+        assert_eq!(requests[0].1.as_object().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn ollama_binary_search_obeys_portable_then_environment_then_default_then_path() {
+        let temp = TestTempDir::new();
+        let project_root = temp.path().join("project");
+        let local_app_data = temp.path().join("local-app-data");
+        let path_directory = temp.path().join("path");
+        let executable = if cfg!(windows) {
+            "ollama.exe"
+        } else {
+            "ollama"
+        };
+        let project_binary = project_root.join("tools").join("ollama").join(executable);
+        let configured_binary = temp.path().join("configured").join(executable);
+        let default_binary = local_app_data
+            .join("Programs")
+            .join("Ollama")
+            .join("ollama.exe");
+        let path_binary = path_directory.join(executable);
+        for binary in [
+            &project_binary,
+            &configured_binary,
+            &default_binary,
+            &path_binary,
+        ] {
+            fs::create_dir_all(binary.parent().unwrap()).unwrap();
+            fs::write(binary, b"test binary").unwrap();
+        }
+
+        let path_directories = vec![path_directory];
+        assert_eq!(
+            find_ollama_binary_with(
+                &project_root,
+                Some(&configured_binary),
+                Some(&local_app_data),
+                &path_directories,
+            ),
+            Some(project_binary.clone())
+        );
+        fs::remove_file(&project_binary).unwrap();
+        assert_eq!(
+            find_ollama_binary_with(
+                &project_root,
+                Some(&configured_binary),
+                Some(&local_app_data),
+                &path_directories,
+            ),
+            Some(configured_binary.clone())
+        );
+        fs::remove_file(&configured_binary).unwrap();
+        #[cfg(windows)]
+        assert_eq!(
+            find_ollama_binary_with(
+                &project_root,
+                None,
+                Some(&local_app_data),
+                &path_directories,
+            ),
+            Some(default_binary.clone())
+        );
+        #[cfg(windows)]
+        fs::remove_file(&default_binary).unwrap();
+        assert_eq!(
+            find_ollama_binary_with(&project_root, None, None, &path_directories),
+            Some(path_binary)
+        );
+    }
+
+    #[test]
     fn subtitle_fallback_uses_weakest_cue_and_respects_maximum() {
         let (temp, crops, subtitles, captions, corrected_subs, corrected_caps, compare) = fixture();
         let mut vtt = String::from("WEBVTT\n\n");
@@ -773,8 +956,8 @@ mod tests {
         .unwrap();
         let (url, server) = mock_server(vec!["corrected".into()], Duration::ZERO);
 
-        let summary = run(
-            Some(&agent_with_timeout(Duration::from_secs(2))),
+        let summary = run_fallback(
+            Some(&client_with_timeout(Duration::from_secs(2))),
             &FallbackOptions {
                 base_url: &url,
                 model: "deepseek-ocr",
@@ -799,6 +982,7 @@ mod tests {
         assert_eq!(requests[0]["prompt"], GENERATE_PROMPT);
         assert_eq!(requests[0]["model"], "deepseek-ocr");
         assert_eq!(requests[0]["stream"], false);
+        assert_eq!(requests[0]["keep_alive"], "15m");
         assert!(!requests[0]["images"][0].as_str().unwrap().is_empty());
         assert_eq!(requests[0]["options"]["temperature"], 0.0);
         assert_eq!(requests[0]["options"]["num_predict"], 64);
@@ -834,8 +1018,8 @@ mod tests {
             .unwrap();
             let (url, server) = mock_server(vec!["  Deep\n ".into()], Duration::ZERO);
 
-            run(
-                Some(&agent_with_timeout(Duration::from_secs(2))),
+            run_fallback(
+                Some(&client_with_timeout(Duration::from_secs(2))),
                 &FallbackOptions {
                     base_url: &url,
                     model: "deepseek-ocr",
@@ -897,8 +1081,8 @@ mod tests {
         .unwrap();
         let (url, server) = mock_server(vec!["Original".into()], Duration::ZERO);
 
-        run(
-            Some(&agent_with_timeout(Duration::from_secs(2))),
+        run_fallback(
+            Some(&client_with_timeout(Duration::from_secs(2))),
             &FallbackOptions {
                 base_url: &url,
                 model: "deepseek-ocr",
@@ -946,8 +1130,8 @@ mod tests {
         let url = format!("http://{}", listener.local_addr().unwrap());
         drop(listener);
 
-        run(
-            Some(&agent_with_timeout(Duration::from_millis(100))),
+        run_fallback(
+            Some(&client_with_timeout(Duration::from_millis(100))),
             &FallbackOptions {
                 base_url: &url,
                 model: "deepseek-ocr",
@@ -1000,8 +1184,8 @@ mod tests {
         .unwrap();
         let (url, server) = mock_server(vec!["《Too late》".into()], Duration::from_millis(200));
 
-        run(
-            Some(&agent_with_timeout(Duration::from_millis(30))),
+        run_fallback(
+            Some(&client_with_timeout(Duration::from_millis(30))),
             &FallbackOptions {
                 base_url: &url,
                 model: "deepseek-ocr",

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     ".",
+    "crates/ocr_deepseek",
     "crates/ocr_shared",
     "crates/ocr_subtitles",
     "crates/ocr_captions",
@@ -41,6 +42,7 @@ path = "examples/merge_subtitles_captions.rs"
 ocr_subtitles = { path = "crates/ocr_subtitles" }
 ocr_captions = { path = "crates/ocr_captions" }
 ocr_merge = { path = "crates/ocr_merge" }
+ocr_deepseek = { path = "crates/ocr_deepseek" }
 ocr_shared = { path = "crates/ocr_shared" }
 
 anyhow = "1.0"
@@ -49,5 +51,4 @@ serde_json = "1.0"
 cli_gui_form = { path = "./cli_gui_form" }
 ratatui = "0.28"
 image = "0.25"
-ureq = "3.5.1"
 

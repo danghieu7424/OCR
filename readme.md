@@ -21,6 +21,7 @@ Model PP-OCRv6 và từ điển mặc định được tối ưu cho chữ cứn
 | `ocr_subtitles` | OCR subtitle; DBNet/PP-OCRv6, vùng mặc định Y 85–100% |
 | `ocr_captions` | OCR caption; vùng mặc định Y 10–80%, xuất ảnh evidence tùy chọn |
 | `ocr_merge` | Đọc, sắp xếp, merge và serialize WebVTT, bảo toàn cue settings |
+| `ocr_deepseek` | Hậu kỳ OCR tùy chọn qua Ollama, quản lý model, warm-up và fallback PP-OCRv6 |
 | `ocr_shared` | Kiểu dữ liệu và tiện ích dùng chung |
 
 ## Pipeline OCR thô
@@ -51,7 +52,9 @@ cargo run --release --bin ocr-cli -- -i input -o output --caption-evidence
 
 Subtitle và caption được trích xuất song song. Mỗi video lưu checkpoint `.tmp_<tên-video>\state.json`, nên lần chạy lại sẽ bỏ qua từng bước đã hoàn tất và tiếp tục bước còn thiếu; thay đổi input/model/cấu hình OCR làm bước liên quan chạy lại. Thay đổi riêng `--subtitle-line`/`--caption-line` chỉ tạo lại file merge. Dùng `--force` để chạy lại toàn bộ các bước.
 
-DeepSeek OCR là tùy chọn riêng của `ocr-cli`. Không bật cờ này sẽ không tạo crop fallback và không gửi request mạng. Khi bật, CLI kiểm tra Ollama; nếu chưa chạy và URL là `localhost` hoặc `127.0.0.1`, mặc định sẽ tự khởi chạy `ollama serve` nền, chờ server sẵn sàng và tự tải model nếu còn thiếu. Nếu không tìm thấy Ollama, server không sẵn sàng hoặc tải model thất bại, CLI cảnh báo và tiếp tục giữ text PP-OCRv6. Với URL remote, CLI không khởi chạy daemon local. Dùng `--no-deepseek-auto-start` để tắt việc tự khởi chạy daemon.
+DeepSeek OCR là tùy chọn riêng của `ocr-cli`. Không bật cờ này sẽ không tạo crop fallback và không gửi request mạng. Khi bật, CLI kiểm tra Ollama; nếu chưa chạy và URL là `localhost` hoặc `127.0.0.1`, mặc định sẽ tự khởi chạy `ollama serve` nền, chờ server sẵn sàng và tự tải model nếu còn thiếu. Khi tự khởi chạy, `OLLAMA_MODELS` được đặt thành đường dẫn tuyệt đối `models/deepseek-ocr/` trong dự án. Ollama binary được tìm theo thứ tự `tools/ollama/ollama.exe`, `OLLAMA_BIN`, `%LOCALAPPDATA%\Programs\Ollama\ollama.exe`, rồi `PATH`. Để chạy portable trên máy chưa cài Ollama, đặt `ollama.exe` vào `tools/ollama/` và giữ model trong `models/deepseek-ocr/`; blob model được `.gitignore` loại khỏi Git nhưng thư mục được giữ bằng `.gitkeep`.
+
+Sau khi xác nhận model sẵn sàng, CLI gửi một request warm-up tối đa 60 giây để nạp model trước khi xử lý video. Nếu không tìm thấy Ollama, server/model không sẵn sàng hoặc warm-up thất bại, CLI cảnh báo và tiếp tục giữ text PP-OCRv6. Với URL remote, CLI không khởi chạy daemon local. Dùng `--no-deepseek-auto-start` để tắt việc tự khởi chạy daemon.
 
 Khi bật, crop best-frame được lưu tại `.tmp_<tên-video>\fallback_crops\` (subtitle chỉ dưới ngưỡng confidence; caption lưu cho mọi cue), còn `caption_deepseek_compare.tsv` ghi bảng đối chiếu PP-OCRv6/DeepSeek. Bước hậu kỳ có checkpoint riêng trong `state.json`, nên có thể chạy tiếp trên VTT OCR đã hoàn tất mà không chạy lại ONNX. Caption mặc định dùng `prefer-deepseek`; `audit-only` chỉ ghi khác biệt, không áp dụng thay đổi caption.
 
@@ -65,7 +68,7 @@ cargo run --release --bin ocr-cli -- -i input\第001集.mp4 -o output `
   --deepseek-caption-mode prefer-deepseek
 ```
 
-Mỗi request OCR có timeout 8 giây; response rỗng, không hợp lệ, server dừng hoặc timeout sẽ giữ text PP-OCRv6. Dùng `--deepseek-caption-mode audit-only` để xuất đối chiếu song song mà không sửa caption trong file merge. Các cờ: `--deepseek-fallback` (tắt mặc định), `--deepseek-model` (mặc định `deepseek-ocr`), `--deepseek-url` (mặc định `http://127.0.0.1:11434`), `--deepseek-sub-threshold` (mặc định `0.80`), `--deepseek-max-sub-cues` (mặc định `4`), `--deepseek-caption-mode` (`prefer-deepseek` hoặc `audit-only`) và `--no-deepseek-auto-start` (không tự khởi chạy Ollama).
+Mỗi request OCR giữ model 15 phút và có timeout `--deepseek-timeout-sec` (mặc định 20 giây); response rỗng, không hợp lệ, server dừng hoặc timeout sẽ giữ text PP-OCRv6. Dùng `--deepseek-caption-mode audit-only` để xuất đối chiếu song song mà không sửa caption trong file merge. Các cờ: `--deepseek-fallback` (tắt mặc định), `--deepseek-model` (mặc định `deepseek-ocr`), `--deepseek-url` (mặc định `http://127.0.0.1:11434`), `--deepseek-sub-threshold` (mặc định `0.80`), `--deepseek-max-sub-cues` (mặc định `4`), `--deepseek-caption-mode` (`prefer-deepseek` hoặc `audit-only`), `--deepseek-timeout-sec` (mặc định `20`) và `--no-deepseek-auto-start` (không tự khởi chạy Ollama).
 
 `--caption-evidence` xuất ảnh first/best/last cho cue subtitle (crop ROI subtitle) và caption (crop detector caption), kèm manifest cho từng loại. Không bật cờ thì không tạo ảnh evidence. Hai thanh `[SUB]`/`[CAP]` hiển thị tiến trình riêng; thanh xanh dương, hoàn tất xanh lá, cảnh báo cam và lỗi đỏ. Thanh chỉ đầy ở 100%; hai phần trăm chỉ cùng chốt 100% sau khi cả OCR và evidence hoàn tất. Các tùy chọn sau điều chỉnh riêng profile trích xuất và vị trí hiển thị trong file merge; ROI dùng thứ tự `Y_MIN,Y_MAX,X_MIN,X_MAX`, giá trị tỷ lệ từ `0` đến `1`:
 

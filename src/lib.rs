@@ -8,6 +8,7 @@
 //! - `ocr_merge`: Ghép phụ đề và chú thích thành một file WebVTT đồng bộ thời gian hoàn chỉnh.
 
 pub use ocr_captions;
+pub use ocr_deepseek;
 pub use ocr_merge;
 pub use ocr_subtitles;
 
