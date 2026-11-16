@@ -10,9 +10,6 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 ### Thêm
 
 - Binary `ocr-cli`: trích xuất subtitle/caption song song, lưu checkpoint theo từng bước để resume, hỗ trợ `--force` chạy lại; hiển thị tiến trình màu và chốt 100% khi hoàn tất, đồng thời giữ hai VTT thô trong `.tmp_<tên>` cạnh video và hỗ trợ ROI, line overrides cùng ảnh evidence.
-- `ocr-cli`: thêm hậu kỳ tùy chọn `--deepseek-fallback` qua Ollama `/api/generate`, tái sử dụng HTTP client `ureq`, timeout cấu hình được (mặc định 20 giây/request), giới hạn subtitle yếu, chế độ đối chiếu caption `prefer-deepseek`/`audit-only`, crop best-frame và checkpoint resume riêng; VTT OCR thô không bị ghi đè.
-- `ocr-cli`: khi bật DeepSeek fallback, tự kiểm tra `/api/tags`, khởi chạy Ollama local nền nếu cần và tự tải model còn thiếu; cảnh báo rồi giữ kết quả PP-OCRv6 khi khởi tạo thất bại. Thêm `--no-deepseek-auto-start` để tắt tự khởi chạy.
-- Tách hậu kỳ DeepSeek thành crate `ocr_deepseek`; hỗ trợ kho model portable `models/deepseek-ocr/`, ưu tiên Ollama binary trong `tools/ollama/`, warm-up 60 giây và `--deepseek-timeout-sec` mặc định 20 giây với `keep_alive` 15 phút.
 - `ocr_captions`: tùy chọn xuất crop ảnh first/best/last có timestamp cho từng cue caption, kèm `manifest.tsv` và `warnings.tsv` cho confidence thấp hoặc thời lượng sát ngưỡng tối thiểu.
 - `tools/compare_subs.py`: nhận cả output `.subtitles.zh.vtt` và `.zh.vtt`; báo Conditional Character Accuracy trên cue đã căn và Overall CER có tính ký tự cue thiếu/thừa.
 - `examples/extract_and_merge.rs`: hỗ trợ trích xuất subtitle/caption song song bằng `std::thread::scope`, hiển thị tiến trình riêng và tùy chọn `--sequential`.

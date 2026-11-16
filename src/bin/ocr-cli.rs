@@ -2,11 +2,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use image::RgbImage;
 use ocr::{
     CaptionExtractorConfig, CaptionExtractorOutput, OcrExtractorConfig, SubtitleRoi,
-    SubtitleSegment, extract_captions, extract_captions_with_fallback_crops,
-    extract_hardcoded_subtitles, extract_hardcoded_subtitles_with_fallback_crops,
-    merge_vtt_files_with_line_overrides, parse_vtt,
+    SubtitleSegment, extract_captions, extract_hardcoded_subtitles,
+    merge_vtt_files_with_line_overrides,
 };
-use ocr_deepseek::{CaptionMode, DeepseekClient, FallbackOptions, FallbackPaths, run_fallback};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::env;
@@ -17,10 +15,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov", "ts", "flv", "webm"];
-const STATE_VERSION: u32 = 2;
+const STATE_VERSION: u32 = 1;
 const ANSI_RESET: &str = "\x1b[0m";
 const ANSI_BLUE: &str = "\x1b[94m";
 const ANSI_GREEN: &str = "\x1b[92m";
@@ -39,14 +37,6 @@ struct CliArgs {
     subtitle_roi: SubtitleRoi,
     caption_roi: (f32, f32, f32, f32),
     force: bool,
-    deepseek_fallback: bool,
-    deepseek_model: String,
-    deepseek_url: String,
-    deepseek_sub_threshold: f32,
-    deepseek_max_sub_cues: usize,
-    deepseek_caption_mode: CaptionMode,
-    no_deepseek_auto_start: bool,
-    deepseek_timeout_sec: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -81,8 +71,6 @@ struct RunCheckpoint {
     subtitle: StageCheckpoint,
     caption: StageCheckpoint,
     merge: StageCheckpoint,
-    #[serde(default, skip_serializing_if = "is_default_stage")]
-    deepseek: StageCheckpoint,
 }
 
 impl Default for RunCheckpoint {
@@ -92,13 +80,8 @@ impl Default for RunCheckpoint {
             subtitle: StageCheckpoint::default(),
             caption: StageCheckpoint::default(),
             merge: StageCheckpoint::default(),
-            deepseek: StageCheckpoint::default(),
         }
     }
-}
-
-fn is_default_stage(stage: &StageCheckpoint) -> bool {
-    stage.signature.is_empty() && !stage.completed && stage.warnings == 0
 }
 
 #[derive(Clone, Serialize)]
@@ -290,14 +273,6 @@ Options:\n\
       --caption-line <value>     Override caption WebVTT line setting (for example: 20%)\n\
       --subtitle-roi <coords>    Subtitle ROI as Y_MIN,Y_MAX,X_MIN,X_MAX fractions (0..1)\n\
       --caption-roi <coords>     Caption ROI as Y_MIN,Y_MAX,X_MIN,X_MAX fractions (0..1)\n\
-      --deepseek-fallback        Use optional Ollama DeepSeek OCR post-processing\n\
-      --deepseek-model <name>    Ollama model (default: deepseek-ocr)\n\
-      --deepseek-url <url>       Ollama base URL (default: http://127.0.0.1:11434)\n\
-      --deepseek-sub-threshold <n>  Fallback confidence threshold (default: 0.80)\n\
-      --deepseek-max-sub-cues <n>   Maximum weak subtitle cues per video (default: 4)\n\
-      --deepseek-caption-mode <mode> prefer-deepseek (default) or audit-only\n\
-      --deepseek-timeout-sec <n>    Timeout per OCR request in seconds (default: 20)\n\
-      --no-deepseek-auto-start      Do not launch a local Ollama daemon automatically\n\
       --force                    Reprocess completed subtitles, captions, and merge\n\
   -h, --help                     Show this help\n\
 \n\
@@ -337,14 +312,6 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
     let mut subtitle_roi = SubtitleRoi::default();
     let mut caption_roi = (0.10, 0.80, 0.0, 1.0);
     let mut force = false;
-    let mut deepseek_fallback = false;
-    let mut deepseek_model = "deepseek-ocr".to_string();
-    let mut deepseek_url = "http://127.0.0.1:11434".to_string();
-    let mut deepseek_sub_threshold = 0.80f32;
-    let mut deepseek_max_sub_cues = 4usize;
-    let mut deepseek_caption_mode = CaptionMode::PreferDeepseek;
-    let mut no_deepseek_auto_start = false;
-    let mut deepseek_timeout_sec = 20u64;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -371,56 +338,6 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
             }
             "--caption-evidence" => caption_evidence = true,
             "--force" => force = true,
-            "--deepseek-fallback" => deepseek_fallback = true,
-            "--no-deepseek-auto-start" => no_deepseek_auto_start = true,
-            "--deepseek-timeout-sec" => {
-                deepseek_timeout_sec = args
-                    .next()
-                    .context("--deepseek-timeout-sec cần số giây")?
-                    .parse()
-                    .context("--deepseek-timeout-sec phải là số nguyên dương")?;
-                if deepseek_timeout_sec == 0 {
-                    bail!("--deepseek-timeout-sec phải lớn hơn 0");
-                }
-            }
-            "--deepseek-model" => {
-                deepseek_model = args.next().context("--deepseek-model cần tên model")?;
-            }
-            "--deepseek-url" => {
-                deepseek_url = args.next().context("--deepseek-url cần URL")?;
-            }
-            "--deepseek-sub-threshold" => {
-                deepseek_sub_threshold = args
-                    .next()
-                    .context("--deepseek-sub-threshold cần giá trị")?
-                    .parse()
-                    .context("--deepseek-sub-threshold phải là số trong [0,1]")?;
-                if !deepseek_sub_threshold.is_finite()
-                    || !(0.0..=1.0).contains(&deepseek_sub_threshold)
-                {
-                    bail!("--deepseek-sub-threshold phải thuộc [0,1]");
-                }
-            }
-            "--deepseek-max-sub-cues" => {
-                deepseek_max_sub_cues = args
-                    .next()
-                    .context("--deepseek-max-sub-cues cần số nguyên")?
-                    .parse()
-                    .context("--deepseek-max-sub-cues phải là số nguyên không âm")?;
-            }
-            "--deepseek-caption-mode" => {
-                deepseek_caption_mode = match args
-                    .next()
-                    .context("--deepseek-caption-mode cần giá trị")?
-                    .as_str()
-                {
-                    "prefer-deepseek" => CaptionMode::PreferDeepseek,
-                    "audit-only" => CaptionMode::AuditOnly,
-                    other => bail!(
-                        "Giá trị --deepseek-caption-mode không hợp lệ: {other}; dùng prefer-deepseek hoặc audit-only"
-                    ),
-                };
-            }
             "--subtitle-line" => {
                 subtitle_line = Some(args.next().context("--subtitle-line cần giá trị")?);
             }
@@ -467,14 +384,6 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
         subtitle_roi,
         caption_roi,
         force,
-        deepseek_fallback,
-        deepseek_model,
-        deepseek_url,
-        deepseek_sub_threshold,
-        deepseek_max_sub_cues,
-        deepseek_caption_mode,
-        no_deepseek_auto_start,
-        deepseek_timeout_sec,
     }))
 }
 
@@ -626,15 +535,14 @@ fn load_checkpoint(path: &Path) -> Result<RunCheckpoint> {
         return Ok(RunCheckpoint::default());
     }
     let data = fs::read(path).with_context(|| format!("Không thể đọc checkpoint {:?}", path))?;
-    let mut checkpoint: RunCheckpoint = serde_json::from_slice(&data)
+    let checkpoint: RunCheckpoint = serde_json::from_slice(&data)
         .with_context(|| format!("Checkpoint lỗi; dùng --force để tạo lại: {:?}", path))?;
-    if checkpoint.version != 1 && checkpoint.version != STATE_VERSION {
+    if checkpoint.version != STATE_VERSION {
         bail!(
             "Phiên bản checkpoint không được hỗ trợ; dùng --force để tạo lại: {:?}",
             path
         );
     }
-    checkpoint.version = STATE_VERSION;
     Ok(checkpoint)
 }
 
@@ -850,211 +758,10 @@ fn export_subtitle_evidence(
     Ok(())
 }
 
-struct LegacyCropOptions<'a> {
-    video: &'a Path,
-    vtt_path: &'a Path,
-    crops_dir: &'a Path,
-    metadata_name: &'a str,
-    prefix: &'a str,
-    is_caption: bool,
-    roi: (f32, f32, f32, f32),
-    fps: u32,
-    subtitle_threshold: Option<f32>,
-}
-
-fn create_legacy_fallback_crops(options: LegacyCropOptions<'_>) -> Result<()> {
-    let LegacyCropOptions {
-        video,
-        vtt_path,
-        crops_dir,
-        metadata_name,
-        prefix,
-        is_caption,
-        roi,
-        fps,
-        subtitle_threshold,
-    } = options;
-    let metadata_path = crops_dir.join(metadata_name);
-    if metadata_path.is_file() {
-        let content = fs::read_to_string(&metadata_path)?;
-        let mut lines = content.lines();
-        if lines.next() == Some("cue_index\tstart\tend\tconfidence\tbest_frame_idx\tpath")
-            && let Some(threshold) = subtitle_threshold
-        {
-            let (source_width, source_height) = video_dimensions(video)?;
-            let crop_width = even_crop(roi.3 - roi.2, source_width);
-            let crop_height = even_crop(roi.1 - roi.0, source_height);
-            let crop_x = even_crop(roi.2, source_width);
-            let crop_y = even_crop(roi.0, source_height);
-            let mut output =
-                String::from("cue_index\tstart\tend\tconfidence\tbest_frame_idx\tpath\n");
-            for line in lines.filter(|line| !line.trim().is_empty()) {
-                let columns = line.split('\t').collect::<Vec<_>>();
-                if columns.len() != 6 {
-                    bail!("Metadata fallback subtitle không hợp lệ: {line}");
-                }
-                let cue_index = columns[0].parse::<usize>()?;
-                let confidence = columns[3].parse::<f32>()?;
-                let frame_index = columns[4].parse::<usize>()?;
-                let old_path = (!columns[5].is_empty()).then(|| crops_dir.join(columns[5]));
-                let file_name = if confidence < threshold {
-                    let file_name = format!("{prefix}_{cue_index:03}.png");
-                    let path = crops_dir.join(&file_name);
-                    if !path.is_file() {
-                        write_fallback_crop(
-                            video,
-                            &path,
-                            frame_index as f64 / fps.max(1) as f64,
-                            crop_width,
-                            crop_height,
-                            crop_x,
-                            crop_y,
-                        )?;
-                    }
-                    file_name
-                } else {
-                    if let Some(path) = old_path
-                        && path.is_file()
-                    {
-                        remove_file_if_exists(&path)?;
-                    }
-                    String::new()
-                };
-                output.push_str(&format!(
-                    "{}\t{}\t{}\t{}\t{}\t{}\n",
-                    columns[0], columns[1], columns[2], columns[3], columns[4], file_name
-                ));
-            }
-            fs::write(metadata_path, output)?;
-            return Ok(());
-        }
-        let all_crops_exist = content
-            .lines()
-            .skip(1)
-            .filter(|line| !line.trim().is_empty())
-            .all(|line| {
-                let file_name = line.split('\t').next_back().unwrap_or_default();
-                file_name.is_empty() || crops_dir.join(file_name).is_file()
-            });
-        if all_crops_exist {
-            return Ok(());
-        }
-        remove_file_if_exists(&metadata_path)?;
-    }
-    let cues = parse_vtt(&fs::read_to_string(vtt_path)?, is_caption);
-    fs::create_dir_all(crops_dir)?;
-    let (source_width, source_height) = video_dimensions(video)?;
-    let crop_width = even_crop(roi.3 - roi.2, source_width);
-    let crop_height = even_crop(roi.1 - roi.0, source_height);
-    let crop_x = even_crop(roi.2, source_width);
-    let crop_y = even_crop(roi.0, source_height);
-    let mut metadata = String::from("cue_index\tstart\tend\tconfidence\tpath\n");
-    for (index, cue) in cues.iter().enumerate() {
-        let file_name = format!("{prefix}_{:03}.png", index + 1);
-        let selected = subtitle_threshold.is_none_or(|threshold| threshold > 0.0);
-        if selected {
-            let path = crops_dir.join(&file_name);
-            let midpoint_sec = (cue.start_ms + cue.end_ms) as f64 / 2000.0;
-            write_fallback_crop(
-                video,
-                &path,
-                midpoint_sec,
-                crop_width,
-                crop_height,
-                crop_x,
-                crop_y,
-            )?;
-        }
-        metadata.push_str(&format!(
-            "{}\t{}\t{}\t\t{}\n",
-            index + 1,
-            ocr::format_vtt_timestamp(cue.start_ms),
-            ocr::format_vtt_timestamp(cue.end_ms),
-            if selected { file_name.as_str() } else { "" }
-        ));
-    }
-    fs::write(metadata_path, metadata)?;
-    Ok(())
-}
-
-fn write_fallback_crop(
-    video: &Path,
-    path: &Path,
-    time_sec: f64,
-    crop_width: usize,
-    crop_height: usize,
-    crop_x: usize,
-    crop_y: usize,
-) -> Result<()> {
-    let filter = format!("crop={crop_width}:{crop_height}:{crop_x}:{crop_y}");
-    let output = Command::new("ffmpeg")
-        .args([
-            "-ss",
-            &format!("{time_sec:.3}"),
-            "-i",
-            &video.to_string_lossy(),
-            "-vf",
-            &filter,
-            "-frames:v",
-            "1",
-            "-y",
-            &path.to_string_lossy(),
-            "-v",
-            "error",
-        ])
-        .output()
-        .with_context(|| format!("Không thể tạo fallback crop {:?}", path))?;
-    if !output.status.success() {
-        bail!(
-            "FFmpeg lỗi khi tạo fallback crop {:?}: {}",
-            path,
-            output.status
-        );
-    }
-    Ok(())
-}
-
-fn deepseek_signature(
-    subtitle_signature: &str,
-    caption_signature: &str,
-    args: &CliArgs,
-) -> Result<String> {
-    serde_json::to_string(&(
-        subtitle_signature,
-        caption_signature,
-        &args.deepseek_model,
-        &args.deepseek_url,
-        args.deepseek_sub_threshold,
-        args.deepseek_max_sub_cues,
-        args.deepseek_caption_mode,
-        args.deepseek_timeout_sec,
-    ))
-    .context("Không thể tạo chữ ký cấu hình DeepSeek")
-}
-
-fn is_project_root(path: &Path) -> bool {
-    path.join("Cargo.toml").is_file()
-        || path.join("models").join("deepseek-ocr").is_dir()
-        || path.join("tools").join("ollama").is_dir()
-}
-
-fn project_root() -> Result<PathBuf> {
-    let current_dir = env::current_dir().context("Could not determine current directory")?;
-    if is_project_root(&current_dir) {
-        return Ok(current_dir);
-    }
-    let executable = env::current_exe().context("Could not determine ocr-cli executable path")?;
-    if let Some(root) = executable.ancestors().find(|path| is_project_root(path)) {
-        return Ok(root.to_path_buf());
-    }
-    Ok(current_dir)
-}
-
 fn process_video(
     video: &Path,
     args: &CliArgs,
     progress_state: &Mutex<ProgressState>,
-    deepseek_client: Option<&DeepseekClient>,
 ) -> Result<()> {
     reset_progress(progress_state);
     let stem = video
@@ -1069,10 +776,6 @@ fn process_video(
     let caption_vtt = temp_dir.join("captions.zh.vtt");
     let merged_vtt = args.output.join(format!("{stem}.merged.zh.vtt"));
     let subtitle_evidence = temp_dir.join("subtitle_evidence");
-    let fallback_crops_dir = temp_dir.join("fallback_crops");
-    let deepseek_subtitle_vtt = temp_dir.join("subtitles.deepseek.zh.vtt");
-    let deepseek_caption_vtt = temp_dir.join("captions.deepseek.zh.vtt");
-    let deepseek_compare = temp_dir.join("caption_deepseek_compare.tsv");
 
     let subtitle_config = OcrExtractorConfig {
         roi: args.subtitle_roi.clone(),
@@ -1093,15 +796,6 @@ fn process_video(
         RunCheckpoint::default()
     } else {
         load_checkpoint(&state_path)?
-    };
-    let deepseek_config_signature = if args.deepseek_fallback {
-        Some(deepseek_signature(
-            &subtitle_signature,
-            &caption_signature,
-            args,
-        )?)
-    } else {
-        None
     };
     let subtitle_evidence_valid =
         !args.caption_evidence || subtitle_evidence.join("manifest.tsv").is_file();
@@ -1129,48 +823,15 @@ fn process_video(
         &caption_signature,
         is_valid_vtt(&caption_vtt) && caption_evidence_valid,
     );
-    let had_deepseek_output = checkpoint.deepseek.completed;
-    if args.deepseek_fallback {
-        let signature = deepseek_config_signature
-            .as_deref()
-            .context("Thiếu chữ ký cấu hình DeepSeek")?;
-        update_stage_signature(
-            &mut checkpoint.deepseek,
-            signature,
-            is_valid_vtt(&deepseek_subtitle_vtt)
-                && is_valid_vtt(&deepseek_caption_vtt)
-                && deepseek_compare.is_file(),
-        );
-    } else {
-        checkpoint.deepseek.completed = false;
-    }
-    let deepseek_done = args.deepseek_fallback
-        && stage_is_complete(
-            &checkpoint.deepseek,
-            deepseek_config_signature
-                .as_deref()
-                .context("Thiếu chữ ký cấu hình DeepSeek")?,
-            is_valid_vtt(&deepseek_subtitle_vtt)
-                && is_valid_vtt(&deepseek_caption_vtt)
-                && deepseek_compare.is_file(),
-        );
     update_stage_signature(
         &mut checkpoint.merge,
         &merge_signature,
-        is_valid_vtt(&merged_vtt)
-            && subtitle_done
-            && caption_done
-            && (args.deepseek_fallback || !had_deepseek_output)
-            && (!args.deepseek_fallback || deepseek_done),
+        is_valid_vtt(&merged_vtt) && subtitle_done && caption_done,
     );
     let merge_done = stage_is_complete(
         &checkpoint.merge,
         &merge_signature,
-        is_valid_vtt(&merged_vtt)
-            && subtitle_done
-            && caption_done
-            && (args.deepseek_fallback || !had_deepseek_output)
-            && (!args.deepseek_fallback || deepseek_done),
+        is_valid_vtt(&merged_vtt) && subtitle_done && caption_done,
     );
     save_checkpoint(&state_path, &checkpoint)?;
 
@@ -1223,9 +884,6 @@ fn process_video(
         },
     );
 
-    if args.deepseek_fallback && (!subtitle_done || !caption_done) {
-        remove_directory_if_exists(&fallback_crops_dir)?;
-    }
     if !subtitle_done {
         remove_file_if_exists(&subtitle_vtt)?;
         if args.caption_evidence {
@@ -1242,40 +900,14 @@ fn process_video(
     let (subtitle_result, caption_result) = thread::scope(|scope| {
         let subtitle_handle = (!subtitle_done).then(|| {
             scope.spawn(|| {
-                let result = if args.deepseek_fallback {
-                    extract_hardcoded_subtitles_with_fallback_crops(
-                        video,
-                        &subtitle_vtt,
-                        &args.models,
-                        &subtitle_config,
-                        &fallback_crops_dir,
-                        args.deepseek_sub_threshold,
-                    )
-                } else {
-                    extract_hardcoded_subtitles(
-                        video,
-                        &subtitle_vtt,
-                        &args.models,
-                        &subtitle_config,
-                    )
-                };
-                result.with_context(|| format!("Trích xuất subtitle thất bại cho {:?}", video))
+                extract_hardcoded_subtitles(video, &subtitle_vtt, &args.models, &subtitle_config)
+                    .with_context(|| format!("Trích xuất subtitle thất bại cho {:?}", video))
             })
         });
         let caption_handle = (!caption_done).then(|| {
             scope.spawn(|| {
-                let result = if args.deepseek_fallback {
-                    extract_captions_with_fallback_crops(
-                        video,
-                        &caption_vtt,
-                        &args.models,
-                        &caption_config,
-                        &fallback_crops_dir,
-                    )
-                } else {
-                    extract_captions(video, &caption_vtt, &args.models, &caption_config)
-                };
-                result.with_context(|| format!("Trích xuất caption thất bại cho {:?}", video))
+                extract_captions(video, &caption_vtt, &args.models, &caption_config)
+                    .with_context(|| format!("Trích xuất caption thất bại cho {:?}", video))
             })
         });
         let subtitle_result = match subtitle_handle {
@@ -1375,77 +1007,6 @@ fn process_video(
         println!(" >>> Evidence subtitle: {:?}", subtitle_evidence);
     }
 
-    if args.deepseek_fallback {
-        let deepseek_started = Instant::now();
-        create_legacy_fallback_crops(LegacyCropOptions {
-            video,
-            vtt_path: &subtitle_vtt,
-            crops_dir: &fallback_crops_dir,
-            metadata_name: "subtitles.tsv",
-            prefix: "sub",
-            is_caption: false,
-            roi: (
-                subtitle_config.roi.y_min,
-                subtitle_config.roi.y_max,
-                subtitle_config.roi.x_min,
-                subtitle_config.roi.x_max,
-            ),
-            fps: subtitle_config.fps,
-            subtitle_threshold: Some(args.deepseek_sub_threshold),
-        })?;
-        create_legacy_fallback_crops(LegacyCropOptions {
-            video,
-            vtt_path: &caption_vtt,
-            crops_dir: &fallback_crops_dir,
-            metadata_name: "captions.tsv",
-            prefix: "cap",
-            is_caption: true,
-            roi: (
-                caption_config.roi.y_min,
-                caption_config.roi.y_max,
-                caption_config.roi.x_min,
-                caption_config.roi.x_max,
-            ),
-            fps: caption_config.fps,
-            subtitle_threshold: None,
-        })?;
-        if deepseek_done {
-            println!("  [DEEPSEEK: SKIP] Đã hoàn tất; dùng lại kết quả hậu kỳ.");
-        } else {
-            let summary = run_fallback(
-                deepseek_client,
-                &FallbackOptions {
-                    base_url: &args.deepseek_url,
-                    model: &args.deepseek_model,
-                    max_sub_cues: args.deepseek_max_sub_cues,
-                    caption_mode: args.deepseek_caption_mode,
-                    subtitle_threshold: args.deepseek_sub_threshold,
-                },
-                &FallbackPaths {
-                    crops_dir: &fallback_crops_dir,
-                    raw_subtitle_path: &subtitle_vtt,
-                    raw_caption_path: &caption_vtt,
-                    corrected_subtitle_path: &deepseek_subtitle_vtt,
-                    corrected_caption_path: &deepseek_caption_vtt,
-                    compare_path: &deepseek_compare,
-                },
-            )?;
-            checkpoint.deepseek.signature =
-                deepseek_config_signature.context("Thiếu chữ ký cấu hình DeepSeek")?;
-            checkpoint.deepseek.completed = true;
-            checkpoint.deepseek.warnings = 0;
-            save_checkpoint(&state_path, &checkpoint)?;
-            println!(
-                "  [DEEPSEEK: DONE] {} subtitle updated, {} caption updated, {} cue(s) kept from PP-OCRv6 in {:.2}s; compare: {:?}",
-                summary.subtitle_updates,
-                summary.caption_updates,
-                summary.fallback_kept,
-                deepseek_started.elapsed().as_secs_f64(),
-                deepseek_compare
-            );
-        }
-    }
-
     if !merge_done {
         checkpoint.merge.completed = false;
         save_checkpoint(&state_path, &checkpoint)?;
@@ -1456,19 +1017,9 @@ fn process_video(
             merged_vtt
         );
     } else {
-        let merge_subtitle = if args.deepseek_fallback {
-            &deepseek_subtitle_vtt
-        } else {
-            &subtitle_vtt
-        };
-        let merge_caption = if args.deepseek_fallback {
-            &deepseek_caption_vtt
-        } else {
-            &caption_vtt
-        };
         match merge_vtt_files_with_line_overrides(
-            merge_subtitle,
-            merge_caption,
+            &subtitle_vtt,
+            &caption_vtt,
             &merged_vtt,
             args.subtitle_line.as_deref(),
             args.caption_line.as_deref(),
@@ -1509,29 +1060,10 @@ fn run() -> Result<()> {
     }
     let files = video_files(&args.input)?;
     let progress_state = register_progress_handler();
-    let deepseek_client = if args.deepseek_fallback {
-        match project_root() {
-            Ok(project_root) => ocr_deepseek::prepare_ollama(
-                &args.deepseek_url,
-                &args.deepseek_model,
-                !args.no_deepseek_auto_start,
-                &project_root,
-            )
-            .then(|| DeepseekClient::new(Duration::from_secs(args.deepseek_timeout_sec))),
-            Err(error) => {
-                eprintln!(
-                    "[DEEPSEEK: WARN] Could not locate the project model directory; keeping PP-OCRv6 results ({error:#})."
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
     let mut failures = Vec::new();
     for video in &files {
         println!("========================================");
-        if let Err(error) = process_video(video, &args, &progress_state, deepseek_client.as_ref()) {
+        if let Err(error) = process_video(video, &args, &progress_state) {
             eprintln!(
                 "{ANSI_RED}[ERROR]{ANSI_RESET} {}: {error:#}",
                 video.display()
@@ -1592,89 +1124,9 @@ mod tests {
         assert_eq!(parsed.output, PathBuf::from("merged"));
         assert_eq!(parsed.subtitle_line.as_deref(), Some("85%"));
         assert!(parsed.force);
-        assert!(!parsed.deepseek_fallback);
-        assert!(!parsed.no_deepseek_auto_start);
-        assert_eq!(parsed.deepseek_model, "deepseek-ocr");
-        assert_eq!(parsed.deepseek_url, "http://127.0.0.1:11434");
-        assert_eq!(parsed.deepseek_timeout_sec, 20);
+
         let positional = ["videos", "--output", "merged"].map(str::to_string);
         assert!(parse_args_from(positional.into_iter()).unwrap().is_some());
-
-        let deepseek = [
-            "-i",
-            "videos",
-            "-o",
-            "merged",
-            "--deepseek-fallback",
-            "--deepseek-model",
-            "deepseek-ocr",
-            "--deepseek-url",
-            "http://localhost:11434",
-            "--deepseek-sub-threshold",
-            "0.75",
-            "--deepseek-max-sub-cues",
-            "2",
-            "--deepseek-caption-mode",
-            "audit-only",
-            "--no-deepseek-auto-start",
-            "--deepseek-timeout-sec",
-            "25",
-        ]
-        .map(str::to_string);
-        let parsed = parse_args_from(deepseek.into_iter()).unwrap().unwrap();
-        assert!(parsed.deepseek_fallback);
-        assert_eq!(parsed.deepseek_model, "deepseek-ocr");
-        assert_eq!(parsed.deepseek_url, "http://localhost:11434");
-        assert_eq!(parsed.deepseek_sub_threshold, 0.75);
-        assert_eq!(parsed.deepseek_max_sub_cues, 2);
-        assert_eq!(parsed.deepseek_caption_mode, CaptionMode::AuditOnly);
-        assert!(parsed.no_deepseek_auto_start);
-        assert_eq!(parsed.deepseek_timeout_sec, 25);
-        assert!(
-            parse_args_from(
-                [
-                    "-i",
-                    "videos",
-                    "-o",
-                    "merged",
-                    "--deepseek-sub-threshold",
-                    "1.5",
-                ]
-                .map(str::to_string)
-                .into_iter()
-            )
-            .is_err()
-        );
-        assert!(
-            parse_args_from(
-                [
-                    "-i",
-                    "videos",
-                    "-o",
-                    "merged",
-                    "--deepseek-caption-mode",
-                    "invalid",
-                ]
-                .map(str::to_string)
-                .into_iter()
-            )
-            .is_err()
-        );
-        assert!(
-            parse_args_from(
-                [
-                    "-i",
-                    "videos",
-                    "-o",
-                    "merged",
-                    "--deepseek-timeout-sec",
-                    "0",
-                ]
-                .map(str::to_string)
-                .into_iter()
-            )
-            .is_err()
-        );
 
         let conflicting =
             ["--input", "videos", "other.mp4", "--output", "merged"].map(str::to_string);
@@ -1683,9 +1135,6 @@ mod tests {
 
     #[test]
     fn checkpoint_persists_completed_stages_and_invalidates_changed_signatures() {
-        let default_json = serde_json::to_value(RunCheckpoint::default()).unwrap();
-        assert!(default_json.get("deepseek").is_none());
-
         let unique = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1723,38 +1172,6 @@ mod tests {
     }
 
     #[test]
-    fn existing_version_one_state_resumes_raw_ocr_stages() {
-        let directory = env::temp_dir().join(format!(
-            "ocr-cli-state-v1-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("state.json");
-        fs::write(
-            &path,
-            serde_json::json!({
-                "version": 1,
-                "subtitle": { "signature": "sub-v1", "completed": true, "warnings": 0 },
-                "caption": { "signature": "cap-v1", "completed": true, "warnings": 0 },
-                "merge": { "signature": "merge-v1", "completed": true, "warnings": 0 }
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let checkpoint = load_checkpoint(&path).unwrap();
-        assert_eq!(checkpoint.version, STATE_VERSION);
-        assert!(stage_is_complete(&checkpoint.subtitle, "sub-v1", true));
-        assert!(stage_is_complete(&checkpoint.caption, "cap-v1", true));
-        assert!(!checkpoint.deepseek.completed);
-        fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
     fn signatures_scope_line_changes_to_merge_only() {
         let unique = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1781,14 +1198,6 @@ mod tests {
             subtitle_roi: SubtitleRoi::default(),
             caption_roi: (0.10, 0.80, 0.0, 1.0),
             force: false,
-            deepseek_fallback: false,
-            deepseek_model: "deepseek-ocr".to_string(),
-            deepseek_url: "http://127.0.0.1:11434".to_string(),
-            deepseek_sub_threshold: 0.80,
-            deepseek_max_sub_cues: 4,
-            deepseek_caption_mode: CaptionMode::PreferDeepseek,
-            no_deepseek_auto_start: false,
-            deepseek_timeout_sec: 20,
         };
         let original = signatures(&args.input, &args).unwrap();
 
@@ -1803,11 +1212,6 @@ mod tests {
         assert_eq!(line_changed.0, roi_changed.0);
         assert_ne!(line_changed.1, roi_changed.1);
         assert_ne!(line_changed.2, roi_changed.2);
-        let deepseek_default = deepseek_signature(&roi_changed.0, &roi_changed.1, &args).unwrap();
-        args.deepseek_timeout_sec = 60;
-        let deepseek_timeout_changed =
-            deepseek_signature(&roi_changed.0, &roi_changed.1, &args).unwrap();
-        assert_ne!(deepseek_default, deepseek_timeout_changed);
         fs::remove_dir_all(directory).unwrap();
     }
 

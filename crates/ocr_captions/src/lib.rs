@@ -1177,8 +1177,7 @@ fn crop_caption_boxes(image: &RgbImage, boxes: &[TextBox]) -> Result<RgbImage> {
 )]
 fn export_caption_evidence(
     video_path: &Path,
-    evidence_dir: Option<&Path>,
-    fallback_crops_dir: Option<&Path>,
+    evidence_dir: &Path,
     vf_filter: &str,
     crop_w: usize,
     crop_h: usize,
@@ -1192,12 +1191,7 @@ fn export_caption_evidence(
     if fps == 0 {
         anyhow::bail!("FPS phải lớn hơn 0 khi xuất bằng chứng caption");
     }
-    if let Some(evidence_dir) = evidence_dir {
-        fs::create_dir_all(evidence_dir)?;
-    }
-    if let Some(fallback_crops_dir) = fallback_crops_dir {
-        fs::create_dir_all(fallback_crops_dir)?;
-    }
+    fs::create_dir_all(evidence_dir)?;
 
     let mut targets: BTreeMap<usize, BTreeMap<usize, Vec<&str>>> = BTreeMap::new();
     for (cue_index, cue) in segments.iter().enumerate() {
@@ -1232,16 +1226,11 @@ fn export_caption_evidence(
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .unwrap_or(candidates[0]);
-        let stages = if evidence_dir.is_some() {
-            vec![
-                ("first", candidates[0]),
-                ("best", best_frame),
-                ("last", *candidates.last().unwrap_or(&candidates[0])),
-            ]
-        } else {
-            vec![("best", best_frame)]
-        };
-        for (stage, frame) in stages {
+        for (stage, frame) in [
+            ("first", candidates[0]),
+            ("best", best_frame),
+            ("last", *candidates.last().unwrap_or(&candidates[0])),
+        ] {
             let stages = targets
                 .entry(frame)
                 .or_default()
@@ -1253,22 +1242,14 @@ fn export_caption_evidence(
         }
     }
     if targets.is_empty() {
-        if let Some(evidence_dir) = evidence_dir {
-            fs::write(
-                evidence_dir.join("manifest.tsv"),
-                "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\twarnings\timages\n",
-            )?;
-            fs::write(
-                evidence_dir.join("warnings.tsv"),
-                "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\treasons\n",
-            )?;
-        }
-        if let Some(fallback_crops_dir) = fallback_crops_dir {
-            fs::write(
-                fallback_crops_dir.join("captions.tsv"),
-                "cue_index\tstart\tend\tconfidence\tpath\n",
-            )?;
-        }
+        fs::write(
+            evidence_dir.join("manifest.tsv"),
+            "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\twarnings\timages\n",
+        )?;
+        fs::write(
+            evidence_dir.join("warnings.tsv"),
+            "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\treasons\n",
+        )?;
         return Ok(());
     }
 
@@ -1295,7 +1276,6 @@ fn export_caption_evidence(
     let mut buffer = vec![0u8; frame_bytes];
     let mut frame_index = 0usize;
     let mut evidence_files = vec![Vec::<String>::new(); segments.len()];
-    let mut fallback_files = vec![None::<String>; segments.len()];
     let mut exported_frames = 0usize;
 
     loop {
@@ -1318,30 +1298,18 @@ fn export_caption_evidence(
                 let caption_boxes =
                     caption_boxes_for_text(&frame_boxes[frame_index], cue_text, column_x_tol);
                 let crop = crop_caption_boxes(&image, &caption_boxes)?;
-                if let Some(evidence_dir) = evidence_dir {
-                    let stage_name = stages.join("_");
-                    let file_name = format!(
-                        "cue_{:03}_{}_frame_{:06}_t_{:09}ms.png",
-                        cue_index + 1,
-                        stage_name,
-                        frame_index,
-                        timestamp_ms
-                    );
-                    let path = evidence_dir.join(&file_name);
-                    crop.save(&path)
-                        .with_context(|| format!("Không thể ghi crop bằng chứng {:?}", path))?;
-                    evidence_files[cue_index].push(file_name);
-                }
-                if stages.contains(&"best")
-                    && let Some(fallback_crops_dir) = fallback_crops_dir
-                {
-                    let file_name = format!("cap_{:03}.png", cue_index + 1);
-                    let path = fallback_crops_dir.join(&file_name);
-                    crop.save(&path).with_context(|| {
-                        format!("Không thể ghi fallback caption crop {:?}", path)
-                    })?;
-                    fallback_files[cue_index] = Some(file_name);
-                }
+                let stage_name = stages.join("_");
+                let file_name = format!(
+                    "cue_{:03}_{}_frame_{:06}_t_{:09}ms.png",
+                    cue_index + 1,
+                    stage_name,
+                    frame_index,
+                    timestamp_ms
+                );
+                let path = evidence_dir.join(&file_name);
+                crop.save(&path)
+                    .with_context(|| format!("Không thể ghi crop bằng chứng {:?}", path))?;
+                evidence_files[cue_index].push(file_name);
             }
             exported_frames += 1;
         }
@@ -1360,70 +1328,52 @@ fn export_caption_evidence(
         );
     }
 
-    if let Some(evidence_dir) = evidence_dir {
-        let mut manifest = String::from(
-            "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\twarnings\timages\n",
-        );
-        for (i, cue) in segments.iter().enumerate() {
-            let duration_sec = cue.segment.end_sec - cue.segment.start_sec;
-            let warning_text = warnings
-                .iter()
-                .find(|w| w.start_sec == cue.segment.start_sec && w.text == cue.segment.text)
-                .map(|w| w.reasons.join("; "))
-                .unwrap_or_default();
-            manifest.push_str(&format!(
-                "{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\t{}\t{}\n",
-                i + 1,
-                cue.segment.text.replace(['\t', '\n'], " "),
-                cue.segment.start_sec,
-                cue.segment.end_sec,
-                duration_sec,
-                cue.confidence,
-                warning_text,
-                evidence_files[i].join(";")
-            ));
-        }
-        fs::write(evidence_dir.join("manifest.tsv"), manifest)?;
+    let mut manifest = String::from(
+        "cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\twarnings\timages\n",
+    );
+    for (i, cue) in segments.iter().enumerate() {
+        let duration_sec = cue.segment.end_sec - cue.segment.start_sec;
+        let warning_text = warnings
+            .iter()
+            .find(|w| w.start_sec == cue.segment.start_sec && w.text == cue.segment.text)
+            .map(|w| w.reasons.join("; "))
+            .unwrap_or_default();
+        manifest.push_str(&format!(
+            "{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\t{}\t{}\n",
+            i + 1,
+            cue.segment.text.replace(['\t', '\n'], " "),
+            cue.segment.start_sec,
+            cue.segment.end_sec,
+            duration_sec,
+            cue.confidence,
+            warning_text,
+            evidence_files[i].join(";")
+        ));
+    }
+    fs::write(evidence_dir.join("manifest.tsv"), manifest)?;
 
-        let mut warning_list =
-            String::from("cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\treasons\n");
-        for warning in warnings {
-            let cue_index = segments
-                .iter()
-                .position(|cue| {
-                    cue.segment.start_sec == warning.start_sec && cue.segment.text == warning.text
-                })
-                .map(|i| i + 1)
-                .unwrap_or(0);
-            warning_list.push_str(&format!(
-                "{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\t{}\n",
-                cue_index,
-                warning.text.replace(['\t', '\n'], " "),
-                warning.start_sec,
-                warning.end_sec,
-                warning.duration_sec,
-                warning.confidence,
-                warning.reasons.join("; ")
-            ));
-        }
-        fs::write(evidence_dir.join("warnings.tsv"), warning_list)?;
+    let mut warning_list =
+        String::from("cue\ttext\tstart_sec\tend_sec\tduration_sec\tmean_confidence\treasons\n");
+    for warning in warnings {
+        let cue_index = segments
+            .iter()
+            .position(|cue| {
+                cue.segment.start_sec == warning.start_sec && cue.segment.text == warning.text
+            })
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        warning_list.push_str(&format!(
+            "{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\t{}\n",
+            cue_index,
+            warning.text.replace(['\t', '\n'], " "),
+            warning.start_sec,
+            warning.end_sec,
+            warning.duration_sec,
+            warning.confidence,
+            warning.reasons.join("; ")
+        ));
     }
-    if let Some(fallback_crops_dir) = fallback_crops_dir {
-        let mut manifest = String::from("cue_index\tstart\tend\tconfidence\tpath\n");
-        for (index, cue) in segments.iter().enumerate() {
-            if let Some(path) = &fallback_files[index] {
-                manifest.push_str(&format!(
-                    "{}\t{}\t{}\t{:.4}\t{}\n",
-                    index + 1,
-                    CaptionSegment::format_vtt_timestamp(cue.segment.start_sec),
-                    CaptionSegment::format_vtt_timestamp(cue.segment.end_sec),
-                    cue.confidence,
-                    path
-                ));
-            }
-        }
-        fs::write(fallback_crops_dir.join("captions.tsv"), manifest)?;
-    }
+    fs::write(evidence_dir.join("warnings.tsv"), warning_list)?;
     Ok(())
 }
 
@@ -1432,32 +1382,6 @@ pub fn extract_captions(
     output_vtt_path: &Path,
     model_dir: &Path,
     config: &CaptionExtractorConfig,
-) -> Result<CaptionExtractorOutput> {
-    extract_captions_inner(video_path, output_vtt_path, model_dir, config, None)
-}
-
-pub fn extract_captions_with_fallback_crops(
-    video_path: &Path,
-    output_vtt_path: &Path,
-    model_dir: &Path,
-    config: &CaptionExtractorConfig,
-    fallback_crops_dir: &Path,
-) -> Result<CaptionExtractorOutput> {
-    extract_captions_inner(
-        video_path,
-        output_vtt_path,
-        model_dir,
-        config,
-        Some(fallback_crops_dir),
-    )
-}
-
-fn extract_captions_inner(
-    video_path: &Path,
-    output_vtt_path: &Path,
-    model_dir: &Path,
-    config: &CaptionExtractorConfig,
-    fallback_crops_dir: Option<&Path>,
 ) -> Result<CaptionExtractorOutput> {
     if !video_path.exists() {
         anyhow::bail!("Video không tồn tại: {:?}", video_path);
@@ -1957,11 +1881,10 @@ fn extract_captions_inner(
         .iter()
         .map(|indexed| indexed.segment.clone())
         .collect();
-    if config.evidence_dir.is_some() || fallback_crops_dir.is_some() {
+    if let Some(evidence_dir) = &config.evidence_dir {
         export_caption_evidence(
             video_path,
-            config.evidence_dir.as_deref(),
-            fallback_crops_dir,
+            evidence_dir,
             &vf_filter,
             crop_w,
             crop_h,
