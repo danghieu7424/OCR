@@ -11,6 +11,7 @@
  ****/
 
 use anyhow::{Context, Result, bail};
+use image::RgbImage;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
@@ -109,6 +110,13 @@ pub struct SubtitleSegment {
     pub text: String,
 }
 
+#[derive(Debug, Clone)]
+struct TrackedSubtitleSegment {
+    segment: SubtitleSegment,
+    confidence: f32,
+    best_frame_idx: usize,
+}
+
 impl SubtitleSegment {
     /// Định dạng thời gian sang chuỗi WebVTT (hh:mm:ss.mmm)
     pub fn format_vtt_timestamp(seconds: f64) -> String {
@@ -130,6 +138,129 @@ pub struct OcrExtractorOutput {
     pub vtt_path: PathBuf,
     /// Danh sách các phân đoạn phụ đề
     pub segments: Vec<SubtitleSegment>,
+}
+
+fn export_fallback_crops(
+    video_path: &Path,
+    output_dir: &Path,
+    fps: u32,
+    threshold: f32,
+    crop: (usize, usize, usize, usize),
+    segments: &[TrackedSubtitleSegment],
+) -> Result<()> {
+    let (crop_width, crop_height, crop_x, crop_y) = crop;
+    fs::create_dir_all(output_dir)?;
+    let mut targets: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (cue_index, cue) in segments.iter().enumerate() {
+        if cue.confidence < threshold {
+            targets
+                .entry(cue.best_frame_idx)
+                .or_default()
+                .push(cue_index);
+        }
+    }
+
+    let manifest_path = output_dir.join("subtitles.tsv");
+    let mut manifest = String::from("cue_index\tstart\tend\tconfidence\tbest_frame_idx\tpath\n");
+    if targets.is_empty() {
+        for (index, cue) in segments.iter().enumerate() {
+            manifest.push_str(&format!(
+                "{}\t{}\t{}\t{:.4}\t{}\t\n",
+                index + 1,
+                SubtitleSegment::format_vtt_timestamp(cue.segment.start_sec),
+                SubtitleSegment::format_vtt_timestamp(cue.segment.end_sec),
+                cue.confidence,
+                cue.best_frame_idx
+            ));
+        }
+        fs::write(manifest_path, manifest)?;
+        return Ok(());
+    }
+
+    let mut target_frames = targets.keys().copied().collect::<Vec<_>>();
+    target_frames.sort_unstable();
+    let select = target_frames
+        .iter()
+        .map(|frame| format!("eq(n\\,{frame})"))
+        .collect::<Vec<_>>()
+        .join("+");
+    let filter =
+        format!("fps={fps},crop={crop_width}:{crop_height}:{crop_x}:{crop_y},select={select}");
+    let mut ffmpeg = Command::new("ffmpeg")
+        .args([
+            "-i",
+            &video_path.to_string_lossy(),
+            "-vf",
+            &filter,
+            "-vsync",
+            "0",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-v",
+            "error",
+            "-",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("Không thể khởi động FFmpeg để xuất fallback subtitle crops")?;
+    let mut stdout = ffmpeg
+        .stdout
+        .take()
+        .context("Không thể mở stdout FFmpeg fallback")?;
+    let frame_bytes = crop_width
+        .checked_mul(crop_height)
+        .and_then(|size| size.checked_mul(3))
+        .context("Kích thước subtitle crop vượt giới hạn")?;
+    let mut buffer = vec![0u8; frame_bytes];
+    let mut frame_index = 0usize;
+    loop {
+        match stdout.read_exact(&mut buffer) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(error) => return Err(error.into()),
+        }
+        let target_frame = target_frames.get(frame_index).copied();
+        if let Some(target_frame) = target_frame {
+            let image = RgbImage::from_raw(crop_width as u32, crop_height as u32, buffer.clone())
+                .context("Không thể tạo fallback subtitle crop")?;
+            for &cue_index in &targets[&target_frame] {
+                let file_name = format!("sub_{:03}.png", cue_index + 1);
+                image.save(output_dir.join(&file_name))?;
+            }
+        }
+        frame_index += 1;
+    }
+    let status = ffmpeg.wait().context("Không thể chờ FFmpeg fallback")?;
+    if !status.success() {
+        bail!("FFmpeg lỗi khi xuất fallback subtitle crops: {status}");
+    }
+    if frame_index != targets.len() {
+        bail!(
+            "Thiếu fallback subtitle crop: xuất {frame_index}/{} frame mục tiêu",
+            targets.len()
+        );
+    }
+    for (index, cue) in segments.iter().enumerate() {
+        let file_name = if cue.confidence < threshold {
+            format!("sub_{:03}.png", index + 1)
+        } else {
+            String::new()
+        };
+        manifest.push_str(&format!(
+            "{}\t{}\t{}\t{:.4}\t{}\t{}\n",
+            index + 1,
+            SubtitleSegment::format_vtt_timestamp(cue.segment.start_sec),
+            SubtitleSegment::format_vtt_timestamp(cue.segment.end_sec),
+            cue.confidence,
+            cue.best_frame_idx,
+            file_name
+        ));
+    }
+    fs::write(manifest_path, manifest)?;
+    Ok(())
 }
 
 /// Bộ máy nhận dạng chữ PP-OCRv6 bằng ONNX Runtime
@@ -916,6 +1047,33 @@ pub fn extract_hardcoded_subtitles(
     model_dir: &Path,
     config: &OcrExtractorConfig,
 ) -> Result<OcrExtractorOutput> {
+    extract_hardcoded_subtitles_inner(video_path, output_vtt_path, model_dir, config, None)
+}
+
+pub fn extract_hardcoded_subtitles_with_fallback_crops(
+    video_path: &Path,
+    output_vtt_path: &Path,
+    model_dir: &Path,
+    config: &OcrExtractorConfig,
+    fallback_crops_dir: &Path,
+    fallback_threshold: f32,
+) -> Result<OcrExtractorOutput> {
+    extract_hardcoded_subtitles_inner(
+        video_path,
+        output_vtt_path,
+        model_dir,
+        config,
+        Some((fallback_crops_dir, fallback_threshold)),
+    )
+}
+
+fn extract_hardcoded_subtitles_inner(
+    video_path: &Path,
+    output_vtt_path: &Path,
+    model_dir: &Path,
+    config: &OcrExtractorConfig,
+    fallback: Option<(&Path, f32)>,
+) -> Result<OcrExtractorOutput> {
     if !video_path.exists() {
         bail!("Video không tồn tại: {:?}", video_path);
     }
@@ -1316,7 +1474,7 @@ pub fn extract_hardcoded_subtitles(
     }
 
     // Bước 4: Khử nhiễu, biểu quyết nội dung & chuẩn hóa mốc thời gian WebVTT
-    let mut initial_segments: Vec<SubtitleSegment> = Vec::new();
+    let mut initial_segments: Vec<TrackedSubtitleSegment> = Vec::new();
     let mut reference_glyph_heights: Vec<f64> = raw_segments
         .iter()
         .filter(|seg| {
@@ -1405,29 +1563,52 @@ pub fn extract_hardcoded_subtitles(
 
         // Đảm bảo không overlap với phân đoạn trước
         let start_sec = if let Some(last) = initial_segments.last() {
-            start_sec.max(last.end_sec + 0.001)
+            start_sec.max(last.segment.end_sec + 0.001)
         } else {
             start_sec
         };
 
         if end_sec > start_sec + 0.05 {
-            initial_segments.push(SubtitleSegment {
-                start_sec,
-                end_sec,
-                text: best_text,
+            let confidence = seg.confidences.iter().sum::<f32>() / seg.confidences.len() as f32;
+            let best_offset = seg
+                .confidences
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                .map(|(index, _)| index)
+                .unwrap_or(0);
+            initial_segments.push(TrackedSubtitleSegment {
+                segment: SubtitleSegment {
+                    start_sec,
+                    end_sec,
+                    text: best_text,
+                },
+                confidence,
+                best_frame_idx: seg.start_frame + best_offset,
             });
         }
     }
 
     // Gộp các phân đoạn liền kề nếu là cùng một câu (gap rất ngắn < 0.35s)
-    let mut final_segments: Vec<SubtitleSegment> = Vec::new();
+    let mut final_segments: Vec<TrackedSubtitleSegment> = Vec::new();
     for seg in initial_segments {
         if let Some(last) = final_segments.last_mut() {
-            let gap = seg.start_sec - last.end_sec;
-            if is_same_subtitle(&last.text, &seg.text) && gap < 0.35 {
-                last.end_sec = seg.end_sec;
-                if seg.text.chars().count() > last.text.chars().count() {
-                    last.text = seg.text;
+            let gap = seg.segment.start_sec - last.segment.end_sec;
+            if is_same_subtitle(&last.segment.text, &seg.segment.text) && gap < 0.35 {
+                let old_duration = last.segment.end_sec - last.segment.start_sec;
+                let new_duration = seg.segment.end_sec - seg.segment.start_sec;
+                let total_duration = old_duration + new_duration;
+                if total_duration > 0.0 {
+                    last.confidence = (last.confidence * old_duration as f32
+                        + seg.confidence * new_duration as f32)
+                        / total_duration as f32;
+                }
+                if seg.confidence > last.confidence {
+                    last.best_frame_idx = seg.best_frame_idx;
+                }
+                last.segment.end_sec = seg.segment.end_sec;
+                if seg.segment.text.chars().count() > last.segment.text.chars().count() {
+                    last.segment.text = seg.segment.text;
                 }
                 continue;
             }
@@ -1437,17 +1618,18 @@ pub fn extract_hardcoded_subtitles(
 
     // Bỏ mảnh vụn ở điểm chuyển sub: câu 1-2 chữ, rất ngắn, nằm sát câu khác và
     // là tập con của câu đó (vd "和" cạnh "和离", "爷" cạnh "爷爷").
-    let mut deduped: Vec<SubtitleSegment> = Vec::with_capacity(final_segments.len());
+    let mut deduped: Vec<TrackedSubtitleSegment> = Vec::with_capacity(final_segments.len());
     for i in 0..final_segments.len() {
         let seg = &final_segments[i];
-        let dur = seg.end_sec - seg.start_sec;
-        let chars = seg.text.chars().count();
+        let dur = seg.segment.end_sec - seg.segment.start_sec;
+        let chars = seg.segment.text.chars().count();
         if dur <= 0.30 && chars <= 2 {
-            let neighbour_contains = |other: Option<&SubtitleSegment>| -> bool {
+            let neighbour_contains = |other: Option<&TrackedSubtitleSegment>| -> bool {
                 if let Some(o) = other {
-                    let near = (o.start_sec - seg.end_sec).abs() <= 0.35
-                        || (seg.start_sec - o.end_sec).abs() <= 0.35;
-                    near && o.text != seg.text && o.text.contains(&seg.text)
+                    let near = (o.segment.start_sec - seg.segment.end_sec).abs() <= 0.35
+                        || (seg.segment.start_sec - o.segment.end_sec).abs() <= 0.35;
+                    near && o.segment.text != seg.segment.text
+                        && o.segment.text.contains(&seg.segment.text)
                 } else {
                     false
                 }
@@ -1466,6 +1648,17 @@ pub fn extract_hardcoded_subtitles(
     }
     let final_segments = deduped;
 
+    if let Some((fallback_dir, threshold)) = fallback {
+        export_fallback_crops(
+            video_path,
+            fallback_dir,
+            config.fps,
+            threshold,
+            (crop_w, crop_h, crop_x, crop_y),
+            &final_segments,
+        )?;
+    }
+
     // Đảm bảo thư mục cha tồn tại
     if let Some(parent) = output_vtt_path.parent() {
         fs::create_dir_all(parent)?;
@@ -1474,9 +1667,12 @@ pub fn extract_hardcoded_subtitles(
     // Ghi file định dạng chuẩn WebVTT
     let mut vtt_content = String::from("WEBVTT\n\n");
     for seg in &final_segments {
-        let start_str = SubtitleSegment::format_vtt_timestamp(seg.start_sec);
-        let end_str = SubtitleSegment::format_vtt_timestamp(seg.end_sec);
-        vtt_content.push_str(&format!("{} --> {}\n{}\n\n", start_str, end_str, seg.text));
+        let start_str = SubtitleSegment::format_vtt_timestamp(seg.segment.start_sec);
+        let end_str = SubtitleSegment::format_vtt_timestamp(seg.segment.end_sec);
+        vtt_content.push_str(&format!(
+            "{} --> {}\n{}\n\n",
+            start_str, end_str, seg.segment.text
+        ));
     }
 
     fs::write(output_vtt_path, vtt_content)
@@ -1492,6 +1688,9 @@ pub fn extract_hardcoded_subtitles(
 
     Ok(OcrExtractorOutput {
         vtt_path: output_vtt_path.to_path_buf(),
-        segments: final_segments,
+        segments: final_segments
+            .into_iter()
+            .map(|tracked| tracked.segment)
+            .collect(),
     })
 }

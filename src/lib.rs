@@ -29,13 +29,14 @@ pub mod shared {
 // 1. Phụ đề lời thoại (Subtitles)
 pub use ocr_subtitles::{
     OcrExtractorConfig, OcrExtractorOutput, SubtitleRoi, SubtitleSegment,
-    extract_hardcoded_subtitles, vote_character_consensus, vote_majority_string,
+    extract_hardcoded_subtitles, extract_hardcoded_subtitles_with_fallback_crops,
+    vote_character_consensus, vote_majority_string,
 };
 
 // 2. Chú thích nhân vật (Captions)
 pub use ocr_captions::{
     CaptionExtractorConfig, CaptionExtractorOutput, CaptionRoi, CaptionSegment, CaptionWarning,
-    extract_captions,
+    extract_captions, extract_captions_with_fallback_crops,
 };
 
 // 3. Hợp nhất phụ đề và chú thích (Merge)

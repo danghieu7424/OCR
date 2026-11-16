@@ -49,4 +49,5 @@ serde_json = "1.0"
 cli_gui_form = { path = "./cli_gui_form" }
 ratatui = "0.28"
 image = "0.25"
+ureq = "3.5.1"
 
