@@ -28,6 +28,9 @@ use pure_onnx_ocr::OcrEngine;
 
 use ocr_shared::icons::Icons;
 use ocr_shared::terminal_color::NameUtilsExt;
+use ocr_shared::{
+    FrameProcessingOptions, FrameProvider, crop_rgb24, roi_bounds, timestamp_range, validate_frame,
+};
 
 /// Cấu hình vùng ROI cho caption
 #[derive(Debug, Clone)]
@@ -124,6 +127,14 @@ pub struct CaptionExtractorOutput {
     pub segments: Vec<CaptionSegment>,
     pub warnings: Vec<CaptionWarning>,
     pub evidence_dir: Option<PathBuf>,
+}
+
+/// Result of caption OCR on caller-provided frames. No file or evidence images are written.
+#[derive(Debug, Clone)]
+pub struct FrameCaptionOutput {
+    pub segments: Vec<CaptionSegment>,
+    pub warnings: Vec<CaptionWarning>,
+    pub processed_frames: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1926,14 +1937,372 @@ pub fn extract_captions(
     })
 }
 
+/// Extracts captions from a pull-based RGB24 frame source without invoking ffmpeg or ffprobe.
+///
+/// The configured normalized ROI is applied to each incoming frame. Raw frame pixels are
+/// processed incrementally; only OCR boxes and source timestamps are retained for voting.
+/// `evidence_dir` is intentionally ignored because evidence export is video/path based.
+pub fn extract_captions_from_frames<P: FrameProvider>(
+    provider: &mut P,
+    model_dir: &Path,
+    config: &CaptionExtractorConfig,
+    options: &FrameProcessingOptions,
+) -> Result<FrameCaptionOutput> {
+    options.check_cancelled()?;
+    let det_path = model_dir.join("ocr/det.onnx");
+    let rec_path = model_dir.join("ocr/rec.onnx");
+    let keys_path = model_dir.join("ocr/keys.txt");
+    let engine = ocr_subtitles::det_filter::create_det_engine(
+        &det_path.to_string_lossy(),
+        &rec_path.to_string_lossy(),
+        &keys_path.to_string_lossy(),
+    )?;
+
+    let mut all_frame_boxes: Vec<Vec<TextBox>> = Vec::new();
+    let mut timestamps = Vec::new();
+    let mut min_source_dimension = usize::MAX;
+    let mut source_roi_width = 0usize;
+    let mut previous_timestamp = None;
+    loop {
+        options.check_cancelled()?;
+        let Some(frame) = provider.next_frame()? else {
+            break;
+        };
+        validate_frame(&frame, previous_timestamp)?;
+        let (left, top, right, bottom) = roi_bounds(
+            frame.width,
+            frame.height,
+            config.roi.x_min,
+            config.roi.y_min,
+            config.roi.x_max,
+            config.roi.y_max,
+        )?;
+        min_source_dimension = min_source_dimension.min(frame.width.min(frame.height));
+        source_roi_width = source_roi_width.max(right - left);
+        let roi_pixels = crop_rgb24(&frame, (left, top, right, bottom))?;
+        let roi_width = right - left;
+        let roi_height = bottom - top;
+        let timestamp = frame.timestamp_sec;
+        let roi_boxes = detect_and_recognize(
+            &engine,
+            &roi_pixels,
+            roi_width,
+            roi_height,
+            timestamp,
+            config.vertical_aspect_threshold,
+            config.min_confidence,
+        )?;
+        let boxes = if roi_boxes.iter().any(|text_box| {
+            text_box.is_vertical && text_box.min_y <= (text_box.height * 0.25).max(3.0)
+        }) {
+            let expanded_pixels = crop_rgb24(&frame, (left, 0, right, bottom))?;
+            let expanded_boxes = detect_and_recognize(
+                &engine,
+                &expanded_pixels,
+                roi_width,
+                bottom,
+                timestamp,
+                config.vertical_aspect_threshold,
+                config.min_confidence,
+            )?;
+            restore_clipped_vertical_boxes(roi_boxes, &expanded_boxes, top as f64)
+        } else {
+            restore_clipped_vertical_boxes(roi_boxes, &[], top as f64)
+        };
+        previous_timestamp = Some(timestamp);
+        all_frame_boxes.push(boxes);
+        timestamps.push(timestamp);
+        options.report_progress(all_frame_boxes.len(), timestamp);
+    }
+
+    let total = all_frame_boxes.len();
+    if total == 0 {
+        return Ok(FrameCaptionOutput {
+            segments: Vec::new(),
+            warnings: Vec::new(),
+            processed_frames: 0,
+        });
+    }
+    let watermarks = build_watermark_set(&all_frame_boxes, config.watermark_freq_threshold);
+    let column_x_tol = source_roi_width as f64 * config.column_x_tolerance as f64;
+
+    let mut records = Vec::with_capacity(total);
+    let mut filtered_frame_boxes = Vec::with_capacity(total);
+    let mut weak_records = Vec::with_capacity(total);
+    let mut weak_frame_boxes = Vec::with_capacity(total);
+    for frame_boxes in &all_frame_boxes {
+        let filtered: Vec<TextBox> = frame_boxes
+            .iter()
+            .filter(|text_box| !is_watermark(text_box, &watermarks))
+            .cloned()
+            .collect();
+        let (strong, weak): (Vec<TextBox>, Vec<TextBox>) = filtered
+            .into_iter()
+            .partition(|text_box| text_box.confidence >= config.min_confidence);
+        records.push(assemble_caption(&strong, column_x_tol));
+        weak_records.push(assemble_caption(&weak, column_x_tol));
+        filtered_frame_boxes.push(strong);
+        weak_frame_boxes.push(weak);
+    }
+
+    let strong_records = records.clone();
+    let strong_frame_boxes = filtered_frame_boxes.clone();
+    let boundary_lookaround = (config.fps as usize).div_ceil(2).max(1);
+    let weak_thresholds = WeakCaptionThresholds {
+        min_confidence: config.min_confidence * WEAK_CAPTION_CONFIDENCE_RATIO,
+        min_box_extent: min_source_dimension as f64 * WEAK_CAPTION_MIN_EXTENT_RATIO,
+    };
+    for frame_index in 0..total {
+        if weak_records[frame_index].is_empty() {
+            continue;
+        }
+        let boxes = &weak_frame_boxes[frame_index];
+        let confidence = boxes
+            .iter()
+            .map(|text_box| text_box.confidence)
+            .sum::<f32>()
+            / boxes.len() as f32;
+        let extent = boxes
+            .iter()
+            .map(|text_box| text_box.width.max(text_box.height))
+            .sum::<f64>()
+            / boxes.len() as f64;
+        if confidence < weak_thresholds.min_confidence || extent < weak_thresholds.min_box_extent {
+            continue;
+        }
+        let has_anchor = has_confident_caption_anchor(
+            &weak_records[frame_index],
+            boxes,
+            frame_index,
+            &strong_records,
+            &strong_frame_boxes,
+            boundary_lookaround,
+        );
+        let has_track = has_stable_weak_caption_track(
+            &weak_records[frame_index],
+            boxes,
+            frame_index,
+            &weak_records,
+            &weak_frame_boxes,
+            boundary_lookaround,
+            weak_thresholds,
+        );
+        if has_anchor || has_track {
+            records[frame_index] = weak_records[frame_index].clone();
+            filtered_frame_boxes[frame_index] = boxes.clone();
+        }
+    }
+
+    for index in 1..total.saturating_sub(1) {
+        if records[index].is_empty()
+            && !records[index - 1].is_empty()
+            && !records[index + 1].is_empty()
+            && is_same_caption(&records[index - 1], &records[index + 1])
+        {
+            records[index] = records[index - 1].clone();
+        }
+    }
+    for index in 1..total.saturating_sub(2) {
+        if records[index].is_empty()
+            && records[index + 1].is_empty()
+            && !records[index - 1].is_empty()
+            && !records[index + 2].is_empty()
+            && is_same_caption(&records[index - 1], &records[index + 2])
+        {
+            records[index] = records[index - 1].clone();
+            records[index + 1] = records[index - 1].clone();
+        }
+    }
+    for index in 1..total.saturating_sub(1) {
+        if !records[index].is_empty()
+            && records[index - 1].is_empty()
+            && records[index + 1].is_empty()
+        {
+            records[index].clear();
+        } else if !records[index - 1].is_empty()
+            && !records[index + 1].is_empty()
+            && !records[index].is_empty()
+            && records[index] != records[index - 1]
+            && records[index - 1] == records[index + 1]
+            && is_same_caption(&records[index - 1], &records[index])
+        {
+            records[index] = records[index - 1].clone();
+        }
+    }
+
+    let frame_confidence = |index: usize| {
+        let boxes = &filtered_frame_boxes[index];
+        if boxes.is_empty() {
+            0.0
+        } else {
+            boxes
+                .iter()
+                .map(|text_box| text_box.confidence)
+                .sum::<f32>()
+                / boxes.len() as f32
+        }
+    };
+    let min_frames = (config.min_duration_sec * config.fps as f64).ceil() as usize;
+    let mut segments: Vec<IndexedCaption> = Vec::new();
+    let mut index = 0;
+    while index < total {
+        if records[index].is_empty() {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        let mut texts = vec![records[index].clone()];
+        let mut weights = vec![frame_confidence(index)];
+        while index + 1 < total
+            && !records[index + 1].is_empty()
+            && is_same_caption_observation(
+                &select_best_caption(
+                    &texts,
+                    &weights,
+                    expected_vertical_char_count(&filtered_frame_boxes[start]),
+                ),
+                &records[index + 1],
+                &filtered_frame_boxes[index],
+                &filtered_frame_boxes[index + 1],
+            )
+        {
+            index += 1;
+            texts.push(records[index].clone());
+            weights.push(frame_confidence(index));
+        }
+        let end = index;
+        if end - start + 1 >= min_frames.max(1) {
+            let best = select_best_caption(
+                &texts,
+                &weights,
+                expected_vertical_char_count(&filtered_frame_boxes[start]),
+            );
+            let (start_sec, end_sec) = timestamp_range(&timestamps, start, end, config.fps)?;
+            if !best.is_empty() && end_sec - start_sec > 0.1 {
+                for cue_text in best
+                    .split('\n')
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                {
+                    let confidence_values: Vec<f32> = (start..=end)
+                        .filter(|&frame| caption_record_matches(cue_text, &records[frame]))
+                        .flat_map(|frame| {
+                            caption_boxes_for_text(
+                                &filtered_frame_boxes[frame],
+                                cue_text,
+                                column_x_tol,
+                            )
+                        })
+                        .map(|text_box| text_box.confidence)
+                        .collect();
+                    let confidence = if confidence_values.is_empty() {
+                        0.0
+                    } else {
+                        confidence_values.iter().sum::<f32>() / confidence_values.len() as f32
+                    };
+                    segments.push(IndexedCaption {
+                        segment: CaptionSegment {
+                            start_sec,
+                            end_sec,
+                            text: format!("《{}》", cue_text),
+                        },
+                        start_frame: start,
+                        end_frame: end,
+                        confidence,
+                    });
+                }
+            }
+        }
+        index += 1;
+    }
+
+    let mut merged: Vec<IndexedCaption> = Vec::new();
+    for segment in segments {
+        if let Some(last) = merged.last_mut() {
+            let gap = segment.segment.start_sec - last.segment.end_sec;
+            if is_same_caption(&last.segment.text, &segment.segment.text) && gap < 0.8 {
+                let old_count = last.end_frame - last.start_frame + 1;
+                let new_count = segment.end_frame - segment.start_frame + 1;
+                last.confidence = (last.confidence * old_count as f32
+                    + segment.confidence * new_count as f32)
+                    / (old_count + new_count) as f32;
+                last.segment.end_sec = segment.segment.end_sec;
+                last.end_frame = segment.end_frame;
+                continue;
+            }
+        }
+        merged.push(segment);
+    }
+    let warnings = merged
+        .iter()
+        .filter_map(|indexed| {
+            let duration_sec = indexed.segment.end_sec - indexed.segment.start_sec;
+            let mut reasons = Vec::new();
+            if indexed.confidence < config.evidence_warning_confidence {
+                reasons.push(format!(
+                    "confidence dưới ngưỡng {:.2}",
+                    config.evidence_warning_confidence
+                ));
+            }
+            if duration_sec <= config.min_duration_sec + config.evidence_duration_margin_sec {
+                reasons.push(format!(
+                    "thời lượng gần ngưỡng tối thiểu {:.2}s",
+                    config.min_duration_sec
+                ));
+            }
+            (!reasons.is_empty()).then(|| CaptionWarning {
+                text: indexed.segment.text.clone(),
+                start_sec: indexed.segment.start_sec,
+                end_sec: indexed.segment.end_sec,
+                duration_sec,
+                confidence: indexed.confidence,
+                reasons,
+            })
+        })
+        .collect();
+    let segments = merged.into_iter().map(|indexed| indexed.segment).collect();
+    options.check_cancelled()?;
+    Ok(FrameCaptionOutput {
+        segments,
+        warnings,
+        processed_frames: total,
+    })
+}
+
 #[cfg(test)]
 mod evidence_tests {
     use super::*;
+    use ocr_shared::Rgb24Frame;
 
     #[test]
     fn caption_roi_crop_uses_the_configured_full_frame_offset() {
         let frame: Vec<u8> = (0..24).collect();
         assert_eq!(crop_rgb_rows(&frame, 2, 1, 2), frame[6..18].to_vec());
+    }
+
+    #[test]
+    fn pre_cancelled_frame_extraction_returns_an_error_before_model_loading() {
+        struct UnusedProvider;
+        impl FrameProvider for UnusedProvider {
+            fn next_frame(&mut self) -> Result<Option<Rgb24Frame<'_>>> {
+                panic!("a pre-cancelled extraction must not request frames");
+            }
+        }
+
+        let token = ocr_shared::CancellationToken::new();
+        token.cancel();
+        let options = FrameProcessingOptions {
+            cancellation: token,
+            progress: None,
+        };
+        let error = extract_captions_from_frames(
+            &mut UnusedProvider,
+            Path::new("models-not-required-for-this-test"),
+            &CaptionExtractorConfig::default(),
+            &options,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
     }
 
     #[cfg(test)]

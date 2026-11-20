@@ -21,6 +21,9 @@ use ort::{session::Session, session::builder::GraphOptimizationLevel, value::Ten
 
 use ocr_shared::icons::Icons;
 use ocr_shared::terminal_color::NameUtilsExt;
+use ocr_shared::{
+    FrameProcessingOptions, FrameProvider, crop_rgb24, roi_bounds, timestamp_range, validate_frame,
+};
 
 pub mod det_filter;
 pub mod temporal_voting;
@@ -37,6 +40,37 @@ pub struct SubtitleRoi {
     pub x_min: f32,
     /// Tỷ lệ biên phải (mặc định: 0.95 = 95%)
     pub x_max: f32,
+}
+
+#[cfg(test)]
+mod frame_api_tests {
+    use super::*;
+
+    struct UnusedProvider;
+
+    impl FrameProvider for UnusedProvider {
+        fn next_frame(&mut self) -> Result<Option<ocr_shared::Rgb24Frame<'_>>> {
+            panic!("a pre-cancelled extraction must not request frames");
+        }
+    }
+
+    #[test]
+    fn pre_cancelled_frame_extraction_returns_an_error_before_model_loading() {
+        let token = ocr_shared::CancellationToken::new();
+        token.cancel();
+        let options = FrameProcessingOptions {
+            cancellation: token,
+            progress: None,
+        };
+        let error = extract_hardcoded_subtitles_from_frames(
+            &mut UnusedProvider,
+            Path::new("models-not-required-for-this-test"),
+            &OcrExtractorConfig::default(),
+            &options,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+    }
 }
 
 impl Default for SubtitleRoi {
@@ -130,6 +164,13 @@ pub struct OcrExtractorOutput {
     pub vtt_path: PathBuf,
     /// Danh sách các phân đoạn phụ đề
     pub segments: Vec<SubtitleSegment>,
+}
+
+/// Result of subtitle OCR on caller-provided frames. Unlike the path API, this does not write a file.
+#[derive(Debug, Clone)]
+pub struct FrameSubtitleOutput {
+    pub segments: Vec<SubtitleSegment>,
+    pub processed_frames: usize,
 }
 
 /// Bộ máy nhận dạng chữ PP-OCRv6 bằng ONNX Runtime
@@ -1493,5 +1534,237 @@ pub fn extract_hardcoded_subtitles(
     Ok(OcrExtractorOutput {
         vtt_path: output_vtt_path.to_path_buf(),
         segments: final_segments,
+    })
+}
+
+/// Extracts subtitles from a pull-based RGB24 frame source without invoking ffmpeg or ffprobe.
+///
+/// The provider is queried one frame at a time; raw frame buffers are never accumulated. Frame
+/// timestamps must be finite, non-negative, and strictly increasing. Cancellation is observed
+/// between frames, and progress is reported after each successfully processed frame.
+pub fn extract_hardcoded_subtitles_from_frames<P: FrameProvider>(
+    provider: &mut P,
+    model_dir: &Path,
+    config: &OcrExtractorConfig,
+    options: &FrameProcessingOptions,
+) -> Result<FrameSubtitleOutput> {
+    options.check_cancelled()?;
+    let det_path = model_dir.join("ocr/det.onnx");
+    let rec_path = model_dir.join("ocr/rec.onnx");
+    let keys_path = model_dir.join("ocr/keys.txt");
+    let mut ocr_engine = PpOcrEngine::new(model_dir)?;
+    let det_limit = std::env::var("OCR_SUB_DET_LIMIT")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(640);
+    let det_engine = self::det_filter::create_det_engine_with_limit(
+        &det_path.to_string_lossy(),
+        &rec_path.to_string_lossy(),
+        &keys_path.to_string_lossy(),
+        det_limit,
+    )?;
+
+    #[derive(Clone)]
+    struct FrameRecord {
+        timestamp: f64,
+        text: String,
+        confidence: f32,
+        bounds: Option<(f64, f64, f64, f64)>,
+    }
+
+    let mut records = Vec::new();
+    let mut previous_timestamp = None;
+    loop {
+        options.check_cancelled()?;
+        let Some(frame) = provider.next_frame()? else {
+            break;
+        };
+        validate_frame(&frame, previous_timestamp)?;
+        let bounds = roi_bounds(
+            frame.width,
+            frame.height,
+            config.roi.x_min,
+            config.roi.y_min,
+            config.roi.x_max,
+            config.roi.y_max,
+        )?;
+        let (left, top, right, bottom) = bounds;
+        let pixels = crop_rgb24(&frame, bounds)?;
+        let width = right - left;
+        let height = bottom - top;
+        let patch = self::det_filter::extract_patch_with_det(&det_engine, &pixels, width, height)?;
+        let (text, confidence, text_bounds) = if let Some(patch) = patch {
+            (
+                ocr_engine.recognize_patch(&patch.bytes, patch.width, patch.height)?,
+                patch.confidence,
+                Some(patch.bounds),
+            )
+        } else {
+            (String::new(), 0.0, None)
+        };
+        let timestamp = frame.timestamp_sec;
+        previous_timestamp = Some(timestamp);
+        records.push(FrameRecord {
+            timestamp,
+            text,
+            confidence,
+            bounds: text_bounds,
+        });
+        options.report_progress(records.len(), timestamp);
+    }
+
+    let mut smoothed: Vec<String> = records.iter().map(|record| record.text.clone()).collect();
+    for i in 1..records.len().saturating_sub(1) {
+        if smoothed[i].is_empty()
+            && !smoothed[i - 1].is_empty()
+            && !smoothed[i + 1].is_empty()
+            && is_same_subtitle_observation(
+                &smoothed[i - 1],
+                &smoothed[i + 1],
+                records[i - 1].bounds,
+                records[i + 1].bounds,
+            )
+        {
+            smoothed[i] = smoothed[i - 1].clone();
+        }
+    }
+    for i in 1..records.len().saturating_sub(2) {
+        if smoothed[i].is_empty()
+            && smoothed[i + 1].is_empty()
+            && !smoothed[i - 1].is_empty()
+            && !smoothed[i + 2].is_empty()
+            && is_same_subtitle_observation(
+                &smoothed[i - 1],
+                &smoothed[i + 2],
+                records[i - 1].bounds,
+                records[i + 2].bounds,
+            )
+        {
+            smoothed[i] = smoothed[i - 1].clone();
+            smoothed[i + 1] = smoothed[i - 1].clone();
+        }
+    }
+    for i in 1..records.len().saturating_sub(1) {
+        if !smoothed[i].is_empty() && smoothed[i - 1].is_empty() && smoothed[i + 1].is_empty() {
+            smoothed[i].clear();
+        }
+    }
+    for i in 1..records.len().saturating_sub(1) {
+        if !smoothed[i].is_empty()
+            && !smoothed[i - 1].is_empty()
+            && !smoothed[i + 1].is_empty()
+            && smoothed[i - 1] == smoothed[i + 1]
+            && smoothed[i] != smoothed[i - 1]
+            && is_same_subtitle_observation(
+                &smoothed[i - 1],
+                &smoothed[i],
+                records[i - 1].bounds,
+                records[i].bounds,
+            )
+        {
+            if smoothed[i].chars().count() <= smoothed[i - 1].chars().count() {
+                smoothed[i] = smoothed[i - 1].clone();
+            } else if smoothed[i].contains(&smoothed[i - 1]) {
+                smoothed[i - 1] = smoothed[i].clone();
+                smoothed[i + 1] = smoothed[i].clone();
+            }
+        }
+    }
+
+    let timestamp_values: Vec<f64> = records.iter().map(|record| record.timestamp).collect();
+    let mut glyph_heights: Vec<f64> = records
+        .iter()
+        .filter_map(|record| record.bounds.map(|bounds| bounds.3 - bounds.1))
+        .filter(|height| height.is_finite() && *height > 0.0)
+        .collect();
+    let typical_glyph_height = median_f64(&mut glyph_heights);
+    let mut segments = Vec::new();
+    let mut start = 0;
+    while start < smoothed.len() {
+        if smoothed[start].is_empty() {
+            start += 1;
+            continue;
+        }
+        let mut end = start;
+        let mut texts = vec![smoothed[start].clone()];
+        let mut weights = vec![records[start].confidence];
+        while end + 1 < smoothed.len()
+            && !smoothed[end + 1].is_empty()
+            && is_same_subtitle_observation(
+                &select_best_subtitle_text(&texts, &weights),
+                &smoothed[end + 1],
+                records[end].bounds,
+                records[end + 1].bounds,
+            )
+        {
+            end += 1;
+            texts.push(smoothed[end].clone());
+            weights.push(records[end].confidence);
+        }
+        let text = select_best_subtitle_text(&texts, &weights);
+        if end > start && !text.is_empty() {
+            let (start_sec, end_sec) = timestamp_range(&timestamp_values, start, end, config.fps)?;
+            let duration = end_sec - start_sec;
+            let bounds: Vec<Option<(f64, f64, f64, f64)>> =
+                (start..=end).map(|index| records[index].bounds).collect();
+            let confidences: Vec<f32> = (start..=end)
+                .map(|index| records[index].confidence)
+                .collect();
+            let char_count = text.chars().count();
+            let stable = if char_count == 1 {
+                text.chars()
+                    .any(|character| ('\u{4e00}'..='\u{9fff}').contains(&character))
+                    && duration >= 0.10
+                    && has_stable_single_character_track(
+                        &bounds,
+                        &confidences,
+                        typical_glyph_height,
+                    )
+            } else if duration <= 0.40 {
+                has_stable_short_subtitle_track(
+                    &bounds,
+                    &confidences,
+                    typical_glyph_height,
+                    char_count,
+                )
+            } else {
+                duration >= 0.10
+            };
+            if stable {
+                segments.push(SubtitleSegment {
+                    start_sec,
+                    end_sec,
+                    text,
+                });
+            }
+        }
+        start = end + 1;
+    }
+
+    let mut merged: Vec<SubtitleSegment> = Vec::new();
+    for segment in segments {
+        if let Some(last) = merged.last_mut() {
+            let gap = segment.start_sec - last.end_sec;
+            if is_same_subtitle(&last.text, &segment.text) && gap < 0.35 {
+                last.end_sec = segment.end_sec;
+                if segment.text.chars().count() > last.text.chars().count() {
+                    last.text = segment.text;
+                }
+                continue;
+            }
+        }
+        merged.push(segment);
+    }
+
+    // Keep the new API's output ordered and avoid overlapping cues at transitions.
+    for index in 1..merged.len() {
+        if merged[index].start_sec <= merged[index - 1].end_sec {
+            merged[index].start_sec = merged[index - 1].end_sec + 0.001;
+        }
+    }
+    options.check_cancelled()?;
+    Ok(FrameSubtitleOutput {
+        segments: merged,
+        processed_frames: records.len(),
     })
 }

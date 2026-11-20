@@ -28,14 +28,21 @@ pub mod shared {
 // Re-export trực tiếp các struct/hàm quan trọng vào root namespace:
 // 1. Phụ đề lời thoại (Subtitles)
 pub use ocr_subtitles::{
-    OcrExtractorConfig, OcrExtractorOutput, SubtitleRoi, SubtitleSegment,
-    extract_hardcoded_subtitles, vote_character_consensus, vote_majority_string,
+    FrameSubtitleOutput, OcrExtractorConfig, OcrExtractorOutput, SubtitleRoi, SubtitleSegment,
+    extract_hardcoded_subtitles, extract_hardcoded_subtitles_from_frames, vote_character_consensus,
+    vote_majority_string,
 };
 
 // 2. Chú thích nhân vật (Captions)
 pub use ocr_captions::{
     CaptionExtractorConfig, CaptionExtractorOutput, CaptionRoi, CaptionSegment, CaptionWarning,
-    extract_captions,
+    FrameCaptionOutput, extract_captions, extract_captions_from_frames,
+};
+
+// 5. Pull-based RGB24 frame processing shared by the subtitle and caption APIs.
+pub use ocr_shared::frame_provider::{
+    CancellationToken, FrameProcessingOptions, FrameProgress, FrameProgressPhase, FrameProvider,
+    Rgb24Frame,
 };
 
 // 3. Hợp nhất phụ đề và chú thích (Merge)
