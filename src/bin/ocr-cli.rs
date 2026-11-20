@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
 use image::RgbImage;
+use light_asd::LightAsdConfig;
 use ocr::{
     CaptionExtractorConfig, CaptionExtractorOutput, OcrExtractorConfig, SubtitleRoi,
     SubtitleSegment, extract_captions, extract_hardcoded_subtitles,
@@ -37,6 +38,9 @@ struct CliArgs {
     subtitle_roi: SubtitleRoi,
     caption_roi: (f32, f32, f32, f32),
     force: bool,
+    light_asd_repository: Option<PathBuf>,
+    light_asd_model: Option<PathBuf>,
+    python: PathBuf,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -258,7 +262,7 @@ fn finalize_progress(
 }
 
 fn usage() -> &'static str {
-    "OCR-only video extractor and WebVTT merger\n\
+    "Video OCR extractor, WebVTT merger, and optional Light-ASD runner\n\
 \n\
 Usage:\n\
   ocr-cli --input <file-or-folder> --output <folder> [options]\n\
@@ -273,6 +277,9 @@ Options:\n\
       --caption-line <value>     Override caption WebVTT line setting (for example: 20%)\n\
       --subtitle-roi <coords>    Subtitle ROI as Y_MIN,Y_MAX,X_MIN,X_MAX fractions (0..1)\n\
       --caption-roi <coords>     Caption ROI as Y_MIN,Y_MAX,X_MIN,X_MAX fractions (0..1)\n\
+      --light-asd-repo <folder> Run Light-ASD using a cloned upstream repository\n\
+      --light-asd-model <path>  Light-ASD checkpoint (relative to repo or absolute)\n\
+      --python <executable>     Python executable for Light-ASD (default: python)\n\
       --force                    Reprocess completed subtitles, captions, and merge\n\
   -h, --help                     Show this help\n\
 \n\
@@ -312,6 +319,9 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
     let mut subtitle_roi = SubtitleRoi::default();
     let mut caption_roi = (0.10, 0.80, 0.0, 1.0);
     let mut force = false;
+    let mut light_asd_repository = None;
+    let mut light_asd_model = None;
+    let mut python = PathBuf::from("python");
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -362,6 +372,21 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
                     "--caption-roi",
                 )?;
             }
+            "--light-asd-repo" => {
+                light_asd_repository = Some(PathBuf::from(
+                    args.next()
+                        .context("--light-asd-repo cần đường dẫn repository")?,
+                ));
+            }
+            "--light-asd-model" => {
+                light_asd_model = Some(PathBuf::from(
+                    args.next()
+                        .context("--light-asd-model cần đường dẫn checkpoint")?,
+                ));
+            }
+            "--python" => {
+                python = PathBuf::from(args.next().context("--python cần executable")?);
+            }
             _ if arg.starts_with('-') => bail!("Tùy chọn không được hỗ trợ: {arg}\n\n{}", usage()),
             _ if input.is_none() => input = Some(PathBuf::from(arg)),
             _ => bail!("Chỉ nhận một input file hoặc folder.\n\n{}", usage()),
@@ -374,6 +399,12 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
     let Some(output) = output else {
         bail!("Thiếu --output <folder>.\n\n{}", usage());
     };
+    if light_asd_repository.is_some() != light_asd_model.is_some() {
+        bail!(
+            "`--light-asd-repo` và `--light-asd-model` phải được dùng cùng nhau.\n\n{}",
+            usage()
+        );
+    }
     Ok(Some(CliArgs {
         input,
         output,
@@ -384,6 +415,9 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
         subtitle_roi,
         caption_roi,
         force,
+        light_asd_repository,
+        light_asd_model,
+        python,
     }))
 }
 
@@ -1041,6 +1075,33 @@ fn process_video(
             }
         }
     }
+    if let (Some(repository), Some(model)) = (
+        args.light_asd_repository.as_ref(),
+        args.light_asd_model.as_ref(),
+    ) {
+        let mut config = LightAsdConfig::new(repository, video, model);
+        config.python.clone_from(&args.python);
+        println!(
+            "{ANSI_CYAN}[ASD]{ANSI_RESET} Running Light-ASD for {:?}",
+            video
+        );
+        let result = config
+            .run_demo()
+            .with_context(|| format!("Light-ASD failed for {:?}", video))?;
+        if !result.stdout.is_empty() {
+            print!("{}", result.stdout);
+            if !result.stdout.ends_with('\n') {
+                println!();
+            }
+        }
+        if !result.stderr.trim().is_empty() {
+            eprintln!("{ANSI_ORANGE}[ASD: STDERR]{ANSI_RESET} {}", result.stderr);
+        }
+        println!(
+            "{ANSI_GREEN}[ASD: DONE]{ANSI_RESET} exit code {:?}",
+            result.exit_code
+        );
+    }
     Ok(())
 }
 
@@ -1134,6 +1195,44 @@ mod tests {
     }
 
     #[test]
+    fn light_asd_requires_repository_and_checkpoint_and_accepts_python_override() {
+        let incomplete = [
+            "--input",
+            "video.mp4",
+            "--output",
+            "out",
+            "--light-asd-repo",
+            "Light-ASD",
+        ]
+        .map(str::to_string);
+        assert!(parse_args_from(incomplete.into_iter()).is_err());
+
+        let configured = [
+            "--input",
+            "video.mp4",
+            "--output",
+            "out",
+            "--light-asd-repo",
+            "Light-ASD",
+            "--light-asd-model",
+            "weight/finetuning_TalkSet.model",
+            "--python",
+            "python.exe",
+        ]
+        .map(str::to_string);
+        let parsed = parse_args_from(configured.into_iter()).unwrap().unwrap();
+        assert_eq!(
+            parsed.light_asd_repository,
+            Some(PathBuf::from("Light-ASD"))
+        );
+        assert_eq!(
+            parsed.light_asd_model,
+            Some(PathBuf::from("weight/finetuning_TalkSet.model"))
+        );
+        assert_eq!(parsed.python, PathBuf::from("python.exe"));
+    }
+
+    #[test]
     fn checkpoint_persists_completed_stages_and_invalidates_changed_signatures() {
         let unique = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1198,6 +1297,9 @@ mod tests {
             subtitle_roi: SubtitleRoi::default(),
             caption_roi: (0.10, 0.80, 0.0, 1.0),
             force: false,
+            light_asd_repository: None,
+            light_asd_model: None,
+            python: PathBuf::from("python"),
         };
         let original = signatures(&args.input, &args).unwrap();
 

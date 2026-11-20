@@ -106,6 +106,21 @@ cargo run --release --bin ocr-cli -- input --output output `
 
 `--subtitle-line` và `--caption-line` chỉ ghi đè WebVTT `line` khi merge, giữ nguyên các cue settings khác như `position` và `align`; raw VTT trong `.tmp_<tên-video>` không bị sửa. Thêm `--force` để bỏ qua checkpoint và OCR lại toàn bộ. Xem `ocr-cli --help` để biết các cờ và cú pháp đầy đủ.
 
+Có thể bật Light-ASD sau khi OCR/merge hoàn tất cho mỗi video. Cần cài repo,
+checkpoint, PyTorch và FFmpeg theo mục ASD ở trên; checkpoint có thể là đường
+dẫn tương đối với repository hoặc đường dẫn tuyệt đối:
+
+```powershell
+cargo run --release --bin ocr-cli -- --input input\第001集.mp4 --output output `
+  --light-asd-repo third_party\Light-ASD `
+  --light-asd-model weight\finetuning_TalkSet.model `
+  --python python
+```
+
+Khi có đủ hai cờ `--light-asd-repo` và `--light-asd-model`, CLI gọi
+`light_asd::LightAsdConfig` cho từng video sau bước OCR/merge và in output của
+demo Python. Nếu không truyền hai cờ này, Light-ASD không chạy.
+
 ## Đối chiếu VTT
 
 Script đọc được cả output mới `.subtitles.zh.vtt` và tên cũ `.zh.vtt`. Mặc định không cần cài gói chuẩn hóa:
