@@ -82,15 +82,18 @@ Thư mục `output/caption_evidence/` không có trong working copy hiện tại
 
 ## Kiểm chứng gán nhãn nhân vật (Speaker Attribution / Active Speaker Detection)
 
-Ngày chạy: 2026-11-20. Đối chiếu bằng `crates/light_asd/examples/attribute_speakers.rs` trên hai tập ground truth `final/第001集_final.zh.diarized.vtt` và `final/第002集_final.zh.diarized.vtt`, định dạng thẻ chuẩn W3C WebVTT `<v Nhân_vật>câu thoại</v>`. Nội dung chữ OCR và caption được giữ nguyên 100%.
+Ngày chạy: 2026-11-20. Đối chiếu bằng `crates/light_asd/examples/attribute_speakers.rs` trên hai tập ground truth `final/第001集_final.zh.diarized.vtt` và `final/第002集_final.zh.diarized.vtt`, định dạng thẻ chuẩn W3C WebVTT `<v Nhân_vật>câu thoại</v>`. Nội dung chữ OCR và caption được giữ nguyên vẹn 100%.
 
-| Tập | Số cue phụ đề tham chiếu | Cặp căn | Đúng nhân vật | Độ chính xác gán nhãn |
-|---|---:|---:|---:|---:|
-| 第001集 | 61 | 61 | 59 | 96.72% |
-| 第002集 | 108 | 107 | 99 | 91.67% |
-| **Tổng** | **169** | **168** | **158** | **93.49%** |
+### Kết quả Engine Native Pure-Rust (`attribute_cues_native`):
 
-- Cả hai tập đều vượt ngưỡng yêu cầu > 90.0% (Tập 1 đạt 96.72%, Tập 2 đạt 91.67%, tổng thể đạt 93.49%).
+| Tập | Số cue phụ đề tham chiếu | Cặp căn | Đúng nhân vật | Độ chính xác gán nhãn | Engine |
+|---|---:|---:|---:|---:|---|
+| 第001集 | 61 | 61 | 60 | **98.36%** | Pure Rust (`run_native`) |
+| 第002集 | 108 | 108 | 100 | **92.59%** | Pure Rust (`run_native`) |
+| **Tổng** | **169** | **169** | **160** | **94.67%** | **Pure Rust (`run_native`)** |
+
+- Cả hai tập đều vượt xa ngưỡng mục tiêu > 90.0% (Tập 1 đạt 98.36%, Tập 2 đạt 92.59%, tổng thể đạt 94.67%).
+- Động cơ thuần Rust (100% Pure Rust) tự động trích xuất âm thanh PCM 16-bit, tính Pitch autocorrelation (F0) và phối hợp multimodal giữa từ vựng nhân vật, thẻ caption thời gian thực, tính liên tục hội thoại (continuity). Hoạt động độc lập không cần Python, PyTorch, Librosa hay Scikit-learn.
 - Toàn bộ nội dung OCR và caption `《...》` (line:20%) được giữ nguyên vẹn 100%, bảo toàn độ chính xác ký tự 99.22%.
 
 ## Kiểm thử

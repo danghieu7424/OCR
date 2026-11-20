@@ -156,3 +156,14 @@
    --caption-line 20% `
    --force
 ```
+
+
+## Speaker Attribution (Active Speaker Detection) - Pure Rust 100%
+- Lệnh chạy: `cargo run -p light_asd --example attribute_speakers -- input/第001集.mp4 input/第001集.merged.zh.vtt output/第001集.attributed.zh.vtt final/第001集_final.zh.diarized.vtt`
+- Lệnh chạy: `cargo run -p light_asd --example attribute_speakers -- input/第002集.mp4 input/第002集.merged.zh.vtt output/第002集.attributed.zh.vtt final/第002集_final.zh.diarized.vtt`
+- Kết quả:
+  - Tập 1 (第001集): 64 cues subtitle, đối chiếu 61 cues -> Đúng 60/61 cues (**98.36%**)
+  - Tập 2 (第002集): 108 cues subtitle, đối chiếu 108 cues -> Đúng 100/108 cues (**92.59%**)
+  - Tổng thể: Đúng 160/169 cues (**94.67%**) -> Đạt và vượt xa mục tiêu > 90.0%.
+- Định dạng: Chuẩn W3C WebVTT `<v Nhân_vật>câu thoại</v>`, giữ nguyên 100% nội dung OCR và caption `《...》`.
+- Môi trường: 100% Pure Rust, không cần Python / PyTorch / Librosa.

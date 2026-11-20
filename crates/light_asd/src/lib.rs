@@ -10,6 +10,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+pub mod native_attribution;
+pub use native_attribution::{
+    attribute_cues_native, attribute_vtt_file_native, estimate_pitch_autocorr,
+    evaluate_vtt_accuracy, read_wav_samples,
+};
+
 /// Paths and runtime configuration for a Light-ASD demo invocation.
 #[derive(Debug, Clone)]
 pub struct LightAsdConfig {
@@ -150,6 +156,8 @@ pub struct SpeakerAttributionConfig {
     pub output_vtt: PathBuf,
     /// Optional ground truth diarized WebVTT reference for evaluation.
     pub eval_ref: Option<PathBuf>,
+    /// Whether to run the 100% Pure Rust attribution engine (default: true).
+    pub use_native: bool,
 }
 
 impl SpeakerAttributionConfig {
@@ -158,16 +166,24 @@ impl SpeakerAttributionConfig {
         input_vtt: impl Into<PathBuf>,
         output_vtt: impl Into<PathBuf>,
     ) -> Self {
-        let default_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        let manifest_script = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("scripts")
             .join("speaker_attribution.py");
+        let script = if manifest_script.is_file() {
+            manifest_script
+        } else if Path::new("crates/light_asd/scripts/speaker_attribution.py").is_file() {
+            PathBuf::from("crates/light_asd/scripts/speaker_attribution.py")
+        } else {
+            PathBuf::from("scripts/speaker_attribution.py")
+        };
         Self {
             python: PathBuf::from("python"),
-            script: default_script,
+            script,
             video: video.into(),
             input_vtt: input_vtt.into(),
             output_vtt: output_vtt.into(),
             eval_ref: None,
+            use_native: true,
         }
     }
 
@@ -176,8 +192,18 @@ impl SpeakerAttributionConfig {
         self
     }
 
+    pub fn with_python(mut self, python: impl Into<PathBuf>) -> Self {
+        self.python = python.into();
+        self.use_native = false;
+        self
+    }
+
     /// Executes speaker attribution and returns the output statistics.
     pub fn run(&self) -> Result<SpeakerAttributionResult> {
+        if self.use_native {
+            return self.run_native();
+        }
+
         let python = resolve_python(&self.python)?;
         ensure_file(&self.script, "Speaker attribution script")?;
         ensure_file(&self.video, "Input video")?;
@@ -207,6 +233,58 @@ impl SpeakerAttributionConfig {
             total_subtitles,
             accuracy_percent,
             output,
+        })
+    }
+
+    /// Executes 100% Pure-Rust speaker attribution without requiring Python or PyTorch.
+    pub fn run_native(&self) -> Result<SpeakerAttributionResult> {
+        ensure_file(&self.video, "Input video")?;
+        ensure_file(&self.input_vtt, "Input WebVTT")?;
+        if let Some(ref eval_ref) = self.eval_ref {
+            ensure_file(eval_ref, "Reference diarized WebVTT")?;
+        }
+
+        let total_subtitles =
+            attribute_vtt_file_native(&self.video, &self.input_vtt, &self.output_vtt)?;
+
+        let mut stdout = format!(
+            "[ASD: DONE] Attributed {} subtitle cues -> {}\n",
+            total_subtitles,
+            self.output_vtt.display()
+        );
+
+        let accuracy_percent = if let Some(ref eval_ref) = self.eval_ref {
+            let acc = evaluate_vtt_accuracy(&self.output_vtt, eval_ref)?;
+            stdout.push_str(&format!(
+                "[ASD: EVAL] Accuracy: {:.2}% against {}\n",
+                acc,
+                eval_ref.display()
+            ));
+            if acc >= 90.0 {
+                stdout.push_str(&format!(
+                    "[ASD: EVAL] SUCCESS: Accuracy {:.2}% >= 90.0% goal!\n",
+                    acc
+                ));
+            } else {
+                stdout.push_str(&format!(
+                    "[ASD: EVAL] WARNING: Accuracy {:.2}% below 90.0% goal.\n",
+                    acc
+                ));
+            }
+            Some(acc)
+        } else {
+            None
+        };
+
+        Ok(SpeakerAttributionResult {
+            output_vtt: self.output_vtt.clone(),
+            total_subtitles,
+            accuracy_percent,
+            output: DemoOutput {
+                stdout,
+                stderr: String::new(),
+                exit_code: Some(0),
+            },
         })
     }
 }

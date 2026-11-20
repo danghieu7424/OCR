@@ -26,7 +26,7 @@ fn main() -> Result<()> {
         config = config.with_eval_ref(r);
     }
     if let Some(p) = python {
-        config.python = p;
+        config = config.with_python(p);
     }
 
     let result = config.run()?;
