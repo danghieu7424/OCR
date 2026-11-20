@@ -9,6 +9,7 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
+- `ocr-cli`: Bổ sung cờ tùy chọn `--gallery <đường_dẫn>` cho phép người dùng chỉ định file lưu kho dấu vân giọng nói tùy ý. Mặc định tự động cô lập theo thư mục phim đầu vào: `<input>/.character_gallery.json`, đảm bảo mỗi bộ phim có kho nhận diện riêng biệt không bị trùng lẫn.
 - `ocr-cli`: Bổ sung thanh tiến trình trực quan (`[ASD]: ▰▰▰...`) cho pha gán nhãn nhân vật nói (Active Speaker Attribution), hiển thị tỷ lệ %, số cue phụ đề đã xử lý và thời gian chạy thời gian thực.
 - `ocr-cli`: Chuẩn hóa căn lề toàn bộ các dòng đầu ra trạng thái (` [OCR]`, ` [SUB]:`, ` [MERGE: DONE]`, ` [ASD]`, ` [ASD]:`, ` [ASD: DONE]`) thẳng hàng 100% cột đầu tiên.
 - `light_asd`: Bổ sung các hàm callback tiến trình `attribute_cues_dynamic_with_progress` và `attribute_vtt_file_native_with_gallery_and_progress`.

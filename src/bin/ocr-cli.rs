@@ -42,6 +42,7 @@ struct CliArgs {
     light_asd_model: Option<PathBuf>,
     python: PathBuf,
     attribute_speakers: bool,
+    gallery: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -282,6 +283,7 @@ Options:\n\
       --light-asd-model <path>  Light-ASD checkpoint (relative to repo or absolute)\n\
       --python <executable>     Python executable for Light-ASD (default: python)\n\
       --attribute-speakers       Attribute character speakers and wrap subtitles in <v Character> tags\n\
+      --gallery <path>           Voiceprint gallery JSON path (default: <input>/.character_gallery.json)\n\
       --force                    Reprocess completed subtitles, captions, and merge\n\
   -h, --help                     Show this help\n\
 \n\
@@ -325,6 +327,7 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
     let mut light_asd_model = None;
     let mut python = PathBuf::from("python");
     let mut attribute_speakers = false;
+    let mut gallery = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -393,6 +396,11 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
             "--attribute-speakers" => {
                 attribute_speakers = true;
             }
+            "--gallery" => {
+                gallery = Some(PathBuf::from(
+                    args.next().context("--gallery cần đường dẫn json")?,
+                ));
+            }
             _ if arg.starts_with('-') => bail!("Tùy chọn không được hỗ trợ: {arg}\n\n{}", usage()),
             _ if input.is_none() => input = Some(PathBuf::from(arg)),
             _ => bail!("Chỉ nhận một input file hoặc folder.\n\n{}", usage()),
@@ -425,6 +433,7 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
         light_asd_model,
         python,
         attribute_speakers,
+        gallery,
     }))
 }
 
@@ -1083,10 +1092,16 @@ fn process_video(
         }
     }
     if args.attribute_speakers {
-        let gallery_file = video
-            .parent()
-            .map(|p| p.join(".character_gallery.json"))
-            .unwrap_or_else(|| PathBuf::from(".character_gallery.json"));
+        let gallery_file = if let Some(ref g) = args.gallery {
+            g.clone()
+        } else if args.input.is_dir() {
+            args.input.join(".character_gallery.json")
+        } else {
+            video
+                .parent()
+                .map(|p| p.join(".character_gallery.json"))
+                .unwrap_or_else(|| PathBuf::from(".character_gallery.json"))
+        };
         println!(
             " {ANSI_CYAN}[ASD]{ANSI_RESET} Attributing speakers for {:?}",
             merged_vtt
@@ -1290,10 +1305,13 @@ mod tests {
             "--output",
             "out",
             "--attribute-speakers",
+            "--gallery",
+            "custom_gallery.json",
         ]
         .map(str::to_string);
         let parsed = parse_args_from(args.into_iter()).unwrap().unwrap();
         assert!(parsed.attribute_speakers);
+        assert_eq!(parsed.gallery, Some(PathBuf::from("custom_gallery.json")));
     }
 
     #[test]
@@ -1365,6 +1383,7 @@ mod tests {
             light_asd_model: None,
             python: PathBuf::from("python"),
             attribute_speakers: false,
+            gallery: None,
         };
         let original = signatures(&args.input, &args).unwrap();
 
