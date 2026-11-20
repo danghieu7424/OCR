@@ -12,8 +12,9 @@ use std::process::{Command, Output};
 
 pub mod native_attribution;
 pub use native_attribution::{
-    attribute_cues_native, attribute_vtt_file_native, estimate_pitch_autocorr,
-    evaluate_vtt_accuracy, read_wav_samples,
+    CharacterVoiceProfile, Voiceprint, VoiceprintGallery, attribute_cues_dynamic,
+    attribute_vtt_file_native, attribute_vtt_file_native_with_gallery, estimate_pitch_autocorr,
+    evaluate_vtt_accuracy, extract_voiceprint, parse_character_from_caption, read_wav_samples,
 };
 
 /// Paths and runtime configuration for a Light-ASD demo invocation.
@@ -158,6 +159,8 @@ pub struct SpeakerAttributionConfig {
     pub eval_ref: Option<PathBuf>,
     /// Whether to run the 100% Pure Rust attribution engine (default: true).
     pub use_native: bool,
+    /// Optional persistent character voiceprint gallery JSON file.
+    pub gallery_path: Option<PathBuf>,
 }
 
 impl SpeakerAttributionConfig {
@@ -184,7 +187,13 @@ impl SpeakerAttributionConfig {
             output_vtt: output_vtt.into(),
             eval_ref: None,
             use_native: true,
+            gallery_path: None,
         }
+    }
+
+    pub fn with_gallery(mut self, gallery_path: impl Into<PathBuf>) -> Self {
+        self.gallery_path = Some(gallery_path.into());
+        self
     }
 
     pub fn with_eval_ref(mut self, eval_ref: impl Into<PathBuf>) -> Self {
@@ -244,8 +253,12 @@ impl SpeakerAttributionConfig {
             ensure_file(eval_ref, "Reference diarized WebVTT")?;
         }
 
-        let total_subtitles =
-            attribute_vtt_file_native(&self.video, &self.input_vtt, &self.output_vtt)?;
+        let total_subtitles = attribute_vtt_file_native_with_gallery(
+            &self.video,
+            &self.input_vtt,
+            &self.output_vtt,
+            self.gallery_path.as_deref(),
+        )?;
 
         let mut stdout = format!(
             "[ASD: DONE] Attributed {} subtitle cues -> {}\n",

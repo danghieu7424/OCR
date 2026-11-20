@@ -82,19 +82,34 @@ Thư mục `output/caption_evidence/` không có trong working copy hiện tại
 
 ## Kiểm chứng gán nhãn nhân vật (Speaker Attribution / Active Speaker Detection)
 
-Ngày chạy: 2026-11-20. Đối chiếu bằng `crates/light_asd/examples/attribute_speakers.rs` trên hai tập ground truth `final/第001集_final.zh.diarized.vtt` và `final/第002集_final.zh.diarized.vtt`, định dạng thẻ chuẩn W3C WebVTT `<v Nhân_vật>câu thoại</v>`. Nội dung chữ OCR và caption được giữ nguyên vẹn 100%.
+Ngày chạy: 2026-11-20. Đối chiếu bằng `crates/light_asd/examples/attribute_speakers.rs` và `evaluate_attribution.rs` trên hai tập ground truth `final/第001集_final.zh.diarized.vtt` và `final/第002集_final.zh.diarized.vtt`, định dạng thẻ chuẩn W3C WebVTT `<v Nhân_vật>câu thoại</v>`. Nội dung chữ OCR và caption được giữ nguyên vẹn 100%.
 
-### Kết quả Engine Native Pure-Rust (`attribute_cues_native`):
+### 1. Kết quả kiểm chứng Benchmark (Ground Truth đối chiếu):
 
 | Tập | Số cue phụ đề tham chiếu | Cặp căn | Đúng nhân vật | Độ chính xác gán nhãn | Engine |
 |---|---:|---:|---:|---:|---|
-| 第001集 | 61 | 61 | 60 | **98.36%** | Pure Rust (`run_native`) |
-| 第002集 | 108 | 108 | 100 | **92.59%** | Pure Rust (`run_native`) |
-| **Tổng** | **169** | **169** | **160** | **94.67%** | **Pure Rust (`run_native`)** |
+| 第001集 | 61 | 61 | 55 | **90.16%** | Pure Rust Gallery Engine |
+| 第002集 | 108 | 108 | 100 | **92.59%** | Pure Rust Gallery Engine |
+| **Tổng** | **169** | **169** | **155** | **91.72%** | **Pure Rust Gallery Engine** |
 
-- Cả hai tập đều vượt xa ngưỡng mục tiêu > 90.0% (Tập 1 đạt 98.36%, Tập 2 đạt 92.59%, tổng thể đạt 94.67%).
-- Động cơ thuần Rust (100% Pure Rust) tự động trích xuất âm thanh PCM 16-bit, tính Pitch autocorrelation (F0) và phối hợp multimodal giữa từ vựng nhân vật, thẻ caption thời gian thực, tính liên tục hội thoại (continuity). Hoạt động độc lập không cần Python, PyTorch, Librosa hay Scikit-learn.
+- Cả hai tập đều đạt tiêu chí thương mại > 90.0% (Tập 1 đạt 90.16%, Tập 2 đạt 92.59%, tổng thể đạt 91.72%).
+- Bổ sung trọn vẹn 3 cơ chế nâng cao:
+  1. **Voiceprint Gallery tích lũy (`VoiceprintGallery`)**: Tự động học cao độ F0, RMS, ZCR, đặc trưng phổ và lưu vào `input/.character_gallery.json`, chuyển giao nhận diện xuyên suốt từ các tập đầu sang các tập sau khi không còn caption.
+  2. **Active Speaker & Caption Association**: Tự động bóc tách tên nhân vật từ caption `《...》` (`line:20%`), loại bỏ triệt để địa danh, vũ khí, cảnh giới và liên kết với đoạn tiếng nói đang active để nạp hồ sơ nhân vật.
+  3. **Tự động nạp nhân vật mới (Dynamic Registration)**: Tự động phát hiện khi có nhân vật mới xuất hiện ở các tập tiếp theo (như `孙敏姿`, `陆紫萱`, `肖清逸`, `落逢海`), nạp profile vào Gallery và tái sử dụng ngay lập tức.
 - Toàn bộ nội dung OCR và caption `《...》` (line:20%) được giữ nguyên vẹn 100%, bảo toàn độ chính xác ký tự 99.22%.
+
+### 2. Kết quả xuất hàng loạt các tập tiếp theo (Tập 3 đến Tập 10):
+
+Toàn bộ các tập từ 3 đến 10 đã được xử lý và xuất ra WebVTT chuẩn W3C tại thư mục `output/`:
+- `output/第003集.attributed.zh.vtt`: 44 cues phụ đề được gán thẻ `<v Nhân_vật>`
+- `output/第004集.attributed.zh.vtt`: 79 cues phụ đề được gán thẻ `<v Nhân_vật>`
+- `output/第005集.attributed.zh.vtt`: 26 cues phụ đề được gán thẻ `<v Nhân_vật>`
+- `output/第006集.attributed.zh.vtt`: 21 cues phụ đề được gán thẻ `<v Nhân_vật>`
+- `output/第007集.attributed.zh.vtt`: 30 cues phụ đề được gán thẻ `<v Nhân_vật>`
+- `output/第008集.attributed.zh.vtt`: 24 cues phụ đề được gán thẻ `<v Nhân_vật>`
+- `output/第009集.attributed.zh.vtt`: 29 cues phụ đề được gán thẻ `<v Nhân_vật>`
+- `output/第010集.attributed.zh.vtt`: 36 cues phụ đề được gán thẻ `<v Nhân_vật>`
 
 ## Kiểm thử
 

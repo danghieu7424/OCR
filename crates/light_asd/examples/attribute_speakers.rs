@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use light_asd::SpeakerAttributionConfig;
 use std::env;
 use std::path::PathBuf;
@@ -6,24 +6,41 @@ use std::path::PathBuf;
 fn main() -> Result<()> {
     let mut args = env::args_os().skip(1);
     let video = args.next().map(PathBuf::from).context(
-        "usage: attribute_speakers <video> <input-vtt> <output-vtt> [eval-ref] [python]",
+        "usage: attribute_speakers <video> <input-vtt> <output-vtt> [eval-ref] [gallery-json] [python]",
     )?;
     let input_vtt = args.next().map(PathBuf::from).context(
-        "usage: attribute_speakers <video> <input-vtt> <output-vtt> [eval-ref] [python]",
+        "usage: attribute_speakers <video> <input-vtt> <output-vtt> [eval-ref] [gallery-json] [python]",
     )?;
     let output_vtt = args.next().map(PathBuf::from).context(
-        "usage: attribute_speakers <video> <input-vtt> <output-vtt> [eval-ref] [python]",
+        "usage: attribute_speakers <video> <input-vtt> <output-vtt> [eval-ref] [gallery-json] [python]",
     )?;
-    let eval_ref = args.next().map(PathBuf::from);
-    let python = args.next().map(PathBuf::from);
+    let mut eval_ref = None;
+    let mut gallery_json = None;
+    let mut python = None;
 
-    if args.next().is_some() {
-        bail!("usage: attribute_speakers <video> <input-vtt> <output-vtt> [eval-ref] [python]");
+    for arg in args {
+        let s = arg.to_string_lossy();
+        if s.ends_with(".vtt") && eval_ref.is_none() {
+            eval_ref = Some(PathBuf::from(arg));
+        } else if s.ends_with(".json") && gallery_json.is_none() {
+            gallery_json = Some(PathBuf::from(arg));
+        } else if s.contains("python") && python.is_none() {
+            python = Some(PathBuf::from(arg));
+        } else if eval_ref.is_none() {
+            eval_ref = Some(PathBuf::from(arg));
+        } else if gallery_json.is_none() {
+            gallery_json = Some(PathBuf::from(arg));
+        } else {
+            python = Some(PathBuf::from(arg));
+        }
     }
 
     let mut config = SpeakerAttributionConfig::new(video, input_vtt, output_vtt);
     if let Some(r) = eval_ref {
         config = config.with_eval_ref(r);
+    }
+    if let Some(g) = gallery_json {
+        config = config.with_gallery(g);
     }
     if let Some(p) = python {
         config = config.with_python(p);

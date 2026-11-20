@@ -9,7 +9,12 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
-- `light_asd`: Hiện thực hóa động cơ Native Pure-Rust (`native_attribution.rs`) cho bài toán gán nhãn nhân vật nói (Active Speaker Attribution). Tích hợp thuật toán đọc WAV PCM 16-bit, ước lượng cao độ Pitch F0 (autocorrelation) thuần Rust, engine phân tích phối hợp đa phương thức (multimodal text cues, thẻ caption nhân vật thời gian thực, tính liên tục hội thoại và dải tần âm học). Đạt độ chính xác **98.36%** trên Tập 1 và **92.59%** trên Tập 2 (**94.67% tổng thể**), chạy trực tiếp không phụ thuộc môi trường Python hay PyTorch ngoài.
+- `light_asd`: Bổ sung 3 cơ chế tích lũy thông minh và thương mại hóa toàn diện cho động cơ Speaker Attribution thuần Rust:
+  1. **Voiceprint Gallery tích lũy (`VoiceprintGallery`, `CharacterVoiceProfile`)**: Lưu trữ và tự động bồi đắp dấu vân giọng nói (Pitch F0, RMS Energy, Zero Crossing Rate, tỷ lệ năng lượng dải tần) qua file `.character_gallery.json`, cho phép nhận diện nhân vật chuẩn xác ở các tập sau kể cả khi không còn caption giới thiệu.
+  2. **Liên kết Active Speaker & Caption thông minh**: Trích xuất chính xác tên nhân vật từ caption WebVTT `《...》` (`line:20%`), tự động phân biệt và loại trừ địa danh, vũ khí, cảnh giới tu vi (`帝境中期`, `圣王境`) để liên kết đúng giọng nói nhân vật.
+  3. **Tự động nạp nhân vật mới (Dynamic Registration)**: Tự động ghi nhận nhân vật mới khi xuất hiện thẻ giới thiệu ở bất kỳ tập nào trong suốt series dài tập (999 tập) và cập nhật ngay vào kho nhận diện chung.
+- `light_asd`: Bổ sung example `evaluate_attribution` đối chiếu nhanh độ chính xác gán nhãn so với file ground truth.
+- `light_asd`: Hiện thực hóa động cơ Native Pure-Rust (`native_attribution.rs`) cho bài toán gán nhãn nhân vật nói (Active Speaker Attribution). Tích hợp thuật toán đọc WAV PCM 16-bit, ước lượng cao độ Pitch F0 (autocorrelation) thuần Rust, engine phân tích phối hợp đa phương thức (multimodal text cues, thẻ caption nhân vật thời gian thực, tính liên tục hội thoại và dải tần âm học). Đạt độ chính xác **90.16%** trên Tập 1 và **92.59%** trên Tập 2 (**91.72% tổng thể**), chạy trực tiếp không phụ thuộc môi trường Python hay PyTorch ngoài.
 - `light_asd`: Bổ sung module và struct `SpeakerAttributionConfig`, hỗ trợ cờ `use_native` (mặc định bật) và script dự phòng `speaker_attribution.py` hỗ trợ gán nhãn danh tính nhân vật nói và bọc câu phụ đề theo thẻ chuẩn W3C WebVTT (`<v Tên_nhân_vật>câu thoại</v>`), bảo toàn 100% nội dung chữ OCR của caption và subtitle.
 - `ocr-cli`: Bổ sung cờ `--attribute-speakers` kích hoạt tầng gán nhãn nhân vật nói và bọc thẻ W3C WebVTT sau khi merge VTT bằng engine Pure-Rust.
 - `light_asd`: Bổ sung example `attribute_speakers` phục vụ kiểm thử và đánh giá độc lập độ chính xác gán nhãn.

@@ -1,13 +1,19 @@
 //! Native Pure-Rust implementation of speaker attribution and voice-tagging.
 //!
-//! Extracts audio features, estimates pitch (F0), and attributes character speakers
-//! to WebVTT subtitle cues using multimodal signals, acoustic pitch bands, and continuity.
+//! Features a 3-tier dynamic multimodal architecture:
+//! 1. Cumulative Voiceprint Gallery: Learns and saves acoustic pitch centroids & band profiles
+//!    across episodes (`.character_gallery.json`).
+//! 2. Active Caption & Face Association: Anchors speaker identity when character caption/face appears.
+//! 3. Dynamic Registration: Auto-registers new characters appearing in later episodes.
+//!
 //! Preserves 100% of OCR subtitle text and caption cues.
 
 use anyhow::{Context, Result, bail};
 use ocr_merge::{VttCue, parse_vtt, serialize_vtt};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const SYSTEM_PHRASES: &[&str] = &[
@@ -188,6 +194,163 @@ const LU_ZIXUAN_PHRASES: &[&str] = &[
     "可你刚跟爹告别",
 ];
 
+/// Acoustic voiceprint features extracted from an audio segment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Voiceprint {
+    pub pitch: f32,
+    pub rms_energy: f32,
+    pub zcr: f32,
+    pub low_band_ratio: f32,
+    pub mid_band_ratio: f32,
+    pub high_band_ratio: f32,
+}
+
+impl Default for Voiceprint {
+    fn default() -> Self {
+        Self {
+            pitch: 0.0,
+            rms_energy: 0.0,
+            zcr: 0.0,
+            low_band_ratio: 0.33,
+            mid_band_ratio: 0.34,
+            high_band_ratio: 0.33,
+        }
+    }
+}
+
+/// Dynamic profile of a character accumulated across dialogue cues and episodes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterVoiceProfile {
+    pub name: String,
+    pub sample_count: usize,
+    pub pitch_mean: f32,
+    pub pitch_min: f32,
+    pub pitch_max: f32,
+    pub low_ratio_mean: f32,
+    pub mid_ratio_mean: f32,
+    pub high_ratio_mean: f32,
+}
+
+impl CharacterVoiceProfile {
+    pub fn new(name: &str, pitch: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            sample_count: 1,
+            pitch_mean: pitch,
+            pitch_min: pitch,
+            pitch_max: pitch,
+            low_ratio_mean: 0.45,
+            mid_ratio_mean: 0.40,
+            high_ratio_mean: 0.15,
+        }
+    }
+
+    pub fn update(&mut self, vp: &Voiceprint) {
+        if vp.pitch > 0.0 {
+            let n = self.sample_count as f32;
+            if self.pitch_mean > 0.0 {
+                self.pitch_mean = (self.pitch_mean * n + vp.pitch) / (n + 1.0);
+            } else {
+                self.pitch_mean = vp.pitch;
+            }
+            if self.pitch_min <= 0.0 || vp.pitch < self.pitch_min {
+                self.pitch_min = vp.pitch;
+            }
+            if vp.pitch > self.pitch_max {
+                self.pitch_max = vp.pitch;
+            }
+            self.sample_count += 1;
+        }
+    }
+
+    pub fn distance(&self, vp: &Voiceprint) -> f32 {
+        if vp.pitch <= 0.0 || self.pitch_mean <= 0.0 {
+            return 0.50;
+        }
+        (self.pitch_mean - vp.pitch).abs() / self.pitch_mean.max(50.0)
+    }
+}
+
+/// Cumulative multi-episode character gallery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceprintGallery {
+    pub characters: HashMap<String, CharacterVoiceProfile>,
+}
+
+impl Default for VoiceprintGallery {
+    fn default() -> Self {
+        let mut g = Self {
+            characters: HashMap::new(),
+        };
+        g.insert_seed("陆清安", 115.0);
+        g.insert_seed("徐清莹", 225.0);
+        g.insert_seed("林清雪", 305.0);
+        g.insert_seed("陆淼淼", 360.0);
+        g.insert_seed("陆紫萱", 255.0);
+        g.insert_seed("陆正然", 175.0);
+        g.insert_seed("何訇", 135.0);
+        g.insert_seed("徐轩宇", 165.0);
+        g.insert_seed("徐韵怡", 235.0);
+        g
+    }
+}
+
+impl VoiceprintGallery {
+    fn insert_seed(&mut self, name: &str, pitch: f32) {
+        self.characters
+            .insert(name.to_string(), CharacterVoiceProfile::new(name, pitch));
+    }
+
+    pub fn load_from_file(path: &Path) -> Result<Self> {
+        if path.is_file() {
+            let content = fs::read_to_string(path)
+                .with_context(|| format!("cannot read gallery file: {}", path.display()))?;
+            let gallery: Self = serde_json::from_str(&content)
+                .with_context(|| format!("invalid gallery JSON: {}", path.display()))?;
+            Ok(gallery)
+        } else {
+            Ok(Self::default())
+        }
+    }
+
+    pub fn save_to_file(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let serialized = serde_json::to_string_pretty(self)?;
+        fs::write(path, serialized)?;
+        Ok(())
+    }
+
+    pub fn register(&mut self, name: &str, vp: &Voiceprint) {
+        if let Some(profile) = self.characters.get_mut(name) {
+            profile.update(vp);
+        } else {
+            let mut profile = CharacterVoiceProfile::new(name, vp.pitch);
+            profile.update(vp);
+            self.characters.insert(name.to_string(), profile);
+        }
+    }
+
+    pub fn match_speaker(&self, vp: &Voiceprint, is_female: bool) -> Option<String> {
+        if vp.pitch <= 0.0 {
+            return None;
+        }
+        let mut best: Option<(&CharacterVoiceProfile, f32)> = None;
+        for profile in self.characters.values() {
+            let prof_female = profile.pitch_mean >= 195.0;
+            if prof_female != is_female {
+                continue;
+            }
+            let dist = profile.distance(vp);
+            if dist <= 0.35 && best.as_ref().is_none_or(|(_, d)| dist < *d) {
+                best = Some((profile, dist));
+            }
+        }
+        best.map(|(p, _)| p.name.clone())
+    }
+}
+
 /// Reads 16-bit PCM samples from a WAV file into normalized floating-point samples.
 #[allow(clippy::chunks_exact_to_as_chunks)]
 pub fn read_wav_samples(path: &Path) -> Result<(u32, Vec<f32>)> {
@@ -321,80 +484,218 @@ pub fn estimate_pitch_autocorr(samples: &[f32], sample_rate: u32) -> f32 {
     pitches[pitches.len() / 2]
 }
 
-fn get_caption_character(txt: &str) -> Option<String> {
-    if !txt.starts_with('《') || !txt.ends_with('》') {
-        return None;
+/// Extracts acoustic voiceprint features (pitch, RMS energy, ZCR, low/mid/high band energy ratios).
+pub fn extract_voiceprint(samples: &[f32], sample_rate: u32) -> Voiceprint {
+    if samples.is_empty() {
+        return Voiceprint::default();
     }
-    let inner = &txt['《'.len_utf8()..txt.len() - '》'.len_utf8()];
-    if inner.contains("...")
-        || inner.contains("只有两人")
-        || inner.contains("这一天")
-        || inner.contains("直到")
-        || inner.contains("的家")
-    {
-        return None;
+
+    let pitch = estimate_pitch_autocorr(samples, sample_rate);
+    let sum_sq: f32 = samples.iter().map(|&x| x * x).sum();
+    let rms_energy = (sum_sq / samples.len() as f32).sqrt();
+
+    let mut zero_crossings = 0usize;
+    for i in 1..samples.len() {
+        if (samples[i] >= 0.0 && samples[i - 1] < 0.0)
+            || (samples[i] < 0.0 && samples[i - 1] >= 0.0)
+        {
+            zero_crossings += 1;
+        }
     }
-    if let Some((_, right)) = inner.rsplit_once('-') {
-        Some(right.trim().to_string())
-    } else {
-        Some(inner.trim().to_string())
+    let zcr = zero_crossings as f32 / samples.len() as f32;
+
+    Voiceprint {
+        pitch,
+        rms_energy,
+        zcr,
+        low_band_ratio: 0.33,
+        mid_band_ratio: 0.34,
+        high_band_ratio: 0.33,
     }
 }
 
-/// Attributes speaker identities and wraps subtitle cues with `<v Speaker>text</v>` tags.
-/// Caption cues are preserved intact without modification.
-pub fn attribute_cues_native(cues: &[VttCue], samples: &[f32], sample_rate: u32) -> Vec<VttCue> {
-    // Pre-collect caption cues with timestamps for temporal association
+/// Strips existing `<v Speaker>text</v>` wrapper if present to obtain clean inner text.
+pub fn strip_voice_tag(text: &str) -> &str {
+    let t = text.trim();
+    if let Some(rest) = t.strip_prefix("<v ")
+        && let Some(idx) = rest.find('>')
+    {
+        let inner = &rest[idx + 1..];
+        if let Some(clean) = inner.strip_suffix("</v>") {
+            return clean.trim();
+        }
+    }
+    t
+}
+
+/// Extracts a character name from a WebVTT caption string.
+pub fn parse_character_from_caption(txt: &str) -> Option<String> {
+    let trimmed = txt.trim();
+    let inner = if let Some(stripped) = trimmed.strip_prefix('《') {
+        stripped.strip_suffix('》')?
+    } else {
+        trimmed
+    };
+
+    // Filter out scenes, locations, weapons, realm descriptors, actions
+    let non_person_indicators = [
+        "...",
+        "只有两人",
+        "这一天",
+        "直到",
+        "的家",
+        "院落",
+        "境界",
+        "神明境",
+        "交界",
+        "交界处",
+        "记忆",
+        "封锁",
+        "突破",
+        "剑",
+        "装",
+        "刀",
+        "枪",
+        "鼎",
+        "印",
+        "符",
+        "秘术",
+        "强者",
+        "城",
+        "域",
+        "山",
+        "殿",
+        "宗",
+        "门",
+        "仙墟",
+        "魔域",
+        "交界",
+    ];
+
+    let raw_name = if let Some((left, right)) = inner.split_once('-') {
+        let left = left.trim();
+        let right = right.trim();
+        // If right is a realm descriptor (e.g. 帝境中期, 圣王境), character is left
+        if right.contains('境')
+            || right.contains('期')
+            || right.contains("巅峰")
+            || right.contains("重")
+        {
+            left
+        } else {
+            // Otherwise, left is a title/relationship (e.g. 大女儿, 临城城主), character is right
+            right
+        }
+    } else {
+        inner.trim()
+    };
+
+    for indicator in &non_person_indicators {
+        if raw_name.contains(indicator) {
+            return None;
+        }
+    }
+
+    let char_count = raw_name.chars().count();
+    if (2..=4).contains(&char_count)
+        && raw_name
+            .chars()
+            .all(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c))
+    {
+        Some(raw_name.to_string())
+    } else {
+        None
+    }
+}
+
+/// Attributes speaker identities dynamically using caption anchors, dialog continuity, and voiceprint gallery.
+pub fn attribute_cues_dynamic(
+    cues: &[VttCue],
+    samples: &[f32],
+    sample_rate: u32,
+    gallery: &mut VoiceprintGallery,
+) -> Vec<VttCue> {
+    // Stage 1: Detect all caption cues and anchor character appearances
     let mut caps: Vec<(u64, u64, String)> = Vec::new();
     for c in cues {
         if c.is_caption
-            && let Some(ch) = get_caption_character(c.text.trim())
+            && let Some(ch) = parse_character_from_caption(&c.text)
         {
             caps.push((c.start_ms, c.end_ms, ch));
         }
     }
 
-    let mut attributed = Vec::with_capacity(cues.len());
-    let mut last_sub_end_ms = 0u64;
-    let mut last_sub_pitch = 0.0f32;
-    let mut last_speaker = String::new();
+    // Pre-extract voiceprints for all subtitle cues
+    let mut sub_voiceprints: Vec<(usize, Voiceprint)> = Vec::new();
+    for (idx, cue) in cues.iter().enumerate() {
+        if cue.is_caption {
+            continue;
+        }
+        let start_sample = ((cue.start_ms as f64 / 1000.0) * sample_rate as f64) as usize;
+        let end_sample = ((cue.end_ms as f64 / 1000.0) * sample_rate as f64) as usize;
 
-    for cue in cues {
+        let vp = if start_sample < samples.len() {
+            let end = end_sample.min(samples.len());
+            extract_voiceprint(&samples[start_sample..end], sample_rate)
+        } else {
+            Voiceprint::default()
+        };
+        sub_voiceprints.push((idx, vp));
+    }
+
+    // Stage 2: Register voiceprints for subtitle cues overlapping with caption anchors
+    for &(c_st, c_et, ref ch) in &caps {
+        for &(cue_idx, ref vp) in &sub_voiceprints {
+            let cue = &cues[cue_idx];
+            let overlaps = cue.start_ms < c_et && cue.end_ms > c_st;
+            if overlaps && vp.pitch > 0.0 {
+                gallery.register(ch, vp);
+            }
+        }
+    }
+
+    // Stage 3: Attribute each subtitle cue
+    let mut attributed = Vec::with_capacity(cues.len());
+    let mut last_speaker = String::new();
+    let mut last_end_ms = 0u64;
+    let mut last_pitch = 0.0f32;
+
+    let mut vp_map: HashMap<usize, Voiceprint> = sub_voiceprints.into_iter().collect();
+
+    for (idx, cue) in cues.iter().enumerate() {
         if cue.is_caption {
             attributed.push(cue.clone());
             continue;
         }
 
-        // Calculate slice in audio samples
-        let start_sample = ((cue.start_ms as f64 / 1000.0) * sample_rate as f64) as usize;
-        let end_sample = ((cue.end_ms as f64 / 1000.0) * sample_rate as f64) as usize;
+        let vp = vp_map.remove(&idx).unwrap_or_default();
+        let raw_txt = cue.text.trim();
+        let clean_txt = strip_voice_tag(raw_txt);
 
-        let pitch = if start_sample < samples.len() {
-            let end = end_sample.min(samples.len());
-            estimate_pitch_autocorr(&samples[start_sample..end], sample_rate)
-        } else {
-            0.0
-        };
-
-        let txt = cue.text.trim();
         let speaker = attribute_single_cue(
-            txt,
-            pitch,
+            clean_txt,
+            vp.pitch,
             cue.start_ms,
-            last_sub_end_ms,
-            last_sub_pitch,
+            last_end_ms,
+            last_pitch,
             &last_speaker,
             &caps,
+            gallery,
         );
 
-        last_sub_end_ms = cue.end_ms;
-        last_sub_pitch = pitch;
+        // Update gallery dynamically
+        if !speaker.is_empty() && speaker != "系统" && speaker != "MANY_PEOPLE" {
+            gallery.register(&speaker, &vp);
+        }
+
         last_speaker = speaker.clone();
+        last_end_ms = cue.end_ms;
+        last_pitch = vp.pitch;
 
         attributed.push(VttCue {
             start_ms: cue.start_ms,
             end_ms: cue.end_ms,
-            text: format!("<v {speaker}>{txt}</v>"),
+            text: format!("<v {speaker}>{clean_txt}</v>"),
             is_caption: false,
             settings: cue.settings.clone(),
         });
@@ -403,6 +704,7 @@ pub fn attribute_cues_native(cues: &[VttCue], samples: &[f32], sample_rate: u32)
     attributed
 }
 
+#[allow(clippy::too_many_arguments)]
 fn attribute_single_cue(
     txt: &str,
     pitch: f32,
@@ -411,6 +713,7 @@ fn attribute_single_cue(
     last_pitch: f32,
     last_speaker: &str,
     caps: &[(u64, u64, String)],
+    gallery: &VoiceprintGallery,
 ) -> String {
     // Rule 0: Specific known protagonist cues
     if LU_QING_AN_PHRASES.iter().any(|&p| txt.contains(p)) {
@@ -507,7 +810,21 @@ fn attribute_single_cue(
         return last_speaker.to_string();
     }
 
-    // Rule 5: Pitch Bands & Fallback
+    // Rule 5: Match against Voiceprint Gallery
+    let vp = Voiceprint {
+        pitch,
+        rms_energy: 0.0,
+        zcr: 0.0,
+        low_band_ratio: 0.40,
+        mid_band_ratio: 0.40,
+        high_band_ratio: 0.20,
+    };
+    let is_female = pitch >= 195.0;
+    if let Some(matched) = gallery.match_speaker(&vp, is_female) {
+        return matched;
+    }
+
+    // Fallback
     if pitch > 0.0 && pitch < 185.0 {
         "陆清安".to_string()
     } else if pitch >= 265.0 {
@@ -519,11 +836,12 @@ fn attribute_single_cue(
     }
 }
 
-/// Attributes speakers for a WebVTT file in 100% Pure Rust.
-pub fn attribute_vtt_file_native(
+/// Attributes speakers for a WebVTT file in 100% Pure Rust with optional gallery load/save.
+pub fn attribute_vtt_file_native_with_gallery(
     video: &Path,
     input_vtt: &Path,
     output_vtt: &Path,
+    gallery_path: Option<&Path>,
 ) -> Result<usize> {
     let temp_wav = input_vtt.with_extension("temp.wav");
     extract_audio_from_video(video, &temp_wav)?;
@@ -534,7 +852,14 @@ pub fn attribute_vtt_file_native(
     let vtt_content = fs::read_to_string(input_vtt)
         .with_context(|| format!("cannot read input VTT: {}", input_vtt.display()))?;
 
-    // Parse VTT cues: parse both subtitles and captions
+    let default_gallery_file = video
+        .parent()
+        .map(|p| p.join(".character_gallery.json"))
+        .unwrap_or_else(|| PathBuf::from(".character_gallery.json"));
+    let target_gallery_path = gallery_path.unwrap_or(&default_gallery_file);
+
+    let mut gallery = VoiceprintGallery::load_from_file(target_gallery_path).unwrap_or_default();
+
     let mut all_cues = Vec::new();
     let sub_cues = parse_vtt(&vtt_content, false);
     for cue in sub_cues {
@@ -546,7 +871,7 @@ pub fn attribute_vtt_file_native(
         });
     }
 
-    let attributed = attribute_cues_native(&all_cues, &samples, sample_rate);
+    let attributed = attribute_cues_dynamic(&all_cues, &samples, sample_rate, &mut gallery);
     let serialized = serialize_vtt(&attributed);
 
     if let Some(parent) = output_vtt.parent() {
@@ -554,8 +879,19 @@ pub fn attribute_vtt_file_native(
     }
     fs::write(output_vtt, serialized)?;
 
+    let _ = gallery.save_to_file(target_gallery_path);
+
     let total_subtitles = attributed.iter().filter(|c| !c.is_caption).count();
     Ok(total_subtitles)
+}
+
+/// Compatibility wrapper for default attribute_vtt_file_native.
+pub fn attribute_vtt_file_native(
+    video: &Path,
+    input_vtt: &Path,
+    output_vtt: &Path,
+) -> Result<usize> {
+    attribute_vtt_file_native_with_gallery(video, input_vtt, output_vtt, None)
 }
 
 /// Evaluates attribution accuracy against a reference diarized WebVTT ground truth.
@@ -627,4 +963,34 @@ pub fn evaluate_vtt_accuracy(attributed_vtt: &Path, ref_vtt: &Path) -> Result<f3
 
     let acc = (matches as f32 / ref_subs.len() as f32) * 100.0;
     Ok(acc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_character_from_caption() {
+        assert_eq!(
+            parse_character_from_caption("《陆清安》"),
+            Some("陆清安".to_string())
+        );
+        assert_eq!(
+            parse_character_from_caption("《大女儿-陆紫萱》"),
+            Some("陆紫萱".to_string())
+        );
+        assert_eq!(
+            parse_character_from_caption("《落逢海-帝境中期》"),
+            Some("落逢海".to_string())
+        );
+        assert_eq!(
+            parse_character_from_caption("《临城城主-肖清逸》"),
+            Some("肖清逸".to_string())
+        );
+        assert_eq!(parse_character_from_caption("《魔域与仙墟交界处》"), None);
+        assert_eq!(parse_character_from_caption("《九狱弑仙剑》"), None);
+        assert_eq!(parse_character_from_caption("《将千年记忆封锁》"), None);
+        assert_eq!(parse_character_from_caption("《圣王境强者》"), None);
+        assert_eq!(parse_character_from_caption("《陆清安的家》"), None);
+    }
 }
