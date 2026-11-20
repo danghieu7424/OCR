@@ -5,6 +5,8 @@ members = [
     "crates/ocr_subtitles",
     "crates/ocr_captions",
     "crates/ocr_merge",
+    "crates/talknet_asd",
+    "crates/light_asd",
 ]
 
 [package]

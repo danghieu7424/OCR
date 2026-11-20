@@ -22,6 +22,51 @@ Model PP-OCRv6 và từ điển mặc định được tối ưu cho chữ cứn
 | `ocr_captions` | OCR caption; vùng mặc định Y 10–80%, xuất ảnh evidence tùy chọn |
 | `ocr_merge` | Đọc, sắp xếp, merge và serialize WebVTT, bảo toàn cue settings |
 | `ocr_shared` | Kiểu dữ liệu và tiện ích dùng chung |
+| `talknet_asd` | Sidecar runner gọi demo Python upstream TalkNet-ASD |
+| `light_asd` | Sidecar runner gọi demo Python upstream Light-ASD |
+
+## Active Speaker Detection (ASD)
+
+`talknet_asd` và `light_asd` là Rust wrappers cho các demo Python gốc, không
+phải bản port model thuần Rust. Chúng khởi chạy script demo bằng subprocess,
+trả stdout/stderr và báo lỗi khi tiến trình Python thất bại. Cần tự cài Python,
+PyTorch, các dependency theo repository upstream và FFmpeg; Light-ASD cần thêm
+checkpoint. Kết quả file/video do demo upstream tạo ra vẫn theo định dạng của
+repo đó, crate hiện không chuyển chúng thành ASD score chuẩn hóa.
+
+```rust
+use light_asd::LightAsdConfig;
+use std::path::Path;
+
+let config = LightAsdConfig::new(
+    "third_party/Light-ASD",
+    "input/episode.mp4",
+    "weight/finetuning_TalkSet.model",
+);
+let output = config.run_demo()?;
+println!("{}", output.stdout);
+```
+
+`LightAsdConfig::new` mặc định dùng executable `python`; thay `config.python`
+nếu môi trường dùng tên/đường dẫn khác. Với TalkNet, dùng
+`talknet_asd::TalkNetConfig::new(repository, video).run_demo()`; demo upstream
+dùng `demoTalkNet.py` và tự xử lý tải checkpoint theo logic của repo.
+
+Ví dụ cài source và dependency Python:
+
+```powershell
+git clone https://github.com/TaoRuijie/TalkNet-ASD.git third_party\TalkNet-ASD
+python -m pip install -r third_party\TalkNet-ASD\requirement.txt
+
+git clone https://github.com/Junhua-Liao/Light-ASD.git third_party\Light-ASD
+python -m pip install -r third_party\Light-ASD\requirement.txt
+```
+
+TalkNet-ASD có demo `demoTalkNet.py`; Light-ASD dùng `Columbia_test.py` và
+checkpoint `weight/finetuning_TalkSet.model`. Cả hai pipeline upstream thực
+hiện face detection/tracking, crop mặt và trích xuất đặc trưng âm thanh; crate
+Rust này ủy quyền toàn bộ các bước đó cho Python. Muốn chạy inference thuần
+Rust cần export và kiểm thử model ONNX cùng preprocessing tương thích riêng.
 
 ## Pipeline OCR thô
 
