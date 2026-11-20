@@ -13,8 +13,10 @@ use std::process::{Command, Output};
 pub mod native_attribution;
 pub use native_attribution::{
     CharacterVoiceProfile, Voiceprint, VoiceprintGallery, attribute_cues_dynamic,
-    attribute_vtt_file_native, attribute_vtt_file_native_with_gallery, estimate_pitch_autocorr,
-    evaluate_vtt_accuracy, extract_voiceprint, parse_character_from_caption, read_wav_samples,
+    attribute_cues_dynamic_with_progress, attribute_vtt_file_native,
+    attribute_vtt_file_native_with_gallery, attribute_vtt_file_native_with_gallery_and_progress,
+    estimate_pitch_autocorr, evaluate_vtt_accuracy, extract_voiceprint,
+    parse_character_from_caption, read_wav_samples,
 };
 
 /// Paths and runtime configuration for a Light-ASD demo invocation.

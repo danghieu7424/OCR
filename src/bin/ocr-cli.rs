@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
 use image::RgbImage;
-use light_asd::{LightAsdConfig, SpeakerAttributionConfig};
+use light_asd::LightAsdConfig;
 use ocr::{
     CaptionExtractorConfig, CaptionExtractorOutput, OcrExtractorConfig, SubtitleRoi,
     SubtitleSegment, extract_captions, extract_hardcoded_subtitles,
@@ -1083,18 +1083,45 @@ fn process_video(
         }
     }
     if args.attribute_speakers {
-        let mut config = SpeakerAttributionConfig::new(video, &merged_vtt, &merged_vtt);
-        config.python.clone_from(&args.python);
+        let gallery_file = video
+            .parent()
+            .map(|p| p.join(".character_gallery.json"))
+            .unwrap_or_else(|| PathBuf::from(".character_gallery.json"));
         println!(
-            "{ANSI_CYAN}[ASD]{ANSI_RESET} Attributing speakers for {:?}",
+            " {ANSI_CYAN}[ASD]{ANSI_RESET} Attributing speakers for {:?}",
             merged_vtt
         );
-        let result = config
-            .run()
-            .with_context(|| format!("Speaker attribution failed for {:?}", video))?;
+        let start_time = std::time::Instant::now();
+        let (filled_char, empty_char) = cli_gui_form::Icons::PROGRESS_CHARS_PARALLELOGRAM;
+        let bar_width = 12usize;
+
+        let total_attributed = light_asd::attribute_vtt_file_native_with_gallery_and_progress(
+            video,
+            &merged_vtt,
+            &merged_vtt,
+            Some(&gallery_file),
+            |current, total| {
+                let percent = (current as f32 / total.max(1) as f32 * 100.0).clamp(0.0, 99.9);
+                let bar = progress_bar(percent, filled_char, empty_char, bar_width);
+                let elapsed_secs = start_time.elapsed().as_secs_f32();
+                print!(
+                    "\r {status_running}[ASD]: {ANSI_BLUE}{bar}{ANSI_RESET} {percent:5.1}% | {current}/{total} cues | {elapsed_secs:.1}s   ",
+                    status_running = status_style(PhaseStatus::Running),
+                );
+                let _ = io::stdout().flush();
+            },
+        )
+        .with_context(|| format!("Speaker attribution failed for {:?}", video))?;
+
+        let elapsed_secs = start_time.elapsed().as_secs_f32();
+        let bar = progress_bar(100.0, filled_char, empty_char, bar_width);
+        println!(
+            "\r {status_complete}[ASD]: {ANSI_BLUE}{bar}{ANSI_RESET} 100.0% | {total_attributed}/{total_attributed} cues | {elapsed_secs:.1}s   ",
+            status_complete = status_style(PhaseStatus::Complete),
+        );
         println!(
             " {ANSI_GREEN}[ASD: DONE]{ANSI_RESET} Attributed {} subtitle cues with <v Character> tags",
-            result.total_subtitles
+            total_attributed
         );
     }
     if let (Some(repository), Some(model)) = (

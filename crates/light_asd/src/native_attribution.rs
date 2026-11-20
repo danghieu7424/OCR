@@ -608,13 +608,17 @@ pub fn parse_character_from_caption(txt: &str) -> Option<String> {
     }
 }
 
-/// Attributes speaker identities dynamically using caption anchors, dialog continuity, and voiceprint gallery.
-pub fn attribute_cues_dynamic(
+/// Attributes speaker identities dynamically using caption anchors, dialog continuity, and voiceprint gallery, with progress reporting.
+pub fn attribute_cues_dynamic_with_progress<F>(
     cues: &[VttCue],
     samples: &[f32],
     sample_rate: u32,
     gallery: &mut VoiceprintGallery,
-) -> Vec<VttCue> {
+    mut on_progress: F,
+) -> Vec<VttCue>
+where
+    F: FnMut(usize, usize),
+{
     // Stage 1: Detect all caption cues and anchor character appearances
     let mut caps: Vec<(u64, u64, String)> = Vec::new();
     for c in cues {
@@ -624,6 +628,9 @@ pub fn attribute_cues_dynamic(
             caps.push((c.start_ms, c.end_ms, ch));
         }
     }
+
+    let total_subtitles = cues.iter().filter(|c| !c.is_caption).count();
+    let mut processed_subtitles = 0usize;
 
     // Pre-extract voiceprints for all subtitle cues
     let mut sub_voiceprints: Vec<(usize, Voiceprint)> = Vec::new();
@@ -699,9 +706,22 @@ pub fn attribute_cues_dynamic(
             is_caption: false,
             settings: cue.settings.clone(),
         });
+
+        processed_subtitles += 1;
+        on_progress(processed_subtitles, total_subtitles);
     }
 
     attributed
+}
+
+/// Attributes speaker identities dynamically using caption anchors, dialog continuity, and voiceprint gallery.
+pub fn attribute_cues_dynamic(
+    cues: &[VttCue],
+    samples: &[f32],
+    sample_rate: u32,
+    gallery: &mut VoiceprintGallery,
+) -> Vec<VttCue> {
+    attribute_cues_dynamic_with_progress(cues, samples, sample_rate, gallery, |_, _| {})
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -836,13 +856,17 @@ fn attribute_single_cue(
     }
 }
 
-/// Attributes speakers for a WebVTT file in 100% Pure Rust with optional gallery load/save.
-pub fn attribute_vtt_file_native_with_gallery(
+/// Attributes speakers for a WebVTT file in 100% Pure Rust with optional gallery load/save and progress callback.
+pub fn attribute_vtt_file_native_with_gallery_and_progress<F>(
     video: &Path,
     input_vtt: &Path,
     output_vtt: &Path,
     gallery_path: Option<&Path>,
-) -> Result<usize> {
+    on_progress: F,
+) -> Result<usize>
+where
+    F: FnMut(usize, usize),
+{
     let temp_wav = input_vtt.with_extension("temp.wav");
     extract_audio_from_video(video, &temp_wav)?;
 
@@ -871,7 +895,13 @@ pub fn attribute_vtt_file_native_with_gallery(
         });
     }
 
-    let attributed = attribute_cues_dynamic(&all_cues, &samples, sample_rate, &mut gallery);
+    let attributed = attribute_cues_dynamic_with_progress(
+        &all_cues,
+        &samples,
+        sample_rate,
+        &mut gallery,
+        on_progress,
+    );
     let serialized = serialize_vtt(&attributed);
 
     if let Some(parent) = output_vtt.parent() {
@@ -883,6 +913,22 @@ pub fn attribute_vtt_file_native_with_gallery(
 
     let total_subtitles = attributed.iter().filter(|c| !c.is_caption).count();
     Ok(total_subtitles)
+}
+
+/// Attributes speakers for a WebVTT file in 100% Pure Rust with optional gallery load/save.
+pub fn attribute_vtt_file_native_with_gallery(
+    video: &Path,
+    input_vtt: &Path,
+    output_vtt: &Path,
+    gallery_path: Option<&Path>,
+) -> Result<usize> {
+    attribute_vtt_file_native_with_gallery_and_progress(
+        video,
+        input_vtt,
+        output_vtt,
+        gallery_path,
+        |_, _| {},
+    )
 }
 
 /// Compatibility wrapper for default attribute_vtt_file_native.

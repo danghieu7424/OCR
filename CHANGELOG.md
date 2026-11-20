@@ -9,6 +9,9 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
+- `ocr-cli`: Bổ sung thanh tiến trình trực quan (`[ASD]: ▰▰▰...`) cho pha gán nhãn nhân vật nói (Active Speaker Attribution), hiển thị tỷ lệ %, số cue phụ đề đã xử lý và thời gian chạy thời gian thực.
+- `ocr-cli`: Chuẩn hóa căn lề toàn bộ các dòng đầu ra trạng thái (` [OCR]`, ` [SUB]:`, ` [MERGE: DONE]`, ` [ASD]`, ` [ASD]:`, ` [ASD: DONE]`) thẳng hàng 100% cột đầu tiên.
+- `light_asd`: Bổ sung các hàm callback tiến trình `attribute_cues_dynamic_with_progress` và `attribute_vtt_file_native_with_gallery_and_progress`.
 - `light_asd`: Bổ sung 3 cơ chế tích lũy thông minh và thương mại hóa toàn diện cho động cơ Speaker Attribution thuần Rust:
   1. **Voiceprint Gallery tích lũy (`VoiceprintGallery`, `CharacterVoiceProfile`)**: Lưu trữ và tự động bồi đắp dấu vân giọng nói (Pitch F0, RMS Energy, Zero Crossing Rate, tỷ lệ năng lượng dải tần) qua file `.character_gallery.json`, cho phép nhận diện nhân vật chuẩn xác ở các tập sau kể cả khi không còn caption giới thiệu.
   2. **Liên kết Active Speaker & Caption thông minh**: Trích xuất chính xác tên nhân vật từ caption WebVTT `《...》` (`line:20%`), tự động phân biệt và loại trừ địa danh, vũ khí, cảnh giới tu vi (`帝境中期`, `圣王境`) để liên kết đúng giọng nói nhân vật.
