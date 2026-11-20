@@ -16,183 +16,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const SYSTEM_PHRASES: &[&str] = &[
-    "宿主",
-    "返还",
-    "万倍",
-    "到账",
-    "崩塌",
-    "一不小心把全世界的人都杀光",
-    "只要和妻子离婚",
-    "就会被对方分走一半修为",
-    "但会获得万倍返还",
-    "无敌於世啊",
-    "无敌于世啊",
-    "力量太庞大",
-    "没法一下灌进身体",
-    "先存你识海里",
-    "要用多少自己取",
-    "不过千万别一次全放出来",
-    "这世界撑不住会崩塌",
-    "修为几乎可忽略",
-    "共同修为中",
-    "你失去的一半修为",
-    "获得两倍返还",
-    "修为",
-];
-
-const LU_QING_AN_PHRASES: &[&str] = &[
-    "我在魔域",
-    "成就最強魔帝",
-    "成就最强魔帝",
-    "当我厌倦杀戮",
-    "选择和心爱的女人",
-    "我突然觉醒了系统",
-    "可就在当天夜里",
-    "把日子过下去",
-    "错付了",
-    "仙墟最強",
-    "仙墟最强",
-    "断绝情欲",
-    "原来她早就",
-    "跟我说有没有人逼你",
-    "祝你前程似锦",
-    "以后爹就管不了你了",
-    "听你娘亲的话",
-    "好好修炼",
-    "淼淼先睡会",
-    "爹爹说句话就带你走",
-    "拿东西蛊惑我的孩子",
-    "要不是孩子们在",
-    "你已经是死人了",
-    "诸位保重",
-    "我此去怕是不会再回来了",
-    "爹不在身边",
-    "照顾好自己",
-    "不了何老",
-    "我要回魔域",
-    "我本就来自魔域",
-    "以后传音联系",
-    "想见我就来魔域",
-    "我派人接你再会",
-];
-
-const LIN_QINGXUE_PHRASES: &[&str] = &[
-    "徒儿",
-    "清莹不能",
-    "神迹哈哈",
-    "和离对了",
-    "正然紫萱",
-    "绝世兵器",
-    "终生无望帝境",
-    "成了果真成了",
-    "一刻都不能再拖了",
-    "大帝四境",
-    "竟直达第三境",
-    "紫萱过来",
-    "此剑就是你的了",
-    "你年纪尚小",
-    "帝息将成",
-    "我居然觉得他能杀我",
-    "一定是错觉",
-    "凭你们的天资",
-    "再有你们娘亲的资源",
-    "往后必能称帝",
-    "兵器就是你们的",
-    "还不清楚其中利害",
-    "你要多为自己未来着想",
-    "你跟着你父亲",
-    "帝境即使不靠你们",
-    "我也能凭借自己的努力达到",
-    "清莹別被他影响",
-    "清莹别被他影响",
-    "隐瞒至今",
-    "他是魔域中人",
-    "城府何其深",
-    "这婚离得对",
-    "等你突破大帝境巅峰",
-    "凭无垢帝位",
-    "足以碾压他",
-    "不过比我强些",
-    "也敢口出狂言",
-    "淼淼来这里",
-    "我们请仙墟有名的廚修",
-    "我们请仙墟有名的厨修",
-    "天天给你做好吃的糕点",
-];
-
-const XU_QINGYING_PHRASES: &[&str] = &[
-    "相公",
-    "和离吧",
-    "大帝又如何",
-    "算我求你了",
-    "孩子我要争取",
-    "決定好跟娘亲还是跟爹爹了吗",
-    "决定好跟娘亲还是跟爹爹了吗",
-    "看在我们这些年的感情上",
-    "给我自由吧",
-    "我想要变得更强",
-    "这力量是",
-    "修为了",
-    "他竟是大帝",
-    "无垢帝位只需断绝男女之情",
-    "孩子们",
-    "娘亲之前问过你们",
-    "识海",
-    "我已是大帝",
-    "远胜于我",
-    "紫萱你确定吗",
-    "留个孩子陪着他",
-    "或许能让他好过些",
-    "淼淼你呢",
-    "他竟瞒了我这么久",
-    "千年夫妻",
-    "竟是魔域的大帝境巅峰",
-    "诸位都散了吧",
-    "告辞",
-];
-
-const LU_MIAOMIAO_PHRASES: &[&str] = &[
-    "淼淼不要你们分开",
-    "不要爹爹",
-    "娘亲爹爹",
-    "我不要你们和离",
-    "娘亲是大坏蛋",
-    "我再也不理你了",
-    "你这个坏人",
-    "別跟我说话",
-    "别跟我说话",
-    "爹爹我们走",
-    "不想待在这里了",
-];
-
-const HE_HONG_PHRASES: &[&str] = &[
-    "老巫婆",
-    "拿老子打造的兵器",
-    "老子打造",
-    "清安我也不想待了",
-    "咱们一起走",
-    "魔域",
-];
-
-const LU_ZHENGRAN_PHRASES: &[&str] = &[
-    "孩儿对不起您",
-    "娘亲天赋更强",
-    "我没选错",
-    "姐就看以后谁更强",
-];
-
-const LU_ZIXUAN_PHRASES: &[&str] = &[
-    "闭嘴",
-    "从此没有你这个弟弟",
-    "跟娘亲我不怪你",
-    "爹女儿永远支持你",
-    "再说一句话",
-    "你给我闭嘴",
-    "拿到刀就乐成这样",
-    "可你刚跟爹告別",
-    "可你刚跟爹告别",
-];
+const SYSTEM_TRIGGER_KEYWORDS: &[&str] = &["系统提示", "宿主", "修为返还", "系统绑定"];
 
 /// Acoustic voiceprint features extracted from an audio segment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,35 +96,12 @@ impl CharacterVoiceProfile {
 }
 
 /// Cumulative multi-episode character gallery.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VoiceprintGallery {
     pub characters: HashMap<String, CharacterVoiceProfile>,
 }
 
-impl Default for VoiceprintGallery {
-    fn default() -> Self {
-        let mut g = Self {
-            characters: HashMap::new(),
-        };
-        g.insert_seed("陆清安", 115.0);
-        g.insert_seed("徐清莹", 225.0);
-        g.insert_seed("林清雪", 305.0);
-        g.insert_seed("陆淼淼", 360.0);
-        g.insert_seed("陆紫萱", 255.0);
-        g.insert_seed("陆正然", 175.0);
-        g.insert_seed("何訇", 135.0);
-        g.insert_seed("徐轩宇", 165.0);
-        g.insert_seed("徐韵怡", 235.0);
-        g
-    }
-}
-
 impl VoiceprintGallery {
-    fn insert_seed(&mut self, name: &str, pitch: f32) {
-        self.characters
-            .insert(name.to_string(), CharacterVoiceProfile::new(name, pitch));
-    }
-
     pub fn load_from_file(path: &Path) -> Result<Self> {
         if path.is_file() {
             let content = fs::read_to_string(path)
@@ -572,18 +373,44 @@ pub fn parse_character_from_caption(txt: &str) -> Option<String> {
         "交界",
     ];
 
-    let raw_name = if let Some((left, right)) = inner.split_once('-') {
+    let delimiter = ['-', '—', '–'].into_iter().find(|&d| inner.contains(d));
+    let raw_name = if let Some(d) = delimiter {
+        let (left, right) = inner.split_once(d).unwrap();
         let left = left.trim();
         let right = right.trim();
-        // If right is a realm descriptor (e.g. 帝境中期, 圣王境), character is left
-        if right.contains('境')
-            || right.contains('期')
-            || right.contains("巅峰")
-            || right.contains("重")
-        {
+
+        let state_or_realm_keywords = [
+            "境", "期", "巅峰", "重", "状态", "形态", "化身", "分身", "真身", "变身", "体",
+        ];
+        let title_keywords = [
+            "大女儿",
+            "二女儿",
+            "三女儿",
+            "女儿",
+            "妻子",
+            "夫君",
+            "儿子",
+            "父亲",
+            "母亲",
+            "城主",
+            "宗主",
+            "师尊",
+            "长老",
+            "使者",
+            "府主",
+            "殿主",
+            "门主",
+            "堂主",
+            "统领",
+        ];
+
+        if state_or_realm_keywords.iter().any(|k| right.contains(k)) {
+            left
+        } else if title_keywords.iter().any(|k| left.contains(k)) {
+            right
+        } else if (2..=4).contains(&left.chars().count()) {
             left
         } else {
-            // Otherwise, left is a title/relationship (e.g. 大女儿, 临城城主), character is right
             right
         }
     } else {
@@ -619,12 +446,16 @@ pub fn attribute_cues_dynamic_with_progress<F>(
 where
     F: FnMut(usize, usize),
 {
-    // Stage 1: Detect all caption cues and anchor character appearances
+    // Stage 1: Detect all character caption cues in this episode
     let mut caps: Vec<(u64, u64, String)> = Vec::new();
+    let mut episode_characters: Vec<String> = Vec::new();
     for c in cues {
         if c.is_caption
             && let Some(ch) = parse_character_from_caption(&c.text)
         {
+            if !episode_characters.contains(&ch) {
+                episode_characters.push(ch.clone());
+            }
             caps.push((c.start_ms, c.end_ms, ch));
         }
     }
@@ -655,7 +486,8 @@ where
         for &(cue_idx, ref vp) in &sub_voiceprints {
             let cue = &cues[cue_idx];
             let overlaps = cue.start_ms < c_et && cue.end_ms > c_st;
-            if overlaps && vp.pitch > 0.0 {
+            let close = (cue.start_ms as i64 - c_st as i64).abs() <= 1500;
+            if (overlaps || close) && vp.pitch > 0.0 {
                 gallery.register(ch, vp);
             }
         }
@@ -688,10 +520,15 @@ where
             &last_speaker,
             &caps,
             gallery,
+            &episode_characters,
         );
 
         // Update gallery dynamically
-        if !speaker.is_empty() && speaker != "系统" && speaker != "MANY_PEOPLE" {
+        if !speaker.is_empty()
+            && speaker != "系统"
+            && speaker != "MANY_PEOPLE"
+            && !speaker.starts_with("SPEAKER_")
+        {
             gallery.register(&speaker, &vp);
         }
 
@@ -734,103 +571,53 @@ fn attribute_single_cue(
     last_speaker: &str,
     caps: &[(u64, u64, String)],
     gallery: &VoiceprintGallery,
+    episode_characters: &[String],
 ) -> String {
-    // Rule 0: Specific known protagonist cues
-    if LU_QING_AN_PHRASES.iter().any(|&p| txt.contains(p)) {
-        return "陆清安".to_string();
-    }
-
-    // Rule 1: System cues
-    if (SYSTEM_PHRASES.iter().any(|&w| txt.contains(w)) || txt.contains("修为"))
-        && !txt.contains("我已是大帝")
-        && !txt.contains("远胜于我")
-        && !txt.contains("终生无望")
-    {
+    // 1. Phim có yếu tố hệ thống (tổng quát)
+    if SYSTEM_TRIGGER_KEYWORDS.iter().any(|&k| txt.contains(k)) || txt.contains("系统") {
         return "系统".to_string();
     }
 
-    // Rule 2: Strong vocatives / character-specific markers
-    if LU_MIAOMIAO_PHRASES.iter().any(|&w| txt.contains(w)) {
-        return "陆淼淼".to_string();
-    }
-    if LU_ZHENGRAN_PHRASES.iter().any(|&w| txt.contains(w)) || txt == "爹" || txt == "姐" {
-        return "陆正然".to_string();
-    }
-    if LU_ZIXUAN_PHRASES.iter().any(|&w| txt.contains(w)) {
-        return "陆紫萱".to_string();
-    }
-    if HE_HONG_PHRASES.iter().any(|&w| txt.contains(w)) {
-        return "何訇".to_string();
-    }
-    if LIN_QINGXUE_PHRASES.iter().any(|&w| txt.contains(w))
-        || txt.contains("达不到那一层")
-        || txt.contains("帝息将成")
-        || txt.contains("如今你已帝境")
-    {
-        return "林清雪".to_string();
-    }
-    if XU_QINGYING_PHRASES.iter().any(|&w| txt.contains(w))
-        || txt.contains("识海")
-        || txt.contains("我已是大帝")
-        || txt.contains("远胜于我")
-    {
-        return "徐清莹".to_string();
-    }
-
-    // Additional characters in crowd / family
-    let near_xu_xuan_yu = caps
+    // 2. Neo trực tiếp theo Caption nhân vật xuất hiện gần thời điểm câu thoại
+    let is_female = pitch >= 190.0;
+    let near_caps: Vec<&String> = caps
         .iter()
-        .any(|(c_st, _, ch)| ch == "徐轩宇" && (*c_st as i64 - start_ms as i64).abs() < 3000);
-    if near_xu_xuan_yu || txt.contains("大帝境巅峰又如何") || txt.contains("我姐可是无垢帝位")
-    {
-        return "徐轩宇".to_string();
+        .filter(|(c_st, c_et, _)| {
+            let overlaps = start_ms < *c_et && start_ms + 1000 > *c_st;
+            let close = (*c_st as i64 - start_ms as i64).abs() <= 2000;
+            overlaps || close
+        })
+        .map(|(_, _, ch)| ch)
+        .collect();
+
+    if !near_caps.is_empty() {
+        if near_caps.len() == 1 {
+            return near_caps[0].clone();
+        } else {
+            // Có >= 2 caption cùng xuất hiện: phân biệt theo gallery profile hoặc pitch nam/nữ
+            for ch in &near_caps {
+                if let Some(prof) = gallery.characters.get(*ch) {
+                    let prof_female = prof.pitch_mean >= 190.0;
+                    if pitch > 0.0 && prof_female == is_female {
+                        return (*ch).clone();
+                    }
+                }
+            }
+            return near_caps[0].clone();
+        }
     }
 
-    let near_xu_yun_yi = caps
-        .iter()
-        .any(|(c_st, _, ch)| ch == "徐韵怡" && (*c_st as i64 - start_ms as i64).abs() < 3000);
-    if near_xu_yun_yi || txt.contains("姐夫多好啊") || txt.contains("只怪姐姐不会珍惜")
-    {
-        return "徐韵怡".to_string();
-    }
-
-    if txt.contains("恭喜徐道友成就帝位") {
-        return "MANY_PEOPLE".to_string();
-    }
-
-    if txt.contains("魔域之人") {
-        return "SPEAKER_02".to_string();
-    }
-    if txt.contains("藏在仙墟这么多年竟无人发现") {
-        return "SPEAKER_03".to_string();
-    }
-    if txt.contains("整个仙墟能与他匹敌") {
-        return "SPEAKER_04".to_string();
-    }
-
-    // Rule 3: Close temporal caption (within 2.0s)
-    let near_cap = caps.iter().find(|(c_st, _, ch)| {
-        (*c_st as i64 - start_ms as i64).abs() < 2000
-            && matches!(
-                ch.as_str(),
-                "陆淼淼" | "陆正然" | "何訇" | "陆紫萱" | "徐轩宇" | "徐韵怡"
-            )
-    });
-    if let Some((_, _, ch)) = near_cap {
-        return ch.clone();
-    }
-
-    // Rule 4: Continuity with previous cue if gap <= 800ms
+    // 3. Continuity: Hội thoại liền mạch giữa 2 câu
     let gap_ms = start_ms.saturating_sub(last_end_ms);
     if gap_ms <= 800
         && !last_speaker.is_empty()
         && last_speaker != "系统"
-        && (pitch == 0.0 || last_pitch == 0.0 || (pitch - last_pitch).abs() < 60.0)
+        && (pitch == 0.0 || last_pitch == 0.0 || (pitch - last_pitch).abs() < 55.0)
     {
         return last_speaker.to_string();
     }
 
-    // Rule 5: Match against Voiceprint Gallery
+    // 4. Voiceprint Gallery Matching: So khớp với các nhân vật ĐÃ CÓ trong kho của bộ phim
     let vp = Voiceprint {
         pitch,
         rms_energy: 0.0,
@@ -839,20 +626,43 @@ fn attribute_single_cue(
         mid_band_ratio: 0.40,
         high_band_ratio: 0.20,
     };
-    let is_female = pitch >= 195.0;
     if let Some(matched) = gallery.match_speaker(&vp, is_female) {
         return matched;
     }
 
-    // Fallback
-    if pitch > 0.0 && pitch < 185.0 {
-        "陆清安".to_string()
-    } else if pitch >= 265.0 {
-        "林清雪".to_string()
-    } else if (30_000..=120_000).contains(&start_ms) {
-        "徐清莹".to_string()
+    // 5. Fallback tự nhiên theo hồ sơ nhân vật của chính bộ phim đang xử lý
+    if !gallery.characters.is_empty() {
+        let mut best: Option<(&String, f32)> = None;
+        for (name, prof) in &gallery.characters {
+            let prof_female = prof.pitch_mean >= 190.0;
+            if pitch > 0.0 && prof_female != is_female {
+                continue;
+            }
+            let diff = if pitch > 0.0 {
+                (prof.pitch_mean - pitch).abs()
+            } else {
+                0.0
+            };
+            if best.as_ref().is_none_or(|(_, d)| diff < *d) {
+                best = Some((name, diff));
+            }
+        }
+        if let Some((name, _)) = best {
+            return name.clone();
+        }
+    }
+
+    if !episode_characters.is_empty() {
+        return episode_characters[0].clone();
+    }
+
+    // 6. Trường hợp ngoại lệ: bộ phim hoàn toàn chưa hề có caption nhân vật nào
+    if pitch > 0.0 && pitch < 190.0 {
+        "SPEAKER_MALE".to_string()
+    } else if pitch >= 190.0 {
+        "SPEAKER_FEMALE".to_string()
     } else {
-        "陆清安".to_string()
+        "SPEAKER_01".to_string()
     }
 }
 

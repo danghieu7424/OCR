@@ -113,12 +113,13 @@
 ```
 
 ```powershell
-./ocr-cli/ocr-cli.exe -i "in/S02E001.mp4" -o in  --caption-evidence `
+./ocr-cli/ocr-cli.exe -i "in" -o in `
+   --caption-evidence `
    --subtitle-roi 0.85,1.0,0.05,0.95 `
    --caption-roi 0,0.80,0,1 `
    --subtitle-line 90% `
    --caption-line 20% `
-   --attribute-speakers
+   --attribute-speakers `
    --force
 ./ocr-cli/ocr-cli.exe -i "in/S02E003.mp4" -o in  --caption-evidence `
    --subtitle-roi 0.85,1.0,0.05,0.95 `
