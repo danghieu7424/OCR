@@ -46,6 +46,7 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Gỡ bỏ
 
+- `ocr-cli`: Gỡ bỏ hoàn toàn các cờ thử nghiệm cũ phụ thuộc Python (`--python`, `--light-asd-repo`, `--light-asd-model`), chuyển giao trọn vẹn 100% sang động cơ Native Pure Rust không phụ thuộc bất kỳ runtime nào bên ngoài.
 - Xóa crate `OCR_LLM`, feature `llm`, API hiệu đính liên quan và example `proofread_subtitles`; workspace chỉ còn pipeline OCR thô và merge, không gọi mô hình ngôn ngữ.
 
 ### Thay đổi phá vỡ tương thích
