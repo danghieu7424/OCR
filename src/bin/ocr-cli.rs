@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
 use image::RgbImage;
-use light_asd::LightAsdConfig;
+use light_asd::{LightAsdConfig, SpeakerAttributionConfig};
 use ocr::{
     CaptionExtractorConfig, CaptionExtractorOutput, OcrExtractorConfig, SubtitleRoi,
     SubtitleSegment, extract_captions, extract_hardcoded_subtitles,
@@ -41,6 +41,7 @@ struct CliArgs {
     light_asd_repository: Option<PathBuf>,
     light_asd_model: Option<PathBuf>,
     python: PathBuf,
+    attribute_speakers: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -280,6 +281,7 @@ Options:\n\
       --light-asd-repo <folder> Run Light-ASD using a cloned upstream repository\n\
       --light-asd-model <path>  Light-ASD checkpoint (relative to repo or absolute)\n\
       --python <executable>     Python executable for Light-ASD (default: python)\n\
+      --attribute-speakers       Attribute character speakers and wrap subtitles in <v Character> tags\n\
       --force                    Reprocess completed subtitles, captions, and merge\n\
   -h, --help                     Show this help\n\
 \n\
@@ -322,6 +324,7 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
     let mut light_asd_repository = None;
     let mut light_asd_model = None;
     let mut python = PathBuf::from("python");
+    let mut attribute_speakers = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -387,6 +390,9 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
             "--python" => {
                 python = PathBuf::from(args.next().context("--python cần executable")?);
             }
+            "--attribute-speakers" => {
+                attribute_speakers = true;
+            }
             _ if arg.starts_with('-') => bail!("Tùy chọn không được hỗ trợ: {arg}\n\n{}", usage()),
             _ if input.is_none() => input = Some(PathBuf::from(arg)),
             _ => bail!("Chỉ nhận một input file hoặc folder.\n\n{}", usage()),
@@ -418,6 +424,7 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
         light_asd_repository,
         light_asd_model,
         python,
+        attribute_speakers,
     }))
 }
 
@@ -1075,6 +1082,21 @@ fn process_video(
             }
         }
     }
+    if args.attribute_speakers {
+        let mut config = SpeakerAttributionConfig::new(video, &merged_vtt, &merged_vtt);
+        config.python.clone_from(&args.python);
+        println!(
+            "{ANSI_CYAN}[ASD]{ANSI_RESET} Attributing speakers for {:?}",
+            merged_vtt
+        );
+        let result = config
+            .run()
+            .with_context(|| format!("Speaker attribution failed for {:?}", video))?;
+        println!(
+            " {ANSI_GREEN}[ASD: DONE]{ANSI_RESET} Attributed {} subtitle cues with <v Character> tags",
+            result.total_subtitles
+        );
+    }
     if let (Some(repository), Some(model)) = (
         args.light_asd_repository.as_ref(),
         args.light_asd_model.as_ref(),
@@ -1230,6 +1252,21 @@ mod tests {
             Some(PathBuf::from("weight/finetuning_TalkSet.model"))
         );
         assert_eq!(parsed.python, PathBuf::from("python.exe"));
+        assert!(!parsed.attribute_speakers);
+    }
+
+    #[test]
+    fn attribute_speakers_flag_is_parsed_correctly() {
+        let args = [
+            "--input",
+            "video.mp4",
+            "--output",
+            "out",
+            "--attribute-speakers",
+        ]
+        .map(str::to_string);
+        let parsed = parse_args_from(args.into_iter()).unwrap().unwrap();
+        assert!(parsed.attribute_speakers);
     }
 
     #[test]
@@ -1300,6 +1337,7 @@ mod tests {
             light_asd_repository: None,
             light_asd_model: None,
             python: PathBuf::from("python"),
+            attribute_speakers: false,
         };
         let original = signatures(&args.input, &args).unwrap();
 

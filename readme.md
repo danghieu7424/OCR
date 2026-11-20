@@ -121,6 +121,21 @@ Khi có đủ hai cờ `--light-asd-repo` và `--light-asd-model`, CLI gọi
 `light_asd::LightAsdConfig` cho từng video sau bước OCR/merge và in output của
 demo Python. Nếu không truyền hai cờ này, Light-ASD không chạy.
 
+Thêm cờ `--attribute-speakers` để gán nhãn danh tính nhân vật nói và bọc câu phụ đề theo thẻ chuẩn W3C WebVTT `<v Tên_nhân_vật>câu phụ đề</v>`, giữ nguyên vẹn nội dung chữ OCR và caption `《...》`:
+
+```powershell
+cargo run --release --bin ocr-cli -- --input input\第001集.mp4 --output output `
+  --attribute-speakers --python scratch\light-asd-benchmark\venv\Scripts\python.exe
+```
+
+Có thể chạy trực tiếp example của `light_asd` để gán nhãn và đối chiếu độ chính xác với ground truth:
+
+```powershell
+cargo run -p light_asd --example attribute_speakers -- `
+  input/第001集.mp4 input/第001集.merged.zh.vtt output/第001集.attributed.vtt `
+  final/第001集_final.zh.diarized.vtt scratch/light-asd-benchmark/venv/Scripts/python.exe
+```
+
 ## Đối chiếu VTT
 
 Script đọc được cả output mới `.subtitles.zh.vtt` và tên cũ `.zh.vtt`. Mặc định không cần cài gói chuẩn hóa:

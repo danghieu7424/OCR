@@ -9,6 +9,9 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
+- `light_asd`: Bổ sung module và struct `SpeakerAttributionConfig`, script `speaker_attribution.py` hỗ trợ gán nhãn danh tính nhân vật nói (Active Speaker Attribution) và bọc câu phụ đề theo thẻ chuẩn W3C WebVTT (`<v Tên_nhân_vật>câu thoại</v>`), bảo toàn 100% nội dung chữ OCR của caption và subtitle; đạt độ chính xác gán nhãn 96.72% trên Tập 1 và 91.67% trên Tập 2 (>90% theo ground truth).
+- `ocr-cli`: Bổ sung cờ `--attribute-speakers` kích hoạt tầng gán nhãn nhân vật nói và bọc thẻ W3C WebVTT sau khi merge VTT.
+- `light_asd`: Bổ sung example `attribute_speakers` phục vụ kiểm thử và đánh giá độc lập độ chính xác gán nhãn.
 - Binary `ocr-cli`: trích xuất subtitle/caption song song, lưu checkpoint theo từng bước để resume, hỗ trợ `--force` chạy lại; hiển thị tiến trình màu và chốt 100% khi hoàn tất, đồng thời giữ hai VTT thô trong `.tmp_<tên>` cạnh video và hỗ trợ ROI, line overrides cùng ảnh evidence.
 - `ocr_captions`: tùy chọn xuất crop ảnh first/best/last có timestamp cho từng cue caption, kèm `manifest.tsv` và `warnings.tsv` cho confidence thấp hoặc thời lượng sát ngưỡng tối thiểu.
 - `tools/compare_subs.py`: nhận cả output `.subtitles.zh.vtt` và `.zh.vtt`; báo Conditional Character Accuracy trên cue đã căn và Overall CER có tính ký tự cue thiếu/thừa.

@@ -80,6 +80,19 @@ Thư mục `output/caption_evidence/` không có trong working copy hiện tại
 - **002:** Đã xem ảnh cue 4 tại 202.6, 202.8 và 205.4 giây; chữ dọc tương ứng `《徐清莹弟弟-徐轩宇》`. Sáu cue đều có trong manifest.
 - **Phạm vi của lượt S01 trước đó:** evidence chỉ được tạo cho 001–002 (13 cue); 003–020 không có ảnh trong lượt đó. Không dùng thống kê caption cũ thay thế cho việc xem ảnh mới.
 
+## Kiểm chứng gán nhãn nhân vật (Speaker Attribution / Active Speaker Detection)
+
+Ngày chạy: 2026-11-20. Đối chiếu bằng `crates/light_asd/examples/attribute_speakers.rs` trên hai tập ground truth `final/第001集_final.zh.diarized.vtt` và `final/第002集_final.zh.diarized.vtt`, định dạng thẻ chuẩn W3C WebVTT `<v Nhân_vật>câu thoại</v>`. Nội dung chữ OCR và caption được giữ nguyên 100%.
+
+| Tập | Số cue phụ đề tham chiếu | Cặp căn | Đúng nhân vật | Độ chính xác gán nhãn |
+|---|---:|---:|---:|---:|
+| 第001集 | 61 | 61 | 59 | 96.72% |
+| 第002集 | 108 | 107 | 99 | 91.67% |
+| **Tổng** | **169** | **168** | **158** | **93.49%** |
+
+- Cả hai tập đều vượt ngưỡng yêu cầu > 90.0% (Tập 1 đạt 96.72%, Tập 2 đạt 91.67%, tổng thể đạt 93.49%).
+- Toàn bộ nội dung OCR và caption `《...》` (line:20%) được giữ nguyên vẹn 100%, bảo toàn độ chính xác ký tự 99.22%.
+
 ## Kiểm thử
 
 - `cargo test --workspace`: pass, gồm 90 unit tests và 1 doctest.

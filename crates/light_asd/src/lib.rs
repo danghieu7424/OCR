@@ -1,8 +1,8 @@
-//! Rust sidecar runner for the upstream Light-ASD Python demo.
+//! Rust sidecar runner for the upstream Light-ASD Python demo and speaker attribution.
 //!
-//! This crate launches `Columbia_test.py`; it does not reimplement the model
-//! or its face/audio preprocessing. Python, the upstream repository, PyTorch,
-//! model weights, and FFmpeg must be installed separately.
+//! This crate launches `Columbia_test.py` and active speaker attribution scripts;
+//! it does not reimplement the model or its face/audio preprocessing. Python, the
+//! upstream repository, PyTorch, model weights, and FFmpeg must be installed separately.
 
 use anyhow::{Context, Result, bail};
 use std::env;
@@ -135,6 +135,91 @@ impl ColumbiaEvaluationConfig {
     }
 }
 
+/// Configuration for speaker attribution and WebVTT voice-tagging (<v Speaker>text</v>).
+#[derive(Debug, Clone)]
+pub struct SpeakerAttributionConfig {
+    /// Python executable, for example `python` or a virtual environment interpreter.
+    pub python: PathBuf,
+    /// Speaker attribution script, defaults to `scripts/speaker_attribution.py`.
+    pub script: PathBuf,
+    /// Input video file.
+    pub video: PathBuf,
+    /// Input WebVTT file (merged or subtitle).
+    pub input_vtt: PathBuf,
+    /// Output WebVTT file with `<v Character>subtitle</v>` voice tags.
+    pub output_vtt: PathBuf,
+    /// Optional ground truth diarized WebVTT reference for evaluation.
+    pub eval_ref: Option<PathBuf>,
+}
+
+impl SpeakerAttributionConfig {
+    pub fn new(
+        video: impl Into<PathBuf>,
+        input_vtt: impl Into<PathBuf>,
+        output_vtt: impl Into<PathBuf>,
+    ) -> Self {
+        let default_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("speaker_attribution.py");
+        Self {
+            python: PathBuf::from("python"),
+            script: default_script,
+            video: video.into(),
+            input_vtt: input_vtt.into(),
+            output_vtt: output_vtt.into(),
+            eval_ref: None,
+        }
+    }
+
+    pub fn with_eval_ref(mut self, eval_ref: impl Into<PathBuf>) -> Self {
+        self.eval_ref = Some(eval_ref.into());
+        self
+    }
+
+    /// Executes speaker attribution and returns the output statistics.
+    pub fn run(&self) -> Result<SpeakerAttributionResult> {
+        let python = resolve_python(&self.python)?;
+        ensure_file(&self.script, "Speaker attribution script")?;
+        ensure_file(&self.video, "Input video")?;
+        ensure_file(&self.input_vtt, "Input WebVTT")?;
+        if let Some(ref eval_ref) = self.eval_ref {
+            ensure_file(eval_ref, "Reference diarized WebVTT")?;
+        }
+
+        let mut command = build_attribution_command(
+            &python,
+            &self.script,
+            &self.video,
+            &self.input_vtt,
+            &self.output_vtt,
+            self.eval_ref.as_deref(),
+        );
+        add_python_scripts_to_path(&mut command, &python)?;
+
+        let output = command.output().with_context(|| {
+            format!("failed to launch speaker attribution via {:?}", self.python)
+        })?;
+        let output = output_result(output, "Speaker attribution")?;
+        let (total_subtitles, accuracy_percent) = parse_attribution_output(&output.stdout)?;
+
+        Ok(SpeakerAttributionResult {
+            output_vtt: self.output_vtt.clone(),
+            total_subtitles,
+            accuracy_percent,
+            output,
+        })
+    }
+}
+
+/// Output of a speaker attribution run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeakerAttributionResult {
+    pub output_vtt: PathBuf,
+    pub total_subtitles: usize,
+    pub accuracy_percent: Option<f32>,
+    pub output: DemoOutput,
+}
+
 /// Successful Columbia benchmark output and the reported average F1 percentage.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumbiaEvaluationResult {
@@ -231,6 +316,29 @@ fn build_columbia_command(
     command
 }
 
+fn build_attribution_command(
+    python: &Path,
+    script: &Path,
+    video: &Path,
+    input_vtt: &Path,
+    output_vtt: &Path,
+    eval_ref: Option<&Path>,
+) -> Command {
+    let mut command = Command::new(python);
+    command
+        .arg(script)
+        .arg("--video")
+        .arg(video)
+        .arg("--input-vtt")
+        .arg(input_vtt)
+        .arg("--output-vtt")
+        .arg(output_vtt);
+    if let Some(ref_path) = eval_ref {
+        command.arg("--eval-ref").arg(ref_path);
+    }
+    command
+}
+
 fn parse_average_f1(stdout: &str) -> Result<f32> {
     let score = stdout
         .lines()
@@ -244,6 +352,29 @@ fn parse_average_f1(stdout: &str) -> Result<f32> {
         "Light-ASD Columbia average F1 must be in [0, 100], got {score}"
     );
     Ok(score)
+}
+
+fn parse_attribution_output(stdout: &str) -> Result<(usize, Option<f32>)> {
+    let mut total_subtitles = 0;
+    let mut accuracy = None;
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("[ASD: DONE] Attributed ")
+            && let Some(num_str) = rest.split_whitespace().next()
+        {
+            total_subtitles = num_str.parse::<usize>().unwrap_or(0);
+        }
+        if let Some(idx) = line.find("Accuracy: ") {
+            let after = &line[idx + "Accuracy: ".len()..];
+            if let Some(score_str) = after.split('%').next()
+                && let Ok(score) = score_str.trim().parse::<f32>()
+            {
+                accuracy = Some(score);
+            }
+        }
+    }
+    Ok((total_subtitles, accuracy))
 }
 
 fn output_result(output: Output, operation: &str) -> Result<DemoOutput> {
@@ -321,6 +452,43 @@ mod tests {
                 OsStr::new(r"C:\columbia"),
             ]
         );
+    }
+
+    #[test]
+    fn speaker_attribution_command_receives_expected_arguments() {
+        let command = build_attribution_command(
+            Path::new("python"),
+            Path::new("scripts/speaker_attribution.py"),
+            Path::new("video.mp4"),
+            Path::new("input.vtt"),
+            Path::new("output.vtt"),
+            Some(Path::new("ref.vtt")),
+        );
+
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(
+            args,
+            [
+                OsStr::new("scripts/speaker_attribution.py"),
+                OsStr::new("--video"),
+                OsStr::new("video.mp4"),
+                OsStr::new("--input-vtt"),
+                OsStr::new("input.vtt"),
+                OsStr::new("--output-vtt"),
+                OsStr::new("output.vtt"),
+                OsStr::new("--eval-ref"),
+                OsStr::new("ref.vtt"),
+            ]
+        );
+    }
+
+    #[test]
+    fn speaker_attribution_parser_extracts_count_and_accuracy() {
+        let stdout = "[ASD: DONE] Attributed 64 subtitle cues -> out.vtt\n\
+                      [ASD: EVAL] Aligned 61/61 cues | Accuracy: 96.72% (59/61) against ref.vtt\n";
+        let (count, acc) = parse_attribution_output(stdout).unwrap();
+        assert_eq!(count, 64);
+        assert_eq!(acc, Some(96.72));
     }
 
     #[test]
