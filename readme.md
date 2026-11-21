@@ -15,15 +15,15 @@ Model PP-OCRv6 và từ điển mặc định được tối ưu cho chữ cứn
 
 ## Kiến trúc workspace
 
-| Crate | Trách nhiệm |
-|---|---|
-| `ocr-core` (`lib: ocr`) | API công khai, CLI và điều phối các crate |
-| `ocr_subtitles` | OCR subtitle; DBNet/PP-OCRv6, vùng mặc định Y 85–100% |
-| `ocr_captions` | OCR caption; vùng mặc định Y 10–80%, xuất ảnh evidence tùy chọn |
-| `ocr_merge` | Đọc, sắp xếp, merge và serialize WebVTT, bảo toàn cue settings |
-| `ocr_shared` | Kiểu dữ liệu và tiện ích dùng chung |
-| `talknet_asd` | Sidecar runner gọi demo Python upstream TalkNet-ASD |
-| `light_asd` | Sidecar runner gọi demo Python upstream Light-ASD |
+| Crate                   | Trách nhiệm                                                     |
+| ----------------------- | --------------------------------------------------------------- |
+| `ocr-core` (`lib: ocr`) | API công khai, CLI và điều phối các crate                       |
+| `ocr_subtitles`         | OCR subtitle; DBNet/PP-OCRv6, vùng mặc định Y 85–100%           |
+| `ocr_captions`          | OCR caption; vùng mặc định Y 10–80%, xuất ảnh evidence tùy chọn |
+| `ocr_merge`             | Đọc, sắp xếp, merge và serialize WebVTT, bảo toàn cue settings  |
+| `ocr_shared`            | Kiểu dữ liệu và tiện ích dùng chung                             |
+| `talknet_asd`           | Sidecar runner gọi demo Python upstream TalkNet-ASD             |
+| `light_asd`             | Sidecar runner gọi demo Python upstream Light-ASD               |
 
 ## Active Speaker Detection (ASD)
 
@@ -135,7 +135,7 @@ cargo run -p light_asd --example attribute_speakers -- `
   final/第001集_final.zh.diarized.vtt
 ```
 
-*(Tùy chọn: Truyền thêm đường dẫn `python` ở tham số cuối cùng nếu muốn chạy qua script Python `speaker_attribution.py`).*
+_(Tùy chọn: Truyền thêm đường dẫn `python` ở tham số cuối cùng nếu muốn chạy qua script Python `speaker_attribution.py`)._
 
 ## Đối chiếu VTT
 
@@ -188,12 +188,14 @@ python tools\compare_subs.py
 ### 1. Dùng như Thư viện Rust (`--lib`)
 
 Thêm `ocr-core` vào `Cargo.toml` của dự án bạn:
+
 ```toml
 [dependencies]
 ocr-core = { path = "../OCR" }
 ```
 
 Mã nguồn trích xuất phụ đề:
+
 ```rust
 use std::path::Path;
 use anyhow::Result;
@@ -234,6 +236,7 @@ fn main() -> Result<()> {
 Thư viện hỗ trợ sẵn cơ chế cắm trực tiếp vào `TaskWidget` của `cli_gui_form` hoặc lắng nghe qua callback:
 
 #### Cách A: Cắm trực tiếp vào `cli_gui_form::TaskWidget`
+
 ```rust
 use std::sync::{Arc, Mutex};
 use cli_gui_form::TaskWidget;
@@ -251,6 +254,7 @@ ocr::attach_cli_gui_task(Arc::clone(&task_widget));
 ```
 
 #### Cách B: Lắng nghe qua Callback tùy biến
+
 ```rust
 // Nhận sự kiện cập nhật tiến trình khung hình (progress)
 ocr::on_progress(|p| {
@@ -276,11 +280,13 @@ ocr::on_log(|log| {
 ### 3. Chạy file ví dụ mẫu (`examples/`)
 
 Dự án cung cấp sẵn ví dụ hoàn chỉnh trong thư mục `examples/`:
+
 ```bash
 cargo run --example extract_subtitles
 ```
 
 Ví dụ này minh họa toàn bộ quy trình:
+
 - Tự động kiểm tra file model tồn tại để cấu hình đường dẫn.
 - Khởi tạo và cắm `TaskWidget` từ `cli_gui_form`.
 - Đăng ký nhận sự kiện tiến trình và gọi trích xuất video sang WebVTT.
@@ -290,6 +296,7 @@ Ví dụ này minh họa toàn bộ quy trình:
 ### 4. Chạy chế độ hàng loạt CLI (`--bin`)
 
 Binary tích hợp sẵn cơ chế **Checkpoint & Resume** tự động quét hàng loạt video:
+
 ```bash
 cargo run --release
 ```
@@ -307,6 +314,7 @@ Hệ thống OCR yêu cầu trọn bộ 3 tệp mô hình PP-OCRv6 đặt tại 
 ### 🔍 1. Tải mô hình phát hiện vị trí chữ (`det.onnx`) - PP-OCRv6 Medium
 
 Mô hình DBNet dùng để quét toàn khung hình và định vị tọa độ (bounding box) của từng dòng phụ đề:
+
 - **Link tải:** [https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/main/inference.onnx](https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx/resolve/main/inference.onnx)
 - **Lệnh tải nhanh:**
   ```bash
@@ -318,6 +326,7 @@ Mô hình DBNet dùng để quét toàn khung hình và định vị tọa độ
 ### 🔤 2. Từ điển ký tự (`keys.txt`) - PP-OCRv6 Dictionary
 
 File từ điển ký tự chính thức của PP-OCRv6:
+
 - **Link tải:** [https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt](https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt)
 - **Lệnh tải nhanh:**
   ```bash
@@ -329,8 +338,28 @@ File từ điển ký tự chính thức của PP-OCRv6:
 ### 📥 3. Tải mô hình nhận diện chữ (`rec.onnx`) - PP-OCRv6 Medium
 
 Mô hình PP-OCRv6 CTC dùng để dịch các mẩu ảnh chữ thành văn bản tiếng Trung:
+
 - **Link tải:** [https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx](https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx)
 - **Lệnh tải nhanh:**
+
   ```bash
   curl.exe -L -o models/ocr/rec.onnx https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/main/inference.onnx
   ```
+
+```mermaid
+  flowchart TD
+    Caption["Caption WebVTT: 《...》"] --> T1["Tầng 1: User Overrides & Cache"]
+    T1 -->|"Khớp force_exclude"| Reject["Bỏ qua (None)"]
+    T1 -->|"Khớp force_include (VD: '系统')"| Accept["Chấp nhận ngay (Some)"]
+    T1 -->|"Có trong Memo Cache"| Cached["Trả kết quả Cache"]
+    T1 -->|"Chưa có"| T2{"Đã tải model GLiNER ONNX?"}
+    T2 -->|"Có model"| GLiNER["Tầng 2: Zero-Shot NER (ort)<br/>dynamic_labels + threshold >= 0.65"]
+    T2 -->|"Chưa có model"| Fallback["Tầng dự phòng: Advanced Heuristic Parser"]
+    GLiNER --> Cache["Lưu Memo Cache"]
+    Fallback --> Cache
+    Cache --> Result["Tên thực thể / nhân vật"]
+```
+
+```
+
+```
