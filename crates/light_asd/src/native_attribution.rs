@@ -9,6 +9,7 @@
 //! Preserves 100% of OCR subtitle text and caption cues.
 
 use anyhow::{Context, Result, bail};
+use caption_ner::{CaptionEntityExtractor, NerConfig, heuristic_parse_character};
 use ocr_merge::{VttCue, parse_vtt, serialize_vtt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -99,6 +100,8 @@ impl CharacterVoiceProfile {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VoiceprintGallery {
     pub characters: HashMap<String, CharacterVoiceProfile>,
+    #[serde(default)]
+    pub ner_config: Option<NerConfig>,
 }
 
 impl VoiceprintGallery {
@@ -118,7 +121,11 @@ impl VoiceprintGallery {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let serialized = serde_json::to_string_pretty(self)?;
+        let mut clone = self.clone();
+        if clone.ner_config.is_none() {
+            clone.ner_config = Some(NerConfig::default());
+        }
+        let serialized = serde_json::to_string_pretty(&clone)?;
         fs::write(path, serialized)?;
         Ok(())
     }
@@ -329,110 +336,9 @@ pub fn strip_voice_tag(text: &str) -> &str {
     t
 }
 
-/// Extracts a character name from a WebVTT caption string.
+/// Extracts a character name from a WebVTT caption string using advanced heuristic.
 pub fn parse_character_from_caption(txt: &str) -> Option<String> {
-    let trimmed = txt.trim();
-    let inner = if let Some(stripped) = trimmed.strip_prefix('《') {
-        stripped.strip_suffix('》')?
-    } else {
-        trimmed
-    };
-
-    // Filter out scenes, locations, weapons, realm descriptors, actions
-    let non_person_indicators = [
-        "...",
-        "只有两人",
-        "这一天",
-        "直到",
-        "的家",
-        "院落",
-        "境界",
-        "神明境",
-        "交界",
-        "交界处",
-        "记忆",
-        "封锁",
-        "突破",
-        "剑",
-        "装",
-        "刀",
-        "枪",
-        "鼎",
-        "印",
-        "符",
-        "秘术",
-        "强者",
-        "城",
-        "域",
-        "山",
-        "殿",
-        "宗",
-        "门",
-        "仙墟",
-        "魔域",
-        "交界",
-    ];
-
-    let delimiter = ['-', '—', '–'].into_iter().find(|&d| inner.contains(d));
-    let raw_name = if let Some(d) = delimiter {
-        let (left, right) = inner.split_once(d).unwrap();
-        let left = left.trim();
-        let right = right.trim();
-
-        let state_or_realm_keywords = [
-            "境", "期", "巅峰", "重", "状态", "形态", "化身", "分身", "真身", "变身", "体",
-        ];
-        let title_keywords = [
-            "大女儿",
-            "二女儿",
-            "三女儿",
-            "女儿",
-            "妻子",
-            "夫君",
-            "儿子",
-            "父亲",
-            "母亲",
-            "城主",
-            "宗主",
-            "师尊",
-            "长老",
-            "使者",
-            "府主",
-            "殿主",
-            "门主",
-            "堂主",
-            "统领",
-        ];
-
-        if state_or_realm_keywords.iter().any(|k| right.contains(k)) {
-            left
-        } else if title_keywords.iter().any(|k| left.contains(k)) {
-            right
-        } else if (2..=4).contains(&left.chars().count()) {
-            left
-        } else {
-            right
-        }
-    } else {
-        inner.trim()
-    };
-
-    for indicator in &non_person_indicators {
-        if raw_name.contains(indicator) {
-            return None;
-        }
-    }
-
-    let char_count = raw_name.chars().count();
-    if (2..=4).contains(&char_count)
-        && raw_name
-            .chars()
-            .all(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c))
-    {
-        Some(raw_name.to_string())
-    } else {
-        None
-    }
+    heuristic_parse_character(txt)
 }
 
 /// Attributes speaker identities dynamically using caption anchors, dialog continuity, and voiceprint gallery, with progress reporting.
@@ -446,12 +352,16 @@ pub fn attribute_cues_dynamic_with_progress<F>(
 where
     F: FnMut(usize, usize),
 {
+    let ner_config = gallery.ner_config.clone().unwrap_or_default();
+    let extractor = CaptionEntityExtractor::from_model_dir(Path::new("models"))
+        .unwrap_or_else(|_| CaptionEntityExtractor::new_heuristic_only());
+
     // Stage 1: Detect all character caption cues in this episode
     let mut caps: Vec<(u64, u64, String)> = Vec::new();
     let mut episode_characters: Vec<String> = Vec::new();
     for c in cues {
         if c.is_caption
-            && let Some(ch) = parse_character_from_caption(&c.text)
+            && let Some(ch) = extractor.extract(&c.text, &ner_config)
         {
             if !episode_characters.contains(&ch) {
                 episode_characters.push(ch.clone());

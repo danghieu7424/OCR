@@ -9,6 +9,12 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
+- `caption_ner`: Khởi tạo crate độc lập `crates/caption_ner` trong workspace chuyên trách bóc tách tên nhân vật và thực thể từ WebVTT caption theo kiến trúc Hybrid 2 tầng kết hợp Zero-Shot NER (`GLiNER` ONNX) và Heuristic Fallback:
+  1. **Kiến trúc Hybrid 2 tầng**: Tầng 1 đối chiếu User Overrides (`force_include`, `force_exclude`) và Memoization Cache trong nano-giây; Tầng 2 gọi mô hình Zero-Shot NER đa ngôn ngữ `gliner_multi-v2.1` qua ONNX Runtime với danh sách nhãn động (`dynamic_labels`) và ngưỡng tin cậy (`threshold >= 0.65`).
+  2. **Tự động tải mô hình GLiNER**: Tích hợp hàm `ensure_gliner_model_downloaded` tự động tải bản INT8 quantize gọn nhẹ (~349MB `model_quantized.onnx`, `tokenizer.json`, `gliner_config.json`) từ HuggingFace về `models/gliner/`.
+  3. **Graceful Degradation**: Tự động fallback sang Advanced Heuristic Parser khi chưa nạp model ONNX, đảm bảo an toàn tuyệt đối 100% không bao giờ làm gián đoạn pipeline.
+- `ocr-cli`: Bổ sung cờ lệnh `--download-gliner` hỗ trợ tải nhanh bộ mô hình GLiNER multi v2.1 INT8 ONNX về thư mục `models/gliner/`.
+- `light_asd`: Tích hợp crate `caption_ner` vào động cơ gán nhãn nhân vật nói Native Pure-Rust. Bổ sung trường cấu hình `ner_config: Option<NerConfig>` trực tiếp vào `VoiceprintGallery`, tự động đồng bộ và lưu trữ trong file `<input>/.character_gallery.json` của từng bộ phim, cho phép người dùng bổ sung thực thể mới (ví dụ `《系统》`) giữa các lần chạy mà không cần sửa code.
 - `ocr-cli`: Bổ sung cờ tùy chọn `--gallery <đường_dẫn>` cho phép người dùng chỉ định file lưu kho dấu vân giọng nói tùy ý. Mặc định tự động cô lập theo thư mục phim đầu vào: `<input>/.character_gallery.json`, đảm bảo mỗi bộ phim có kho nhận diện riêng biệt không bị trùng lẫn.
 - `ocr-cli`: Bổ sung thanh tiến trình trực quan (`[ASD]: ▰▰▰...`) cho pha gán nhãn nhân vật nói (Active Speaker Attribution), hiển thị tỷ lệ %, số cue phụ đề đã xử lý và thời gian chạy thời gian thực.
 - `ocr-cli`: Chuẩn hóa căn lề toàn bộ các dòng đầu ra trạng thái (` [OCR]`, ` [SUB]:`, ` [MERGE: DONE]`, ` [ASD]`, ` [ASD]:`, ` [ASD: DONE]`) thẳng hàng 100% cột đầu tiên.

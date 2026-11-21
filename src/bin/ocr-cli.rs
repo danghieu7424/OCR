@@ -277,6 +277,7 @@ Options:\n\
       --caption-roi <coords>     Caption ROI as Y_MIN,Y_MAX,X_MIN,X_MAX fractions (0..1)\n\
       --attribute-speakers       Attribute character speakers and wrap subtitles in <v Character> tags\n\
       --gallery <path>           Voiceprint gallery JSON path (default: <input>/.character_gallery.json)\n\
+      --download-gliner          Auto-download GLiNER multi v2.1 INT8 ONNX model (~350MB) to models/gliner/\n\
       --force                    Reprocess completed subtitles, captions, and merge\n\
   -h, --help                     Show this help\n\
 \n\
@@ -375,6 +376,12 @@ fn parse_args_from(mut args: impl Iterator<Item = String>) -> Result<Option<CliA
                 gallery = Some(PathBuf::from(
                     args.next().context("--gallery cần đường dẫn json")?,
                 ));
+            }
+            "--download-gliner" => {
+                println!("=== Bắt đầu tải mô hình GLiNER Multi v2.1 INT8 ONNX (~350MB) ===");
+                caption_ner::ensure_gliner_model_downloaded(&models)?;
+                println!("=== Tải mô hình GLiNER thành công! ===");
+                return Ok(None);
             }
             _ if arg.starts_with('-') => bail!("Tùy chọn không được hỗ trợ: {arg}\n\n{}", usage()),
             _ if input.is_none() => input = Some(PathBuf::from(arg)),

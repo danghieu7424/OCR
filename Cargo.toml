@@ -7,6 +7,7 @@ members = [
     "crates/ocr_merge",
     "crates/talknet_asd",
     "crates/light_asd",
+    "crates/caption_ner",
 ]
 
 [package]
@@ -45,6 +46,7 @@ ocr_captions = { path = "crates/ocr_captions" }
 ocr_merge = { path = "crates/ocr_merge" }
 ocr_shared = { path = "crates/ocr_shared" }
 light_asd = { path = "crates/light_asd" }
+caption_ner = { path = "crates/caption_ner" }
 
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
