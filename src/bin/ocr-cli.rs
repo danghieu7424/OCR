@@ -836,26 +836,32 @@ fn process_video(
         &caption_signature,
         is_valid_vtt(&caption_vtt) && caption_evidence_valid,
     );
-    let subtitle_done = stage_is_complete(
-        &checkpoint.subtitle,
-        &subtitle_signature,
-        is_valid_vtt(&subtitle_vtt) && subtitle_evidence_valid,
-    );
-    let caption_done = stage_is_complete(
-        &checkpoint.caption,
-        &caption_signature,
-        is_valid_vtt(&caption_vtt) && caption_evidence_valid,
-    );
+    let subtitle_done = !args.force
+        && (is_valid_vtt(&subtitle_vtt)
+            || stage_is_complete(
+                &checkpoint.subtitle,
+                &subtitle_signature,
+                is_valid_vtt(&subtitle_vtt) && subtitle_evidence_valid,
+            ));
+    let caption_done = !args.force
+        && (is_valid_vtt(&caption_vtt)
+            || stage_is_complete(
+                &checkpoint.caption,
+                &caption_signature,
+                is_valid_vtt(&caption_vtt) && caption_evidence_valid,
+            ));
     update_stage_signature(
         &mut checkpoint.merge,
         &merge_signature,
         is_valid_vtt(&merged_vtt) && subtitle_done && caption_done,
     );
-    let merge_done = stage_is_complete(
-        &checkpoint.merge,
-        &merge_signature,
-        is_valid_vtt(&merged_vtt) && subtitle_done && caption_done,
-    );
+    let merge_done = !args.force
+        && !args.attribute_speakers
+        && stage_is_complete(
+            &checkpoint.merge,
+            &merge_signature,
+            is_valid_vtt(&merged_vtt) && subtitle_done && caption_done,
+        );
     save_checkpoint(&state_path, &checkpoint)?;
 
     println!(" [OCR] {} -> {:?}", video.display(), merged_vtt);
@@ -878,34 +884,37 @@ fn process_video(
         println!("  [MERGE: SKIP] Đã hoàn tất; dùng lại {:?}", merged_vtt);
     }
 
-    set_phase_progress(
-        progress_state,
-        true,
-        if subtitle_done { 100.0 } else { 0.0 },
-        if subtitle_done {
-            if checkpoint.subtitle.warnings > 0 {
-                PhaseStatus::Warning
+    let ocr_needed = !subtitle_done || !caption_done;
+    if ocr_needed {
+        set_phase_progress(
+            progress_state,
+            true,
+            if subtitle_done { 100.0 } else { 0.0 },
+            if subtitle_done {
+                if checkpoint.subtitle.warnings > 0 {
+                    PhaseStatus::Warning
+                } else {
+                    PhaseStatus::Complete
+                }
             } else {
-                PhaseStatus::Complete
-            }
-        } else {
-            PhaseStatus::Running
-        },
-    );
-    set_phase_progress(
-        progress_state,
-        false,
-        if caption_done { 100.0 } else { 0.0 },
-        if caption_done {
-            if checkpoint.caption.warnings > 0 {
-                PhaseStatus::Warning
+                PhaseStatus::Running
+            },
+        );
+        set_phase_progress(
+            progress_state,
+            false,
+            if caption_done { 100.0 } else { 0.0 },
+            if caption_done {
+                if checkpoint.caption.warnings > 0 {
+                    PhaseStatus::Warning
+                } else {
+                    PhaseStatus::Complete
+                }
             } else {
-                PhaseStatus::Complete
-            }
-        } else {
-            PhaseStatus::Running
-        },
-    );
+                PhaseStatus::Running
+            },
+        );
+    }
 
     if !subtitle_done {
         remove_file_if_exists(&subtitle_vtt)?;
@@ -1005,14 +1014,16 @@ fn process_video(
         );
     }
 
-    finalize_progress(
-        progress_state,
-        checkpoint.subtitle.completed,
-        checkpoint.subtitle.warnings > 0,
-        checkpoint.caption.completed,
-        checkpoint.caption.warnings > 0,
-    );
-    println!();
+    if ocr_needed {
+        finalize_progress(
+            progress_state,
+            checkpoint.subtitle.completed,
+            checkpoint.subtitle.warnings > 0,
+            checkpoint.caption.completed,
+            checkpoint.caption.warnings > 0,
+        );
+        println!();
+    }
 
     if let Some(output) = &caption_output_for_display {
         for warning in &output.warnings {

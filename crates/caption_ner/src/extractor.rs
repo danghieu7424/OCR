@@ -16,45 +16,47 @@ pub struct CaptionEntityExtractor {
 
 impl CaptionEntityExtractor {
     /// Creates an extractor by attempting to load GLiNER ONNX model from the specified directory.
-    /// If the model is not found, gracefully falls back to Heuristic + User Overrides mode.
+    /// If the model is not found or GLINER_USE_ONNX is not enabled, gracefully falls back to Heuristic + User Overrides mode.
     pub fn from_model_dir(model_dir: &Path) -> Result<Self> {
-        let gliner_dir = model_dir.join("gliner");
-        let model_quantized = gliner_dir.join("model_quantized.onnx");
-        let model_full = gliner_dir.join("model.onnx");
-        let tokenizer_path = gliner_dir.join("tokenizer.json");
+        if std::env::var("GLINER_USE_ONNX").as_deref() == Ok("1") {
+            let gliner_dir = model_dir.join("gliner");
+            let model_quantized = gliner_dir.join("model_quantized.onnx");
+            let model_full = gliner_dir.join("model.onnx");
+            let tokenizer_path = gliner_dir.join("tokenizer.json");
 
-        let onnx_path = if model_quantized.is_file() {
-            Some(model_quantized)
-        } else if model_full.is_file() {
-            Some(model_full)
-        } else {
-            None
-        };
+            let onnx_path = if model_quantized.is_file() {
+                Some(model_quantized)
+            } else if model_full.is_file() {
+                Some(model_full)
+            } else {
+                None
+            };
 
-        if let (Some(model_path), true) = (onnx_path, tokenizer_path.is_file()) {
-            let params = Parameters::default();
-            let runtime_params = RuntimeParameters::default();
+            if let (Some(model_path), true) = (onnx_path, tokenizer_path.is_file()) {
+                let params = Parameters::default();
+                let runtime_params = RuntimeParameters::default();
 
-            match GLiNER::<SpanMode>::new(
-                params,
-                runtime_params,
-                tokenizer_path.to_str().context("invalid tokenizer path")?,
-                model_path.to_str().context("invalid model path")?,
-            ) {
-                Ok(engine) => {
-                    eprintln!(
-                        "[GLiNER: INIT] Zero-Shot NER model loaded successfully from {}",
-                        gliner_dir.display()
-                    );
-                    return Ok(Self {
-                        model: Some(Arc::new(engine)),
-                        memo_cache: RwLock::new(HashMap::new()),
-                    });
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[GLiNER: WARN] Failed initializing ONNX engine ({e}). Falling back to heuristic mode."
-                    );
+                match GLiNER::<SpanMode>::new(
+                    params,
+                    runtime_params,
+                    tokenizer_path.to_str().context("invalid tokenizer path")?,
+                    model_path.to_str().context("invalid model path")?,
+                ) {
+                    Ok(engine) => {
+                        eprintln!(
+                            "[GLiNER: INIT] Zero-Shot NER model loaded successfully from {}",
+                            gliner_dir.display()
+                        );
+                        return Ok(Self {
+                            model: Some(Arc::new(engine)),
+                            memo_cache: RwLock::new(HashMap::new()),
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[GLiNER: WARN] Failed initializing ONNX engine ({e}). Falling back to heuristic mode."
+                        );
+                    }
                 }
             }
         }

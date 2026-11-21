@@ -41,6 +41,16 @@ pub fn heuristic_parse_character(txt: &str) -> Option<String> {
         "魔域",
         "交界",
         "系统",
+        "溶洞",
+        "虚空",
+        "虛空",
+        "逃离",
+        "人形",
+        "生成",
+        "妈妈",
+        "爸爸",
+        "爷爷",
+        "奶奶",
     ];
 
     let delimiter = ['-', '—', '–'].into_iter().find(|&d| inner.contains(d));

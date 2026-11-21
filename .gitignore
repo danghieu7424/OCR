@@ -17,3 +17,5 @@ Cargo.lock
 *.log
 *.mp4
 Rules.instructions.md
+models/gliner/*.onnx
+

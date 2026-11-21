@@ -16,3 +16,7 @@ indicatif = "0.17"
 [[example]]
 name = "download_gliner"
 path = "examples/download_gliner.rs"
+
+[[example]]
+name = "test_gliner_live"
+path = "examples/test_gliner_live.rs"

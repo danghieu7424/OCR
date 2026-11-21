@@ -359,7 +359,3 @@ Mô hình PP-OCRv6 CTC dùng để dịch các mẩu ảnh chữ thành văn b�
     Fallback --> Cache
     Cache --> Result["Tên thực thể / nhân vật"]
 ```
-
-```
-
-```
