@@ -16,6 +16,9 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thay đổi
 
+- `ocr-cli`: Lưu cache cue của từng bộ phim vào `<input>/.studio_cache.ferrite` qua `ocr_shared::ferrite_cache::StudioCacheDb`; mã tập lấy từ số trong tên file (`S02E001` → `2001`) và bỏ qua ghi trùng bằng `has_chunk_raw_cues`.
+- `ocr-cli`: `--attribute-speakers` chuẩn hoá nhãn `<v NhânVật>` theo `.character_gallery.json` (`canonical_speaker`, `normalize_speaker_tags`): bỏ khoảng trắng thừa và rút tên bị OCR cắt cụt về tên đã đăng ký.
+- `ocr-cli`: Thêm `parse_merged_cues` đọc cue đã merge (timestamp có setting `line`, tách `<v ...>`) để ghi cache FerriteDB.
 - `ocr_subtitles`: `sanitize_ocr_text` trở thành bí danh của `sanitize_ocr_text_preserve_prosody`; đường ống trích xuất dùng `finalize_tts_safe_segments` thay cho ngưỡng gộp cứng 0.35s và bộ lọc mảnh vụn cũ.
 - Workspace: bỏ `.` khỏi `[workspace] members` (root package vẫn tự động là member) và `exclude` `libs/FerriteDB` để dùng FerriteDB làm path dependency.
 - `caption_ner`: Khởi tạo crate độc lập `crates/caption_ner` trong workspace chuyên trách bóc tách tên nhân vật và thực thể từ WebVTT caption theo kiến trúc Hybrid 2 tầng kết hợp Zero-Shot NER (`GLiNER` ONNX) và Heuristic Fallback:

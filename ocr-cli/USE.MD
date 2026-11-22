@@ -129,7 +129,35 @@ Ví dụ điều chỉnh cả hai ROI và vị trí WebVTT:
 
 `--subtitle-line` và `--caption-line` chỉ ghi đè cue setting `line` trong file merge; có thể truyền `85%` hoặc `line:85%`. Các setting khác như `position` và `align` được giữ nguyên. Hai file raw VTT trong `.tmp_<tên-video>` không bị thay đổi bởi override này.
 
-## 6. Xem trợ giúp
+## 6. Cache FerriteDB và chuẩn hoá nhân vật
+
+Mỗi thư mục `--input` được coi là một bộ phim, nên CLI lưu cache cue vào
+`<input>\.studio_cache.ferrite` (FerriteDB, không dùng SQL) ngay sau khi merge
+thành công. Mã tập lấy từ số trong tên file (`S02E001` → `2001`), nên chạy lại
+không ghi trùng và có thể resume theo từng tập:
+
+```powershell
+.\ocr-cli.exe -i "C:\Videos\PhimA" -o "C:\Videos\PhimA\out" `
+  --models ".\models" --attribute-speakers
+```
+
+```text
+C:\Videos\PhimA\
+  S02E001.mp4
+  .character_gallery.json
+  .studio_cache.ferrite
+  .tmp_S02E001\
+```
+
+Khi bật `--attribute-speakers`, CLI gán nhãn `<v NhânVật>` bằng Light-ASD rồi
+chuẩn hoá lại nhãn theo tên đã đăng ký trong gallery: bỏ khoảng trắng thừa
+(`<v  陆清安>` → `<v 陆清安>`) và rút tên bị OCR cắt cụt về tên chuẩn
+(`三位神明境強者` → `三位神`). Nhãn không có trong gallery được giữ nguyên.
+
+Thư mục evidence, `.tmp_<tên-video>`, `.character_gallery.json` và
+`.studio_cache.ferrite` đều nằm cạnh video/trong thư mục input.
+
+## 7. Xem trợ giúp
 
 ```powershell
 .\ocr-cli.exe --help

@@ -275,7 +275,8 @@ Options:\n\
       --caption-line <value>     Override caption WebVTT line setting (for example: 20%)\n\
       --subtitle-roi <coords>    Subtitle ROI as Y_MIN,Y_MAX,X_MIN,X_MAX fractions (0..1)\n\
       --caption-roi <coords>     Caption ROI as Y_MIN,Y_MAX,X_MIN,X_MAX fractions (0..1)\n\
-      --attribute-speakers       Attribute character speakers and wrap subtitles in <v Character> tags\n\
+      --attribute-speakers       Attribute character speakers, wrap subtitles in <v Character> tags\n\
+                                 and normalize names against the gallery\n\
       --gallery <path>           Voiceprint gallery JSON path (default: <input>/.character_gallery.json)\n\
       --download-gliner          Auto-download GLiNER multi v2.1 INT8 ONNX model (~350MB) to models/gliner/\n\
       --force                    Reprocess completed subtitles, captions, and merge\n\
@@ -283,7 +284,8 @@ Options:\n\
 \n\
 Each video gets a sibling .tmp_<stem> directory containing subtitles.zh.vtt and\n\
 captions.zh.vtt and a state.json checkpoint. Input folders are scanned non-recursively. A positional input\n\
-is also accepted for backwards compatibility."
+is also accepted for backwards compatibility. Cue cache is stored in\n\
+<input>/.studio_cache.ferrite (one FerriteDB per movie folder)."
 }
 
 fn parse_roi(value: &str, label: &str) -> Result<(f32, f32, f32, f32)> {
@@ -781,6 +783,231 @@ fn export_subtitle_evidence(
     Ok(())
 }
 
+const STUDIO_CACHE_FILE: &str = ".studio_cache.ferrite";
+
+#[derive(Deserialize)]
+struct GalleryFile {
+    #[serde(default)]
+    characters: BTreeMap<String, GalleryCharacter>,
+}
+
+#[derive(Deserialize)]
+struct GalleryCharacter {
+    #[serde(default)]
+    name: String,
+}
+
+/// Mỗi thư mục `--input` là một bộ phim nên cache FerriteDB nằm ngay trong đó.
+fn movie_cache_path(input: &Path, video: &Path) -> PathBuf {
+    if input.is_dir() {
+        input.join(STUDIO_CACHE_FILE)
+    } else {
+        video
+            .parent()
+            .map(|parent| parent.join(STUDIO_CACHE_FILE))
+            .unwrap_or_else(|| PathBuf::from(STUDIO_CACHE_FILE))
+    }
+}
+
+fn gallery_path(args: &CliArgs, video: &Path) -> PathBuf {
+    if let Some(ref gallery) = args.gallery {
+        gallery.clone()
+    } else if args.input.is_dir() {
+        args.input.join(".character_gallery.json")
+    } else {
+        video
+            .parent()
+            .map(|parent| parent.join(".character_gallery.json"))
+            .unwrap_or_else(|| PathBuf::from(".character_gallery.json"))
+    }
+}
+
+fn gallery_names(path: &Path) -> Vec<String> {
+    let Ok(contents) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(gallery) = serde_json::from_str::<GalleryFile>(&contents) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = gallery
+        .characters
+        .into_iter()
+        .flat_map(|(key, character)| {
+            let name = character.name.trim().to_string();
+            if name.is_empty() || name == key {
+                vec![key]
+            } else {
+                vec![key, name]
+            }
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Đưa nhãn nhân vật từ caption về tên chuẩn trong gallery.
+/// Nhãn bị OCR cắt cụt ("三位神明境強者" -> "三位神") hoặc lệch khoảng trắng
+/// (" 陆清安") vẫn khớp được với tên đã đăng ký.
+fn canonical_speaker(name: &str, gallery: &[String]) -> String {
+    let cleaned: String = name.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if cleaned.is_empty() {
+        return String::new();
+    }
+    if let Some(exact) = gallery.iter().find(|known| **known == cleaned) {
+        return exact.clone();
+    }
+    gallery
+        .iter()
+        .filter(|known| known.chars().count() >= 2)
+        .filter(|known| cleaned.starts_with(known.as_str()) || known.starts_with(&cleaned))
+        .max_by_key(|known| known.chars().count())
+        .cloned()
+        .unwrap_or(cleaned)
+}
+
+fn split_speaker(text: &str) -> (String, String) {
+    let trimmed = text.trim();
+    if let Some(rest) = trimmed.strip_prefix("<v ")
+        && let Some((name, body)) = rest.split_once('>')
+    {
+        let body = body.strip_suffix("</v>").unwrap_or(body);
+        return (name.trim().to_string(), body.trim().to_string());
+    }
+    (String::new(), trimmed.to_string())
+}
+
+fn normalize_speaker_tags(vtt_path: &Path, gallery: &[String]) -> Result<usize> {
+    if gallery.is_empty() {
+        return Ok(0);
+    }
+    let contents = fs::read_to_string(vtt_path)
+        .with_context(|| format!("Không thể đọc VTT {:?}", vtt_path))?;
+    let mut changed = 0usize;
+    let mut output = String::with_capacity(contents.len());
+    for line in contents.lines() {
+        let Some((name, body)) = line
+            .strip_prefix("<v ")
+            .and_then(|rest| rest.split_once('>'))
+        else {
+            output.push_str(line);
+            output.push('\n');
+            continue;
+        };
+        let canonical = canonical_speaker(name, gallery);
+        if canonical != name {
+            changed += 1;
+        }
+        output.push_str(&format!("<v {canonical}>{body}\n"));
+    }
+    if changed > 0 {
+        fs::write(vtt_path, output).with_context(|| format!("Không thể ghi VTT {:?}", vtt_path))?;
+    }
+    Ok(changed)
+}
+
+fn parse_vtt_timestamp_ms(value: &str) -> Option<i64> {
+    let mut parts = value.trim().split(':');
+    let hours: i64 = parts.next()?.trim().parse().ok()?;
+    let minutes: i64 = parts.next()?.trim().parse().ok()?;
+    let rest = parts.next()?.trim();
+    let (seconds, millis) = rest.split_once('.').unwrap_or((rest, "0"));
+    let seconds: i64 = seconds.parse().ok()?;
+    let mut millis_digits = millis.to_string();
+    millis_digits.truncate(3);
+    while millis_digits.len() < 3 {
+        millis_digits.push('0');
+    }
+    let millis: i64 = millis_digits.parse().ok()?;
+    Some(((hours * 60 + minutes) * 60 + seconds) * 1000 + millis)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct MergedCue {
+    start_ms: i64,
+    end_ms: i64,
+    speaker: String,
+    text: String,
+}
+
+fn parse_merged_cues(contents: &str) -> Vec<MergedCue> {
+    let mut cues = Vec::new();
+    let mut pending: Option<(i64, i64)> = None;
+    for line in contents.lines() {
+        let line = line.trim();
+        if let Some((left, right)) = line.split_once("-->") {
+            let start = left.trim().split(' ').next().unwrap_or_default();
+            let end = right.trim().split(' ').next().unwrap_or_default();
+            pending = match (parse_vtt_timestamp_ms(start), parse_vtt_timestamp_ms(end)) {
+                (Some(start_ms), Some(end_ms)) => Some((start_ms, end_ms)),
+                _ => None,
+            };
+            continue;
+        }
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((start_ms, end_ms)) = pending.take() {
+            let (speaker, text) = split_speaker(line);
+            if !text.is_empty() {
+                cues.push(MergedCue {
+                    start_ms,
+                    end_ms,
+                    speaker,
+                    text,
+                });
+            }
+        }
+    }
+    cues
+}
+
+/// Mã tập lấy từ số trong tên file (S02E001 -> 2001) để cache/resume theo từng tập.
+fn cue_chunk_id(video: &Path) -> i64 {
+    video
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(|stem| {
+            stem.chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .and_then(|digits| digits.parse::<i64>().ok())
+        .unwrap_or(0)
+}
+
+fn cache_merged_cues(args: &CliArgs, video: &Path, merged_vtt: &Path) -> Result<usize> {
+    let contents = fs::read_to_string(merged_vtt)
+        .with_context(|| format!("Không thể đọc VTT {:?}", merged_vtt))?;
+    let cues = parse_merged_cues(&contents);
+    if cues.is_empty() {
+        return Ok(0);
+    }
+    let chunk_id = cue_chunk_id(video);
+    let mut cache = ocr_shared::ferrite_cache::StudioCacheDb::open_or_create(&movie_cache_path(
+        &args.input,
+        video,
+    ))?;
+    if cache.has_chunk_raw_cues(chunk_id)? {
+        return Ok(0);
+    }
+    let cached: Vec<ocr_shared::ferrite_cache::CachedRawCue> = cues
+        .iter()
+        .map(|cue| ocr_shared::ferrite_cache::CachedRawCue {
+            chunk_id,
+            start_ms: cue.start_ms,
+            end_ms: cue.end_ms,
+            cue_kind: if cue.speaker.is_empty() { "CAP" } else { "SUB" }.to_string(),
+            speaker_hint: cue.speaker.clone(),
+            raw_zh: cue.text.clone(),
+            confidence: 1.0,
+            vad_speech_ratio: 1.0,
+        })
+        .collect();
+    cache.save_chunk_raw_cues(chunk_id, &cached, &[])?;
+    Ok(cached.len())
+}
+
 fn process_video(
     video: &Path,
     args: &CliArgs,
@@ -1076,16 +1303,7 @@ fn process_video(
         }
     }
     if args.attribute_speakers {
-        let gallery_file = if let Some(ref g) = args.gallery {
-            g.clone()
-        } else if args.input.is_dir() {
-            args.input.join(".character_gallery.json")
-        } else {
-            video
-                .parent()
-                .map(|p| p.join(".character_gallery.json"))
-                .unwrap_or_else(|| PathBuf::from(".character_gallery.json"))
-        };
+        let gallery_file = gallery_path(args, video);
         println!(
             " {ANSI_CYAN}[ASD]{ANSI_RESET} Attributing speakers for {:?}",
             merged_vtt
@@ -1122,6 +1340,31 @@ fn process_video(
             " {ANSI_GREEN}[ASD: DONE]{ANSI_RESET} Attributed {} subtitle cues with <v Character> tags",
             total_attributed
         );
+    }
+
+    if is_valid_vtt(&merged_vtt) {
+        if args.attribute_speakers {
+            let names = gallery_names(&gallery_path(args, video));
+            let normalized = normalize_speaker_tags(&merged_vtt, &names)?;
+            if normalized > 0 {
+                println!(
+                    " {ANSI_CYAN}[NAME]{ANSI_RESET} Chuẩn hóa {normalized} nhãn nhân vật theo gallery"
+                );
+            }
+        }
+        let cached = cache_merged_cues(args, video, &merged_vtt)?;
+        let cache_path = movie_cache_path(&args.input, video);
+        if cached > 0 {
+            println!(
+                " {ANSI_GREEN}[CACHE]{ANSI_RESET} Lưu {cached} cue vào {:?}",
+                cache_path
+            );
+        } else {
+            println!(
+                " {ANSI_DIM}[CACHE: SKIP]{ANSI_RESET} Đã có dữ liệu trong {:?}",
+                cache_path
+            );
+        }
     }
     Ok(())
 }
@@ -1374,5 +1617,34 @@ mod tests {
         assert_eq!(state.caption_percent, 50.0);
         assert_eq!(state.elapsed, "6s");
         println!();
+    }
+
+    #[test]
+    fn merged_cue_parsing_reads_speakers_timestamps_and_settings() {
+        let vtt = "WEBVTT\n\n00:00:00.450 --> 00:00:01.150 line:90%\n<v 陆清安>来</v>\n\n00:00:07.600 --> 00:00:08.700 line:20%\n《三位神明境強者》\n\n";
+        let cues = parse_merged_cues(vtt);
+        assert_eq!(cues.len(), 2);
+        assert_eq!(cues[0].start_ms, 450);
+        assert_eq!(cues[0].end_ms, 1150);
+        assert_eq!(cues[0].speaker, "陆清安");
+        assert_eq!(cues[0].text, "来");
+        assert_eq!(cues[1].speaker, "");
+        assert_eq!(cues[1].text, "《三位神明境強者》");
+        assert_eq!(cues[1].end_ms, 8700);
+    }
+
+    #[test]
+    fn speaker_names_are_normalized_against_the_gallery() {
+        let gallery = vec!["三位神".to_string(), "陆清安".to_string()];
+        assert_eq!(canonical_speaker(" 陆清安", &gallery), "陆清安");
+        assert_eq!(canonical_speaker("三位神明境強者", &gallery), "三位神");
+        assert_eq!(canonical_speaker("陆清", &gallery), "陆清安");
+        assert_eq!(canonical_speaker("路人甲", &gallery), "路人甲");
+    }
+
+    #[test]
+    fn cue_chunk_id_uses_episode_digits() {
+        assert_eq!(cue_chunk_id(Path::new("in/S02E001.mp4")), 2001);
+        assert_eq!(cue_chunk_id(Path::new("episode.mp4")), 0);
     }
 }
