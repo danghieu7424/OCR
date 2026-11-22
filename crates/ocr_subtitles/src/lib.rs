@@ -375,12 +375,8 @@ pub fn sanitize_ocr_text(raw: &str) -> String {
     sanitize_ocr_text_preserve_prosody(raw)
 }
 
-/// Khoảng thời gian có giọng nói thật từ Silero VAD ONNX.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct VadSpeechSpan {
-    pub start_sec: f64,
-    pub end_sec: f64,
-}
+/// Khoảng thời gian có giọng nói thật, do `ocr_shared::vad` dò ra.
+pub use ocr_shared::vad::SpeechSpan as VadSpeechSpan;
 
 /****
  * has_vad_silence_between
@@ -1640,10 +1636,32 @@ pub fn extract_hardcoded_subtitles(
         }
     }
 
-    // TTS-aware: chỉ gộp khi cùng câu, sát nhau và không có nhịp lặng thật; không
-    // bao giờ xóa tiền tố ngập ngừng. Khi Silero VAD chạy được, truyền spans vào
-    // đây để tách cả các tiếng lặp ("啊" ... "啊") theo khoảng lặng.
-    let final_segments = finalize_tts_safe_segments(initial_segments, &[]);
+    // VAD thật trên track audio để tách đúng nhịp nghỉ cho TTS ("啊" ... "啊" cách
+    // nhau 0.25s phải là 2 cue). Lỗi giải mã audio chỉ làm giảm chất lượng (rơi về
+    // &[]), không được làm hỏng cả lượt trích xuất.
+    let vad_spans = match ocr_shared::vad::decode_pcm_16k_mono("ffmpeg", video_path) {
+        Ok(samples) => {
+            let spans = ocr_shared::vad::detect_speech_spans_default(
+                &samples,
+                ocr_shared::vad::VAD_SAMPLE_RATE,
+            );
+            ocr_shared::tui_events::emit_log(format!(
+                "   {} VAD: {} khoảng có tiếng nói trên {:.1}s audio",
+                "[OCR]".name_utils().violed(),
+                spans.len(),
+                samples.len() as f64 / ocr_shared::vad::VAD_SAMPLE_RATE as f64
+            ));
+            spans
+        }
+        Err(error) => {
+            ocr_shared::tui_events::emit_log(format!(
+                "   {} VAD bỏ qua (không giải mã được audio): {error}",
+                "[OCR]".name_utils().violed()
+            ));
+            Vec::new()
+        }
+    };
+    let final_segments = finalize_tts_safe_segments(initial_segments, &vad_spans);
 
     // Đảm bảo thư mục cha tồn tại
     if let Some(parent) = output_vtt_path.parent() {

@@ -13,6 +13,11 @@
 //! API công khai ở đây cố tình chỉ phụ thuộc PCM f32 để không kéo `ort` vào
 //! `ocr_shared`.
 
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+use anyhow::{Context, Result, bail};
+
 /// Tần số lấy mẫu chuẩn cho VAD (ffmpeg `-ar 16000`).
 pub const VAD_SAMPLE_RATE: u32 = 16_000;
 
@@ -251,6 +256,57 @@ pub fn chunk_cache_id(episode_id: i64, chunk_index: usize) -> i64 {
         .saturating_add(chunk_index as i64)
 }
 
+/****
+ * decode_pcm_16k_mono
+ * Tách track audio của video thành PCM mono 16kHz bằng ffmpeg, đọc thẳng từ
+ * stdout (`-f s16le -`) nên không cần file WAV tạm trên đĩa.
+ *
+ * Đây là đường vào dữ liệu cho [`detect_speech_spans`]; lỗi trả về `Err` để
+ * caller quyết định hạ cấp về `&[]` thay vì làm hỏng cả lượt trích xuất.
+ ****/
+pub fn decode_pcm_16k_mono(ffmpeg_bin: &str, media_path: &Path) -> Result<Vec<f32>> {
+    if !media_path.exists() {
+        bail!("Tệp media không tồn tại: {:?}", media_path);
+    }
+
+    let output = Command::new(ffmpeg_bin)
+        .args([
+            "-nostdin",
+            "-v",
+            "error",
+            "-i",
+            &media_path.to_string_lossy(),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            &VAD_SAMPLE_RATE.to_string(),
+            "-f",
+            "s16le",
+            "-",
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .with_context(|| format!("Không thể thực thi {ffmpeg_bin} để tách PCM"))?;
+
+    if !output.status.success() {
+        bail!(
+            "{ffmpeg_bin} tách PCM thất bại (exit {:?}) cho {:?}",
+            output.status.code(),
+            media_path
+        );
+    }
+
+    let (pairs, _trailing_byte) = output.stdout.as_chunks::<2>();
+    let samples: Vec<i16> = pairs
+        .iter()
+        .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+
+    Ok(pcm_i16_to_f32(&samples))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,6 +408,68 @@ mod tests {
         assert_eq!(chunk_cache_id(2001, 0), 200_100);
         assert_eq!(chunk_cache_id(2001, 2), 200_102);
         assert_ne!(chunk_cache_id(2001, 0), 2001);
+    }
+
+    #[test]
+    fn decode_rejects_missing_media() {
+        let error = decode_pcm_16k_mono("ffmpeg", Path::new("khong_ton_tai_12345.mp4"))
+            .expect_err("phải báo lỗi khi tệp không tồn tại");
+        assert!(error.to_string().contains("không tồn tại"));
+    }
+
+    #[test]
+    fn decodes_real_pcm_from_generated_tone() {
+        // Bỏ qua khi máy không có ffmpeg (ffmpeg là phụ thuộc bắt buộc của pipeline,
+        // nhưng unit test không được làm đỏ build ở máy thiếu công cụ).
+        let available = Command::new("ffmpeg")
+            .arg("-version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if !available {
+            return;
+        }
+
+        let media = std::env::temp_dir().join(format!("vad_probe_{}.wav", std::process::id()));
+        let generated = Command::new("ffmpeg")
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=300:duration=0.5",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                &media.to_string_lossy(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if !matches!(generated, Ok(status) if status.success()) {
+            let _ = std::fs::remove_file(&media);
+            return;
+        }
+
+        let samples = decode_pcm_16k_mono("ffmpeg", &media);
+        let _ = std::fs::remove_file(&media);
+
+        let samples = samples.expect("phải giải mã được WAV 16kHz mono vừa tạo");
+        let expected = (0.5 * VAD_SAMPLE_RATE as f64) as usize;
+        assert!(
+            samples.len().abs_diff(expected) <= VAD_SAMPLE_RATE as usize / 10,
+            "số mẫu {} lệch quá xa kỳ vọng {}",
+            samples.len(),
+            expected
+        );
+        let spans = detect_speech_spans_default(&samples, VAD_SAMPLE_RATE);
+        assert_eq!(spans.len(), 1, "sóng 300Hz liên tục phải là 1 khoảng nói");
     }
 
     #[test]
