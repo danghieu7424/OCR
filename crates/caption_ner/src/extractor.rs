@@ -178,10 +178,10 @@ impl CaptionEntityExtractor {
                 if let Some(close) = trimmed[abs_open..].find('》') {
                     let close_end = abs_open + close + '》'.len_utf8();
                     let tag = &trimmed[abs_open..close_end];
-                    if let Some(ch) = self.extract(tag, config) {
-                        if !results.contains(&ch) {
-                            results.push(ch);
-                        }
+                    if let Some(ch) = self.extract(tag, config)
+                        && !results.contains(&ch)
+                    {
+                        results.push(ch);
                     }
                     start_idx = close_end;
                     found_brackets = true;
@@ -189,12 +189,11 @@ impl CaptionEntityExtractor {
                     break;
                 }
             }
-            if !found_brackets {
-                if let Some(ch) = self.extract(trimmed, config) {
-                    if !results.contains(&ch) {
-                        results.push(ch);
-                    }
-                }
+            if !found_brackets
+                && let Some(ch) = self.extract(trimmed, config)
+                && !results.contains(&ch)
+            {
+                results.push(ch);
             }
         }
         results

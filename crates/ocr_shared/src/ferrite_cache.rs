@@ -39,6 +39,14 @@ pub struct CachedRawCue {
     pub vad_speech_ratio: f64,
 }
 
+/// Một crop caption cần Stage 2 (VLM) đọc lại; gắn với cue bắt đầu tại `start_ms`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VlmJobRequest {
+    pub start_ms: i64,
+    pub crop_png_path: String,
+    pub reason: String,
+}
+
 /// Quản lý trạng thái pipeline trên FerriteDB, tối ưu cho page 4096 byte.
 pub struct StudioCacheDb {
     vfs: OsVfs,
@@ -191,6 +199,79 @@ impl StudioCacheDb {
         Ok(())
     }
 
+    /// Ghi hàng đợi `vlm_jobs` cho các crop caption cần Stage 2 đọc lại.
+    ///
+    /// `raw_cue_rowid` được tra từ `raw_cues` theo `(chunk_id, start_ms)`. Cue
+    /// không có trong cache và job đã tồn tại đều bị bỏ qua, nên gọi lặp lại vẫn
+    /// idempotent. Trả về số job mới đã ghi.
+    pub fn save_vlm_jobs(&mut self, chunk_id: i64, jobs: &[VlmJobRequest]) -> Result<usize> {
+        if jobs.is_empty() {
+            return Ok(0);
+        }
+
+        let mut rowid_by_start: Vec<(i64, i64)> = Vec::new();
+        for (rowid, bytes) in self
+            .db
+            .scan_table(TBL_RAW_CUES)
+            .map_err(|e| anyhow!("scan raw_cues error: {}", e))?
+        {
+            let cue = decode_raw_cue(&bytes)?;
+            if cue.chunk_id == chunk_id {
+                rowid_by_start.push((cue.start_ms, rowid));
+            }
+        }
+
+        let mut queued_rowids: Vec<i64> = Vec::new();
+        for (_, bytes) in self
+            .db
+            .scan_table(TBL_VLM_JOBS)
+            .map_err(|e| anyhow!("scan vlm_jobs error: {}", e))?
+        {
+            if let Ok(record) = RecordRef::new(&bytes)
+                && let Ok(Some(ValueRef::Integer(rowid))) = record.get(0)
+            {
+                queued_rowids.push(rowid);
+            }
+        }
+
+        let mut tx = self.db.begin_transaction();
+        let mut inserted = 0usize;
+        for job in jobs {
+            let Some(&(_, raw_rowid)) = rowid_by_start
+                .iter()
+                .find(|(start_ms, _)| *start_ms == job.start_ms)
+            else {
+                continue;
+            };
+            if queued_rowids.contains(&raw_rowid) {
+                continue;
+            }
+            let job_id = tx
+                .next_rowid(TBL_VLM_JOBS)
+                .map_err(|e| anyhow!("next_rowid vlm_jobs error: {}", e))?;
+            tx.insert_into(
+                TBL_VLM_JOBS,
+                job_id,
+                &[
+                    Value::Integer(raw_rowid),
+                    Value::Text(job.crop_png_path.as_str()),
+                    Value::Text(job.reason.as_str()),
+                    Value::Text(""),
+                ],
+            )
+            .map_err(|e| anyhow!("insert vlm_job error: {}", e))?;
+            queued_rowids.push(raw_rowid);
+            inserted += 1;
+        }
+
+        tx.commit()
+            .map_err(|e| anyhow!("commit vlm_jobs chunk {} error: {}", chunk_id, e))?;
+        let _ = self
+            .db
+            .checkpoint_if_needed(&self.vfs, WAL_CHECKPOINT_BYTES);
+        Ok(inserted)
+    }
+
     /// Chunk đã OCR xong chưa, để chạy lại (resume) bỏ qua chunk đó.
     pub fn has_chunk_raw_cues(&mut self, chunk_id: i64) -> Result<bool> {
         let rows = self
@@ -314,6 +395,37 @@ mod tests {
         assert_eq!(second.raw_zh, "我想离开这里");
 
         assert_eq!(db.db.scan_table(TBL_VLM_JOBS).unwrap().len(), 1);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn vlm_jobs_are_queued_once_per_raw_cue() {
+        let path = temp_db_path();
+        let mut db = StudioCacheDb::open_or_create(&path).unwrap();
+        db.save_chunk_raw_cues(
+            7,
+            &[cue(1_000, "《骆丹茲》"), cue(2_000, "我想离开这里")],
+            &[],
+        )
+        .unwrap();
+
+        let jobs = [VlmJobRequest {
+            start_ms: 1_000,
+            crop_png_path: "vlm_crops/vlm_001.png".to_string(),
+            reason: "conf=0.846; stylized".to_string(),
+        }];
+        assert_eq!(db.save_vlm_jobs(7, &jobs).unwrap(), 1);
+        // Gọi lại không nhân đôi job, và chunk khác không khớp.
+        assert_eq!(db.save_vlm_jobs(7, &jobs).unwrap(), 0);
+        assert_eq!(db.save_vlm_jobs(9, &jobs).unwrap(), 0);
+
+        let rows = db.db.scan_table(TBL_VLM_JOBS).unwrap();
+        assert_eq!(rows.len(), 1);
+        let record = RecordRef::new(&rows[0].1).unwrap();
+        match record.get(1).unwrap() {
+            Some(ValueRef::Text(value)) => assert_eq!(value, "vlm_crops/vlm_001.png"),
+            other => panic!("crop path sai: {other:?}"),
+        }
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 

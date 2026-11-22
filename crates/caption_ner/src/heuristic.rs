@@ -1,5 +1,70 @@
 /// Advanced heuristic parser to extract character name from caption inner text
 /// using generic grammatical and morphological structure rules (zero hardcoding of specific story names/places).
+/// Nhãn cảm xúc/meme phổ biến trên phim ngắn — không bao giờ là tên nhân vật.
+const EXPRESSION_LABELS: &[&str] = &[
+    "狗粮",
+    "暴怒",
+    "无语",
+    "無語",
+    "震惊",
+    "震驚",
+    "问号",
+    "問號",
+    "满头问号",
+    "破防",
+    "傻眼",
+    "尴尬",
+    "尷尬",
+    "懵",
+    "疑惑",
+    "愤怒",
+    "憤怒",
+    "惊恐",
+    "驚恐",
+    "微笑",
+    "大笑",
+    "得意的笑",
+    "白眼",
+    "流汗",
+    "汗",
+    "冷汗",
+    "黑线",
+    "黑線",
+    "无奈",
+    "無奈",
+    "笑喷",
+    "笑噴",
+    "泪目",
+    "淚目",
+    "呆滞",
+    "呆滯",
+    "慌张",
+    "慌張",
+    "瞪眼",
+    "脸红",
+    "臉紅",
+    "吐血",
+    "笑哭",
+    "捂脸",
+    "摀脸",
+];
+
+/// `《狗粮-狗粮》` và `《暴怒》` là hiệu ứng hình ảnh, mọi mảnh đều là nhãn cảm xúc.
+fn is_expression_label(inner: &str) -> bool {
+    let mut total = 0usize;
+    for token in inner
+        .split(['-', '—', '–'])
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        total += 1;
+        if !EXPRESSION_LABELS.contains(&token) {
+            return false;
+        }
+    }
+    total > 0
+}
+
 pub fn heuristic_parse_character(txt: &str) -> Option<String> {
     let trimmed = txt.trim();
     let inner = if let Some(stripped) = trimmed.strip_prefix('《') {
@@ -27,10 +92,15 @@ pub fn heuristic_parse_character(txt: &str) -> Option<String> {
         return None;
     }
 
+    // 2. Generic expression/meme labels (狗粮, 暴怒, 无语…) are not characters.
+    if is_expression_label(inner) {
+        return None;
+    }
+
     // Weapons / magical artifacts endings: e.g. 九狱弑仙剑
     let artifact_endings = [
-        "剑", "刀", "枪", "鼎", "印", "符", "琴", "塔", "钟", "炉", "幡", "轮", "扇", "镜",
-        "戟", "鞭", "弓", "斧",
+        "剑", "刀", "枪", "鼎", "印", "符", "琴", "塔", "钟", "炉", "幡", "轮", "扇", "镜", "戟",
+        "鞭", "弓", "斧",
     ];
     if artifact_endings.iter().any(|&w| inner.ends_with(w)) && inner.chars().count() >= 4 {
         return None;
@@ -46,9 +116,32 @@ pub fn heuristic_parse_character(txt: &str) -> Option<String> {
             "状态", "形态", "化身", "分身", "真身", "变身", "体", "境", "期", "重", "巅峰",
         ];
         let role_or_title_keywords = [
-            "大女儿", "二女儿", "三女儿", "女儿", "儿子", "前妻", "妻子", "夫君", "父亲", "母亲",
-            "舅舅", "城主", "宗主", "师尊", "长老", "使者", "府主", "殿主", "门主", "堂主",
-            "统领", "大帝", "圣王", "本体", "人形", "身躯",
+            "大女儿",
+            "二女儿",
+            "三女儿",
+            "女儿",
+            "儿子",
+            "前妻",
+            "妻子",
+            "夫君",
+            "父亲",
+            "母亲",
+            "舅舅",
+            "城主",
+            "宗主",
+            "师尊",
+            "长老",
+            "使者",
+            "府主",
+            "殿主",
+            "门主",
+            "堂主",
+            "统领",
+            "大帝",
+            "圣王",
+            "本体",
+            "人形",
+            "身躯",
         ];
 
         if state_or_realm_keywords.iter().any(|k| right.contains(k)) {
@@ -67,14 +160,39 @@ pub fn heuristic_parse_character(txt: &str) -> Option<String> {
         }
     } else {
         // No hyphen delimiter: inspect morphological affixes and grammatical structures
-        let action_narratives = ["直到", "这一天", "用尽", "穿破", "封锁", "逃离", "只有两人", "的家"];
+        let action_narratives = [
+            "直到",
+            "这一天",
+            "用尽",
+            "穿破",
+            "封锁",
+            "逃离",
+            "只有两人",
+            "的家",
+        ];
         if action_narratives.iter().any(|&a| inner.contains(a)) {
             return None;
         }
 
         let loc_endings = [
-            "交界处", "交界", "溶洞", "虚空", "虛空", "院子", "院落", "城", "宗", "殿", "山", "海",
-            "界", "域", "宫", "阁", "洞", "楼",
+            "交界处",
+            "交界",
+            "溶洞",
+            "虚空",
+            "虛空",
+            "院子",
+            "院落",
+            "城",
+            "宗",
+            "殿",
+            "山",
+            "海",
+            "界",
+            "域",
+            "宫",
+            "阁",
+            "洞",
+            "楼",
         ];
         if loc_endings.iter().any(|&l| inner.ends_with(l)) && inner.chars().count() >= 4 {
             return None;
@@ -82,7 +200,16 @@ pub fn heuristic_parse_character(txt: &str) -> Option<String> {
 
         // Check avatar / state suffixes: e.g. 黑龙身外化身 -> 黑龙
         let avatar_suffixes = [
-            "身外化身", "身外分身", "化身", "分身", "真身", "状态", "形态", "残魂", "神魂", "法身",
+            "身外化身",
+            "身外分身",
+            "化身",
+            "分身",
+            "真身",
+            "状态",
+            "形态",
+            "残魂",
+            "神魂",
+            "法身",
         ];
         let mut stripped_avatar: Option<&str> = None;
         for suf in &avatar_suffixes {
@@ -173,5 +300,26 @@ mod tests {
         assert_eq!(heuristic_parse_character("《危险动作请勿模仿》"), None);
         assert_eq!(heuristic_parse_character("《逃离虛空》"), None);
         assert_eq!(heuristic_parse_character("《用尽手段穿破一层封锁》"), None);
+    }
+
+    #[test]
+    fn test_expression_and_meme_labels_are_rejected() {
+        assert_eq!(heuristic_parse_character("《狗粮-狗粮》"), None);
+        assert_eq!(heuristic_parse_character("《狗粮》"), None);
+        assert_eq!(heuristic_parse_character("《暴怒》"), None);
+        assert_eq!(heuristic_parse_character("《无语-无语》"), None);
+        assert_eq!(heuristic_parse_character("《震惊-问号》"), None);
+    }
+
+    #[test]
+    fn test_expression_label_prefix_keeps_the_real_character() {
+        assert_eq!(
+            heuristic_parse_character("《无语-陆清安》"),
+            Some("陆清安".to_string())
+        );
+        assert_eq!(
+            heuristic_parse_character("《骆丹茲》"),
+            Some("骆丹茲".to_string())
+        );
     }
 }

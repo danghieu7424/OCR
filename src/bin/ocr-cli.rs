@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, anyhow, bail};
 use image::RgbImage;
 use ocr::{
-    CaptionExtractorConfig, CaptionExtractorOutput, OcrExtractorConfig, SubtitleRoi,
-    SubtitleSegment, extract_captions, extract_hardcoded_subtitles,
+    CaptionExtractorConfig, CaptionExtractorOutput, CaptionWarning, OcrExtractorConfig,
+    SubtitleRoi, SubtitleSegment, extract_captions, extract_hardcoded_subtitles,
     merge_vtt_files_with_line_overrides,
 };
 use serde::{Deserialize, Serialize};
@@ -976,6 +976,88 @@ fn cue_chunk_id(video: &Path) -> i64 {
         .unwrap_or(0)
 }
 
+/// Cắt crop PNG của từng caption cần Stage 2 (VLM) đọc lại vào thư mục tạm.
+fn export_vlm_crops(
+    video: &Path,
+    crops_dir: &Path,
+    config: &CaptionExtractorConfig,
+    warnings: &[CaptionWarning],
+) -> Result<Vec<ocr_shared::ferrite_cache::VlmJobRequest>> {
+    if warnings.is_empty() {
+        return Ok(Vec::new());
+    }
+    fs::create_dir_all(crops_dir)?;
+    let (source_width, source_height) = video_dimensions(video)?;
+    let crop_width = even_crop(config.roi.x_max - config.roi.x_min, source_width);
+    let crop_height = even_crop(config.roi.y_max - config.roi.y_min, source_height);
+    let crop_x = even_crop(config.roi.x_min, source_width);
+    let crop_y = even_crop(config.roi.y_min, source_height);
+    if crop_width == 0 || crop_height == 0 {
+        bail!("ROI caption quá nhỏ để xuất crop VLM");
+    }
+    let filter = format!("crop={crop_width}:{crop_height}:{crop_x}:{crop_y}");
+
+    let mut jobs = Vec::with_capacity(warnings.len());
+    for (index, warning) in warnings.iter().enumerate() {
+        let timestamp_sec = ((warning.start_sec + warning.end_sec) * 0.5).max(0.0);
+        let start_ms = (warning.start_sec * 1000.0).round() as i64;
+        let file_name = format!("vlm_{:03}_t_{:09}ms.png", index + 1, start_ms);
+        let path = crops_dir.join(&file_name);
+        let status = Command::new("ffmpeg")
+            .args([
+                "-ss",
+                &format!("{timestamp_sec:.3}"),
+                "-i",
+                &video.to_string_lossy(),
+                "-vf",
+                &filter,
+                "-frames:v",
+                "1",
+                "-y",
+                &path.to_string_lossy(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .context("Không thể khởi động FFmpeg để xuất crop VLM")?;
+        if !status.success() || !path.is_file() {
+            bail!(
+                "FFmpeg không xuất được crop VLM cho caption tại {:.2}s",
+                warning.start_sec
+            );
+        }
+        jobs.push(ocr_shared::ferrite_cache::VlmJobRequest {
+            start_ms,
+            crop_png_path: path.to_string_lossy().to_string(),
+            reason: format!(
+                "conf={:.3}; {}",
+                warning.confidence,
+                warning.reasons.join(", ")
+            ),
+        });
+    }
+    Ok(jobs)
+}
+
+/// Đẩy các caption cần Stage 2 vào bảng `vlm_jobs` của cache FerriteDB.
+fn enqueue_vlm_jobs(
+    args: &CliArgs,
+    video: &Path,
+    crops_dir: &Path,
+    config: &CaptionExtractorConfig,
+    warnings: &[CaptionWarning],
+) -> Result<usize> {
+    let jobs = export_vlm_crops(video, crops_dir, config, warnings)?;
+    if jobs.is_empty() {
+        return Ok(0);
+    }
+    let mut cache = ocr_shared::ferrite_cache::StudioCacheDb::open_or_create(&movie_cache_path(
+        &args.input,
+        video,
+    ))?;
+    cache.save_vlm_jobs(cue_chunk_id(video), &jobs)
+}
+
 fn cache_merged_cues(args: &CliArgs, video: &Path, merged_vtt: &Path) -> Result<usize> {
     let contents = fs::read_to_string(merged_vtt)
         .with_context(|| format!("Không thể đọc VTT {:?}", merged_vtt))?;
@@ -1364,6 +1446,21 @@ fn process_video(
                 " {ANSI_DIM}[CACHE: SKIP]{ANSI_RESET} Đã có dữ liệu trong {:?}",
                 cache_path
             );
+        }
+        if let Some(output) = &caption_output_for_display
+            && !output.warnings.is_empty()
+        {
+            let crops_dir = temp_dir.join("vlm_crops");
+            match enqueue_vlm_jobs(args, video, &crops_dir, &caption_config, &output.warnings) {
+                Ok(queued) if queued > 0 => println!(
+                    " {ANSI_CYAN}[VLM]{ANSI_RESET} Đưa {queued} crop caption vào hàng đợi Stage 2 ({:?})",
+                    crops_dir
+                ),
+                Ok(_) => {}
+                Err(error) => {
+                    eprintln!("{ANSI_ORANGE}[VLM: WARN]{ANSI_RESET} {error:#}");
+                }
+            }
         }
     }
     Ok(())
