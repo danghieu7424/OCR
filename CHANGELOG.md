@@ -9,6 +9,15 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 
 ### Thêm
 
+- `ocr_shared::ferrite_cache`: Bổ sung `StudioCacheDb` lưu cache pipeline trên FerriteDB (không dùng SQL) với các bảng `pipeline_meta`, `raw_cues`, `vlm_jobs`, `entity_glossary`, `studio_cues`. `save_chunk_raw_cues` ghi trọn một chunk trong 1 transaction rồi `checkpoint_if_needed` khi WAL > 4MB; `has_chunk_raw_cues` tra index `chunk_id` để resume; `decode_raw_cue` đọc lại cache. Text giới hạn 500 ký tự và ảnh crop chỉ lưu đường dẫn để record nằm gọn page 4096 byte.
+- `ocr_shared::studio_director`: Bổ sung bộ não điều phối Stage 3 (`DirectorBatchInput`, `DirectorBatchOutput`, `RawCueInput`, `TranslatedCue`, `GlossaryEntry`) và `build_studio_director_prompt` buộc LLM giữ chuẩn vai vế/ngôi thứ, bảo toàn nhịp ngập ngừng và gắn `tts_pause_after_ms`.
+- `ocr_subtitles`: Bổ sung `VadSpeechSpan`, `has_vad_silence_between`, `sanitize_ocr_text_preserve_prosody` và `finalize_tts_safe_segments` (TTS-aware): không gộp hai tiếng lặp bị ngăn bởi khoảng lặng VAD, không xóa tiền tố ngập ngừng đứng trước câu dài, chỉ cắt mảnh vụn hậu tố dưới 120ms.
+- `ocr_captions`: Bổ sung `classify_caption_for_vlm` giữ lại thẻ tên/cấp bậc/địa danh diện tích lớn và chữ thư pháp cách điệu (gắn cờ `TextBox::needs_vlm_verify`) thay vì loại bỏ ở `detect_and_recognize`.
+
+### Thay đổi
+
+- `ocr_subtitles`: `sanitize_ocr_text` trở thành bí danh của `sanitize_ocr_text_preserve_prosody`; đường ống trích xuất dùng `finalize_tts_safe_segments` thay cho ngưỡng gộp cứng 0.35s và bộ lọc mảnh vụn cũ.
+- Workspace: bỏ `.` khỏi `[workspace] members` (root package vẫn tự động là member) và `exclude` `libs/FerriteDB` để dùng FerriteDB làm path dependency.
 - `caption_ner`: Khởi tạo crate độc lập `crates/caption_ner` trong workspace chuyên trách bóc tách tên nhân vật và thực thể từ WebVTT caption theo kiến trúc Hybrid 2 tầng kết hợp Zero-Shot NER (`GLiNER` ONNX) và Heuristic Fallback:
   1. **Kiến trúc Hybrid 2 tầng**: Tầng 1 đối chiếu User Overrides (`force_include`, `force_exclude`) và Memoization Cache trong nano-giây; Tầng 2 gọi mô hình Zero-Shot NER đa ngôn ngữ `gliner_multi-v2.1` qua ONNX Runtime với danh sách nhãn động (`dynamic_labels`) và ngưỡng tin cậy (`threshold >= 0.65`).
   2. **Tự động tải mô hình GLiNER**: Tích hợp hàm `ensure_gliner_model_downloaded` tự động tải bản INT8 quantize gọn nhẹ (~349MB `model_quantized.onnx`, `tokenizer.json`, `gliner_config.json`) từ HuggingFace về `models/gliner/`.

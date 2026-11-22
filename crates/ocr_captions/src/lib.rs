@@ -170,16 +170,43 @@ struct TextBox {
     is_vertical: bool,
     text: String,
     confidence: f32,
+    /// Chữ cách điệu/thẻ tiêu đề lớn cần Qwen2.5-VL đọc lại ở Stage 2.
+    needs_vlm_verify: bool,
 }
 
-fn retain_caption_candidate(
+/// Đánh giá một box caption có phải chữ cách điệu/thẻ tiêu đề lớn cần VLM đọc lại hay không.
+/// Trả về `(keep_candidate, needs_vlm)`.
+#[allow(clippy::too_many_arguments)]
+pub fn classify_caption_for_vlm(
+    w: f64,
+    h: f64,
+    frame_w: usize,
+    frame_h: usize,
+    confidence: f32,
     ink_ok: bool,
     shape_ok: bool,
     scene_ok: bool,
-    confidence: f32,
-    min_confidence: f32,
-) -> bool {
-    ink_ok && shape_ok && (scene_ok || confidence < min_confidence)
+) -> (bool, bool) {
+    let area_ratio = (w * h) / ((frame_w * frame_h).max(1) as f64);
+    let is_large_banner = area_ratio >= 0.015 || h >= (frame_h as f64 * 0.08);
+
+    // 1. Caption tiêu chuẩn sắc nét -> giữ ngay, không tốn chi phí VLM
+    if ink_ok && shape_ok && scene_ok && confidence >= 0.88 {
+        return (true, false);
+    }
+
+    // 2. Thẻ tên/cấp bậc/địa danh diện tích lớn hoặc chữ thư pháp cách điệu
+    // (màu vàng/đỏ, không có viền đen, hoặc confidence 0.45..0.88) -> giữ và đẩy qua VLM ONNX
+    if is_large_banner && confidence >= 0.45 {
+        return (true, true);
+    }
+
+    // 3. Caption cỡ vừa nhưng confidence thấp do font lạ
+    if (ink_ok || scene_ok) && confidence >= 0.55 {
+        return (true, true);
+    }
+
+    (false, false)
 }
 
 fn crop_rgb_rows(rgb_bytes: &[u8], width: usize, top: usize, height: usize) -> Vec<u8> {
@@ -322,17 +349,20 @@ fn detect_and_recognize(
         }
 
         let shape_ok = shape_matches_text(w, h, &caption_text);
-        let accept = retain_caption_candidate(
+        let (accept, needs_vlm_verify) = classify_caption_for_vlm(
+            w,
+            h,
+            width,
+            height,
+            result.confidence,
             ink_ok,
             shape_ok,
             scene_ok,
-            result.confidence,
-            min_confidence,
         );
 
         if std::env::var_os("OCR_CAP_DEBUG").is_some() {
             eprintln!(
-                "[BOX] t={timestamp:.2}s ({:.0},{:.0})-({:.0},{:.0}) w={:.0} h={:.0} '{}' conf={:.2} ink={} shape={} scene={} | lum_med={:.0} dark={:.2} sat_med={:.2} sat_p90={:.2} sat_hi={:.2}",
+                "[BOX] t={timestamp:.2}s ({:.0},{:.0})-({:.0},{:.0}) w={:.0} h={:.0} '{}' conf={:.2} ink={} shape={} scene={} vlm={} | lum_med={:.0} dark={:.2} sat_med={:.2} sat_p90={:.2} sat_hi={:.2}",
                 min_x,
                 min_y,
                 max_x,
@@ -344,6 +374,7 @@ fn detect_and_recognize(
                 ink_ok as u8,
                 shape_ok as u8,
                 scene_ok as u8,
+                needs_vlm_verify as u8,
                 stats.lum_med,
                 stats.dark_frac,
                 stats.sat_med,
@@ -368,6 +399,7 @@ fn detect_and_recognize(
             is_vertical,
             text: caption_text,
             confidence: result.confidence,
+            needs_vlm_verify,
         });
     }
     Ok(boxes)
@@ -2325,6 +2357,7 @@ mod evidence_tests {
                 is_vertical,
                 text: text.to_string(),
                 confidence: 0.95,
+                needs_vlm_verify: false,
             }
         }
 
@@ -2397,6 +2430,7 @@ mod evidence_tests {
             is_vertical: true,
             text: "字".to_string(),
             confidence: 0.95,
+            needs_vlm_verify: false,
         };
 
         let crop = crop_caption_boxes(&image, &[text_box]).unwrap();
@@ -2421,10 +2455,9 @@ mod evidence_tests {
     #[cfg(test)]
     mod boundary_hysteresis_tests {
         use super::{
-            TextBox, WeakCaptionThresholds, expected_vertical_char_count,
+            TextBox, WeakCaptionThresholds, classify_caption_for_vlm, expected_vertical_char_count,
             has_confident_caption_anchor, has_stable_weak_caption_track,
-            is_same_caption_observation, restore_clipped_vertical_boxes, retain_caption_candidate,
-            select_best_caption,
+            is_same_caption_observation, restore_clipped_vertical_boxes, select_best_caption,
         };
 
         fn text_box(min_x: f64, confidence: f32) -> TextBox {
@@ -2440,6 +2473,7 @@ mod evidence_tests {
                 is_vertical: true,
                 text: "张三姓名".to_string(),
                 confidence,
+                needs_vlm_verify: false,
             }
         }
 
@@ -2583,10 +2617,22 @@ mod evidence_tests {
         }
 
         #[test]
-        fn weak_scene_edge_is_eligible_for_spatiotemporal_hysteresis() {
-            assert!(retain_caption_candidate(true, true, false, 0.6, 0.8));
-            assert!(!retain_caption_candidate(true, true, false, 0.9, 0.8));
-            assert!(!retain_caption_candidate(false, true, false, 0.6, 0.8));
+        fn stylized_large_captions_are_kept_for_vlm_verification() {
+            // Thẻ tên/cấp bậc lớn, confidence vừa: giữ lại và đẩy qua VLM.
+            assert_eq!(
+                classify_caption_for_vlm(600.0, 90.0, 1280, 720, 0.60, false, false, false),
+                (true, true)
+            );
+            // Caption tiêu chuẩn sắc nét: giữ ngay, không tốn chi phí VLM.
+            assert_eq!(
+                classify_caption_for_vlm(200.0, 40.0, 1280, 720, 0.95, true, true, true),
+                (true, false)
+            );
+            // Nhiễu nhỏ, confidence thấp: loại bỏ.
+            assert_eq!(
+                classify_caption_for_vlm(20.0, 10.0, 1280, 720, 0.40, false, false, false),
+                (false, false)
+            );
         }
 
         #[test]

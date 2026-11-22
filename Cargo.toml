@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    ".",
     "crates/ocr_shared",
     "crates/ocr_subtitles",
     "crates/ocr_captions",
@@ -9,10 +8,12 @@ members = [
     "crates/light_asd",
     "crates/caption_ner",
 ]
+# FerriteDB có workspace riêng, chỉ dùng như path dependency.
+exclude = ["libs/FerriteDB"]
 
 [package]
 name = "ocr-core"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 

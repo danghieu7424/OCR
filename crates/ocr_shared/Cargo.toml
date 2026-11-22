@@ -1,10 +1,14 @@
 [package]
 name = "ocr_shared"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ferritedb-core = { path = "../../libs/FerriteDB" }
+ferrite-btree = { path = "../../libs/FerriteDB/crates/ferrite-btree" }
+ferrite-vfs = { path = "../../libs/FerriteDB/crates/ferrite-vfs" }
 cli_gui_form = { path = "../../cli_gui_form" }

@@ -1,7 +1,9 @@
 // crates/ocr_shared/src/lib.rs
 use std::sync::{Arc, Mutex, OnceLock};
 
+pub mod ferrite_cache;
 pub mod frame_provider;
+pub mod studio_director;
 pub use frame_provider::{
     CancellationToken, FrameProcessingOptions, FrameProgress, FrameProgressPhase, FrameProvider,
     Rgb24Frame, crop_rgb24, roi_bounds, timestamp_range, validate_frame,

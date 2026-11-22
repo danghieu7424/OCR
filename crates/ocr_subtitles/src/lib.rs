@@ -282,11 +282,15 @@ impl PpOcrEngine {
 }
 
 /****
- * sanitize_ocr_text
+ * sanitize_ocr_text_preserve_prosody
  * Làm sạch chuỗi ký tự nhận diện, sửa lỗi nhận nhầm nét gạch ngang thành chữ '一'
  * và chuẩn hóa các ký tự dị thể/phồn thể thông dụng sang giản thể chuẩn.
+ *
+ * Chỉ cắt ký tự rác và dấu câu ở HAI MÉP chuỗi; dấu ngập ngừng/ngữ điệu bên
+ * trong (`…`, `—`, `，`, `？`, `！`) được giữ nguyên để LLM điều phối dịch đúng
+ * cảm xúc và TTS ngắt hơi đúng nhịp.
  ****/
-pub fn sanitize_ocr_text(raw: &str) -> String {
+pub fn sanitize_ocr_text_preserve_prosody(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -364,6 +368,182 @@ pub fn sanitize_ocr_text(raw: &str) -> String {
 
     // Giữ nguyên 100% ký tự nhận diện chuẩn từ AI mô hình, tuyệt đối không hardcode thay thế
     final_chars.into_iter().collect()
+}
+
+/// Bí danh tương thích của [`sanitize_ocr_text_preserve_prosody`].
+pub fn sanitize_ocr_text(raw: &str) -> String {
+    sanitize_ocr_text_preserve_prosody(raw)
+}
+
+/// Khoảng thời gian có giọng nói thật từ Silero VAD ONNX.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VadSpeechSpan {
+    pub start_sec: f64,
+    pub end_sec: f64,
+}
+
+/****
+ * has_vad_silence_between
+ * Kiểm tra giữa 2 mốc thời gian có khoảng lặng giọng nói đáng kể hay không.
+ * Nếu có khoảng lặng >= min_silence_sec, tuyệt đối KHÔNG gộp 2 cue (kể cả khi
+ * chữ giống hệt nhau như "啊" ... "啊") vì TTS phải đọc thành 2 nhịp riêng.
+ ****/
+pub fn has_vad_silence_between(
+    prev_end_sec: f64,
+    next_start_sec: f64,
+    vad_spans: &[VadSpeechSpan],
+    min_silence_sec: f64,
+) -> bool {
+    if next_start_sec - prev_end_sec >= min_silence_sec {
+        return true;
+    }
+    if vad_spans.is_empty() {
+        return false;
+    }
+
+    // Tổng thời gian có tiếng nói trong khoảng chuyển tiếp [prev_end, next_start].
+    let win_start = (prev_end_sec - 0.05).max(0.0);
+    let win_end = next_start_sec + 0.05;
+    let window_len = (win_end - win_start).max(0.001);
+
+    let voiced_time: f64 = vad_spans
+        .iter()
+        .map(|span| (span.end_sec.min(win_end) - span.start_sec.max(win_start)).max(0.0))
+        .sum();
+
+    // Vùng chuyển tiếp gần như im lặng (< 20% có tiếng nói) là 2 nhịp nói tách biệt.
+    (voiced_time / window_len) < 0.20
+}
+
+/****
+ * finalize_tts_safe_segments
+ * Hợp nhất và lọc mảnh vụn an toàn cho TTS:
+ * 1. Chỉ gộp 2 phân đoạn liền kề khi cùng nội dung, sát nhau VÀ không có khoảng
+ *    lặng VAD ở giữa ("啊" ... "啊" cách 0.25s phải là 2 cue riêng).
+ * 2. Chỉ loại mảnh vụn transition là HẬU TỐ ngắn (< 120ms) rụng ở cuối câu trước,
+ *    KHÔNG bao giờ xóa tiền tố ngập ngừng đứng trước câu dài ("我... 我不想").
+ ****/
+pub fn finalize_tts_safe_segments(
+    initial_segments: Vec<SubtitleSegment>,
+    vad_spans: &[VadSpeechSpan],
+) -> Vec<SubtitleSegment> {
+    let mut merged: Vec<SubtitleSegment> = Vec::with_capacity(initial_segments.len());
+    for seg in initial_segments {
+        if let Some(last) = merged.last_mut() {
+            let gap = seg.start_sec - last.end_sec;
+            let is_stutter_repeat = last.text.chars().count() <= 2 && last.text == seg.text;
+            let has_silence = has_vad_silence_between(last.end_sec, seg.start_sec, vad_spans, 0.18);
+
+            if is_same_subtitle(&last.text, &seg.text)
+                && gap < 0.25
+                && !is_stutter_repeat
+                && !has_silence
+            {
+                last.end_sec = seg.end_sec;
+                if seg.text.chars().count() > last.text.chars().count() {
+                    last.text = seg.text;
+                }
+                continue;
+            }
+        }
+        merged.push(seg);
+    }
+
+    let mut deduped: Vec<SubtitleSegment> = Vec::with_capacity(merged.len());
+    for (i, seg) in merged.iter().enumerate() {
+        let dur = seg.end_sec - seg.start_sec;
+        let chars = seg.text.chars().count();
+
+        if dur < 0.12 && chars == 1 && i > 0 {
+            let prev = &merged[i - 1];
+            let gap_from_prev = seg.start_sec - prev.end_sec;
+            if gap_from_prev <= 0.15 && prev.text.ends_with(&seg.text) && prev.text != seg.text {
+                continue;
+            }
+        }
+        deduped.push(seg.clone());
+    }
+
+    deduped
+}
+
+#[cfg(test)]
+mod tts_segmentation_tests {
+    use super::*;
+
+    #[test]
+    fn preserves_repeated_single_char_utterances_separated_by_vad_silence() {
+        // Lỗi cũ (gap < 0.35s) gộp 2 tiếng "啊" cách nhau 0.25s làm sai nhịp TTS.
+        let initial = vec![
+            SubtitleSegment {
+                start_sec: 1.00,
+                end_sec: 1.20,
+                text: "啊".to_string(),
+            },
+            SubtitleSegment {
+                start_sec: 1.45,
+                end_sec: 1.65,
+                text: "啊".to_string(),
+            },
+        ];
+        let vad_spans = vec![
+            VadSpeechSpan {
+                start_sec: 0.98,
+                end_sec: 1.22,
+            },
+            VadSpeechSpan {
+                start_sec: 1.43,
+                end_sec: 1.68,
+            },
+        ];
+
+        let result = finalize_tts_safe_segments(initial, &vad_spans);
+        assert_eq!(
+            result.len(),
+            2,
+            "Hai tiếng '啊' có khoảng lặng VAD phải tách thành 2 cue riêng"
+        );
+        assert_eq!(result[0].text, "啊");
+        assert_eq!(result[1].text, "啊");
+    }
+
+    #[test]
+    fn preserves_stutter_prefix_before_full_sentence() {
+        // Lỗi cũ (deduped) xóa mất chữ "我" ngập ngừng đứng trước "我想离开这里".
+        let initial = vec![
+            SubtitleSegment {
+                start_sec: 5.00,
+                end_sec: 5.20,
+                text: "我".to_string(),
+            },
+            SubtitleSegment {
+                start_sec: 5.30,
+                end_sec: 6.50,
+                text: "我想离开这里".to_string(),
+            },
+        ];
+        let vad_spans = vec![VadSpeechSpan {
+            start_sec: 4.95,
+            end_sec: 6.55,
+        }];
+
+        let result = finalize_tts_safe_segments(initial, &vad_spans);
+        assert_eq!(
+            result.len(),
+            2,
+            "Không được xóa tiền tố ngập ngừng đứng trước câu đầy đủ"
+        );
+        assert_eq!(result[0].text, "我");
+        assert_eq!(result[1].text, "我想离开这里");
+    }
+
+    #[test]
+    fn keeps_hesitation_punctuation_for_llm_and_tts() {
+        assert_eq!(
+            sanitize_ocr_text_preserve_prosody("呃……那个，我-我想"),
+            "呃……那个，我-我想"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1460,52 +1640,10 @@ pub fn extract_hardcoded_subtitles(
         }
     }
 
-    // Gộp các phân đoạn liền kề nếu là cùng một câu (gap rất ngắn < 0.35s)
-    let mut final_segments: Vec<SubtitleSegment> = Vec::new();
-    for seg in initial_segments {
-        if let Some(last) = final_segments.last_mut() {
-            let gap = seg.start_sec - last.end_sec;
-            if is_same_subtitle(&last.text, &seg.text) && gap < 0.35 {
-                last.end_sec = seg.end_sec;
-                if seg.text.chars().count() > last.text.chars().count() {
-                    last.text = seg.text;
-                }
-                continue;
-            }
-        }
-        final_segments.push(seg);
-    }
-
-    // Bỏ mảnh vụn ở điểm chuyển sub: câu 1-2 chữ, rất ngắn, nằm sát câu khác và
-    // là tập con của câu đó (vd "和" cạnh "和离", "爷" cạnh "爷爷").
-    let mut deduped: Vec<SubtitleSegment> = Vec::with_capacity(final_segments.len());
-    for i in 0..final_segments.len() {
-        let seg = &final_segments[i];
-        let dur = seg.end_sec - seg.start_sec;
-        let chars = seg.text.chars().count();
-        if dur <= 0.30 && chars <= 2 {
-            let neighbour_contains = |other: Option<&SubtitleSegment>| -> bool {
-                if let Some(o) = other {
-                    let near = (o.start_sec - seg.end_sec).abs() <= 0.35
-                        || (seg.start_sec - o.end_sec).abs() <= 0.35;
-                    near && o.text != seg.text && o.text.contains(&seg.text)
-                } else {
-                    false
-                }
-            };
-            let prev = if i > 0 {
-                Some(&final_segments[i - 1])
-            } else {
-                None
-            };
-            let next = final_segments.get(i + 1);
-            if neighbour_contains(prev) || neighbour_contains(next) {
-                continue;
-            }
-        }
-        deduped.push(seg.clone());
-    }
-    let final_segments = deduped;
+    // TTS-aware: chỉ gộp khi cùng câu, sát nhau và không có nhịp lặng thật; không
+    // bao giờ xóa tiền tố ngập ngừng. Khi Silero VAD chạy được, truyền spans vào
+    // đây để tách cả các tiếng lặp ("啊" ... "啊") theo khoảng lặng.
+    let final_segments = finalize_tts_safe_segments(initial_segments, &[]);
 
     // Đảm bảo thư mục cha tồn tại
     if let Some(parent) = output_vtt_path.parent() {
@@ -1741,20 +1879,7 @@ pub fn extract_hardcoded_subtitles_from_frames<P: FrameProvider>(
         start = end + 1;
     }
 
-    let mut merged: Vec<SubtitleSegment> = Vec::new();
-    for segment in segments {
-        if let Some(last) = merged.last_mut() {
-            let gap = segment.start_sec - last.end_sec;
-            if is_same_subtitle(&last.text, &segment.text) && gap < 0.35 {
-                last.end_sec = segment.end_sec;
-                if segment.text.chars().count() > last.text.chars().count() {
-                    last.text = segment.text;
-                }
-                continue;
-            }
-        }
-        merged.push(segment);
-    }
+    let mut merged = finalize_tts_safe_segments(segments, &[]);
 
     // Keep the new API's output ordered and avoid overlapping cues at transitions.
     for index in 1..merged.len() {
