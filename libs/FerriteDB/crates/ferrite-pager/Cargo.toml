@@ -1,0 +1,9 @@
+[package]
+name = "ferrite-pager"
+version = "0.5.2"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+ferrite-vfs = { path = "../ferrite-vfs" }
+thiserror = "2"

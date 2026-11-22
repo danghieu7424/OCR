@@ -1,0 +1,15 @@
+[package]
+name = "ferrite-cache"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+ferritedb-core = { path = "../.." }
+ferrite-btree = { path = "../ferrite-btree" }
+ferrite-vdbe = { path = "../ferrite-vdbe" }
+redis = { version = "0.32", default-features = false, features = ["script"] }
+thiserror = "2"
+
+[dev-dependencies]
+ferrite-vfs = { path = "../ferrite-vfs" }

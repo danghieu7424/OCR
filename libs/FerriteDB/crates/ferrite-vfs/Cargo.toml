@@ -1,0 +1,10 @@
+[package]
+name = "ferrite-vfs"
+version = "0.2.2"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+fs2 = "0.4"
+getrandom = "0.3"
+thiserror = "2"

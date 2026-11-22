@@ -1,0 +1,26 @@
+[package]
+name = "ferritedb-core"
+version = "0.4.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace]
+members = [
+    "crates/ferrite-btree",
+    "crates/ferrite-cache",
+    "crates/ferrite-vdbe",
+    "crates/ferrite-vfs",
+    "crates/ferrite-pager",
+    "crates/ferritedb",
+]
+resolver = "3"
+
+[dependencies]
+ferrite-btree = { path = "crates/ferrite-btree" }
+ferrite-pager = { path = "crates/ferrite-pager" }
+ferrite-vfs = { path = "crates/ferrite-vfs" }
+thiserror = "2"
+
+[dev-dependencies]
+ferrite-cache = { path = "crates/ferrite-cache" }
+ferrite-vdbe = { path = "crates/ferrite-vdbe" }

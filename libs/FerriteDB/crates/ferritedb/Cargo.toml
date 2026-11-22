@@ -1,0 +1,23 @@
+[package]
+name = "ferritedb"
+version = "0.2.1"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "An embedded Rust database with optional SQL and cache integrations"
+readme = "README.md"
+repository = "https://github.com/danghieu7424/FerriteDB"
+
+[features]
+default = ["sql"]
+sql = ["dep:ferrite-vdbe"]
+cache = ["dep:ferrite-cache", "sql"]
+full = ["sql", "cache"]
+
+[dependencies]
+ferritedb-core = { path = "../.." }
+ferrite-btree = { path = "../ferrite-btree" }
+ferrite-vfs = { path = "../ferrite-vfs" }
+ferrite-vdbe = { path = "../ferrite-vdbe", optional = true }
+ferrite-cache = { path = "../ferrite-cache", optional = true }
+
