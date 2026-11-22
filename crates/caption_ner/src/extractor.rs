@@ -162,4 +162,41 @@ impl CaptionEntityExtractor {
 
         extracted_name
     }
+
+    /// Extracts all distinct characters/entities found across potentially multi-line or multi-tag captions.
+    pub fn extract_all(&self, raw_vtt_text: &str, config: &NerConfig) -> Vec<String> {
+        let mut results = Vec::new();
+        for line in raw_vtt_text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let mut start_idx = 0;
+            let mut found_brackets = false;
+            while let Some(open) = trimmed[start_idx..].find('《') {
+                let abs_open = start_idx + open;
+                if let Some(close) = trimmed[abs_open..].find('》') {
+                    let close_end = abs_open + close + '》'.len_utf8();
+                    let tag = &trimmed[abs_open..close_end];
+                    if let Some(ch) = self.extract(tag, config) {
+                        if !results.contains(&ch) {
+                            results.push(ch);
+                        }
+                    }
+                    start_idx = close_end;
+                    found_brackets = true;
+                } else {
+                    break;
+                }
+            }
+            if !found_brackets {
+                if let Some(ch) = self.extract(trimmed, config) {
+                    if !results.contains(&ch) {
+                        results.push(ch);
+                    }
+                }
+            }
+        }
+        results
+    }
 }

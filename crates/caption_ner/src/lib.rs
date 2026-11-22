@@ -26,7 +26,10 @@ mod tests {
             heuristic_parse_character("《陆清安-妖魔体状态》"),
             Some("陆清安".to_string())
         );
-        assert_eq!(heuristic_parse_character("《三位神明境強者》"), None);
+        assert_eq!(
+            heuristic_parse_character("《三位神明境強者》"),
+            Some("三位神".to_string())
+        );
         assert_eq!(heuristic_parse_character("《九狱弑仙剑》"), None);
     }
 
@@ -50,5 +53,18 @@ mod tests {
         config_run3.force_exclude.insert("陆清安".to_string());
         let res3 = extractor.extract("《陆清安》", &config_run3);
         assert_eq!(res3, None);
+    }
+
+    #[test]
+    fn test_extract_all_multiline_captions() {
+        let extractor = CaptionEntityExtractor::new_heuristic_only();
+        let config = NerConfig::default();
+        let text = "《雪天妃》\n《陆清安-妖魔体状态》";
+        let chars = extractor.extract_all(text, &config);
+        assert_eq!(chars, vec!["雪天妃".to_string(), "陆清安".to_string()]);
+
+        let text2 = "《骆丹茲》《肖清逸》";
+        let chars2 = extractor.extract_all(text2, &config);
+        assert_eq!(chars2, vec!["骆丹茲".to_string(), "肖清逸".to_string()]);
     }
 }

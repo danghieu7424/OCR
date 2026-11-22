@@ -17,7 +17,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const SYSTEM_TRIGGER_KEYWORDS: &[&str] = &["系统提示", "宿主", "修为返还", "系统绑定"];
+const SYSTEM_TRIGGER_KEYWORDS: &[&str] = &["系统提示", "宿主", "修为返还", "系统绑定", "绑定系统"];
+const HONORIFIC_KEYWORDS: &[&str] = &[
+    "您", "主子", "师尊", "前辈", "大人", "属下", "小的", "契约兽", "帮您", "让您", "求您", "给您",
+];
+const SUPERIOR_KEYWORDS: &[&str] = &[
+    "你得", "你先", "你再", "必须", "去吧", "给你", "看在你的", "你继续", "你去",
+];
+
+fn is_female_name(name: &str) -> bool {
+    let female_indicators = ["妃", "女", "妻", "妹", "娘", "母", "姐", "姑", "婆"];
+    female_indicators.iter().any(|&k| name.contains(k))
+}
 
 /// Acoustic voiceprint features extracted from an audio segment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,19 +62,26 @@ pub struct CharacterVoiceProfile {
     pub pitch_mean: f32,
     pub pitch_min: f32,
     pub pitch_max: f32,
+    #[serde(default = "default_rms_mean")]
+    pub rms_mean: f32,
     pub low_ratio_mean: f32,
     pub mid_ratio_mean: f32,
     pub high_ratio_mean: f32,
 }
 
+fn default_rms_mean() -> f32 {
+    5500.0
+}
+
 impl CharacterVoiceProfile {
-    pub fn new(name: &str, pitch: f32) -> Self {
+    pub fn new(name: &str, pitch: f32, rms: f32) -> Self {
         Self {
             name: name.to_string(),
             sample_count: 1,
             pitch_mean: pitch,
             pitch_min: pitch,
             pitch_max: pitch,
+            rms_mean: if rms > 0.0 { rms } else { 5500.0 },
             low_ratio_mean: 0.45,
             mid_ratio_mean: 0.40,
             high_ratio_mean: 0.15,
@@ -71,8 +89,8 @@ impl CharacterVoiceProfile {
     }
 
     pub fn update(&mut self, vp: &Voiceprint) {
+        let n = self.sample_count as f32;
         if vp.pitch > 0.0 {
-            let n = self.sample_count as f32;
             if self.pitch_mean > 0.0 {
                 self.pitch_mean = (self.pitch_mean * n + vp.pitch) / (n + 1.0);
             } else {
@@ -84,15 +102,29 @@ impl CharacterVoiceProfile {
             if vp.pitch > self.pitch_max {
                 self.pitch_max = vp.pitch;
             }
-            self.sample_count += 1;
         }
+        if vp.rms_energy > 0.0 {
+            if self.rms_mean > 0.0 {
+                self.rms_mean = (self.rms_mean * n + vp.rms_energy) / (n + 1.0);
+            } else {
+                self.rms_mean = vp.rms_energy;
+            }
+        }
+        self.sample_count += 1;
     }
 
     pub fn distance(&self, vp: &Voiceprint) -> f32 {
-        if vp.pitch <= 0.0 || self.pitch_mean <= 0.0 {
-            return 0.50;
-        }
-        (self.pitch_mean - vp.pitch).abs() / self.pitch_mean.max(50.0)
+        let dp = if vp.pitch > 0.0 && self.pitch_mean > 0.0 {
+            (self.pitch_mean - vp.pitch).abs() / self.pitch_mean.max(50.0)
+        } else {
+            0.35
+        };
+        let drms = if vp.rms_energy > 0.0 && self.rms_mean > 0.0 {
+            (self.rms_mean - vp.rms_energy).abs() / self.rms_mean.max(1000.0)
+        } else {
+            0.0
+        };
+        dp * 0.70 + drms * 0.30
     }
 }
 
@@ -134,10 +166,36 @@ impl VoiceprintGallery {
         if let Some(profile) = self.characters.get_mut(name) {
             profile.update(vp);
         } else {
-            let mut profile = CharacterVoiceProfile::new(name, vp.pitch);
+            let mut profile = CharacterVoiceProfile::new(name, vp.pitch, vp.rms_energy);
             profile.update(vp);
             self.characters.insert(name.to_string(), profile);
         }
+    }
+
+    pub fn match_speaker_in_pool(
+        &self,
+        vp: &Voiceprint,
+        candidate_names: &[String],
+        last_speaker: &str,
+    ) -> Option<String> {
+        if candidate_names.is_empty() {
+            return None;
+        }
+
+        let mut best: Option<(&str, f32)> = None;
+        for name in candidate_names {
+            if let Some(profile) = self.characters.get(name) {
+                let mut dist = profile.distance(vp);
+                // In a multi-speaker dialog, slight bias to turn alternation if there was a pause
+                if name != last_speaker && !last_speaker.is_empty() {
+                    dist *= 0.88;
+                }
+                if best.as_ref().is_none_or(|(_, d)| dist < *d) {
+                    best = Some((name.as_str(), dist));
+                }
+            }
+        }
+        best.map(|(name, _)| name.to_string())
     }
 
     pub fn match_speaker(&self, vp: &Voiceprint, is_female: bool) -> Option<String> {
@@ -151,7 +209,7 @@ impl VoiceprintGallery {
                 continue;
             }
             let dist = profile.distance(vp);
-            if dist <= 0.35 && best.as_ref().is_none_or(|(_, d)| dist < *d) {
+            if dist <= 0.40 && best.as_ref().is_none_or(|(_, d)| dist < *d) {
                 best = Some((profile, dist));
             }
         }
@@ -360,13 +418,13 @@ where
     let mut caps: Vec<(u64, u64, String)> = Vec::new();
     let mut episode_characters: Vec<String> = Vec::new();
     for c in cues {
-        if c.is_caption
-            && let Some(ch) = extractor.extract(&c.text, &ner_config)
-        {
-            if !episode_characters.contains(&ch) {
-                episode_characters.push(ch.clone());
+        if c.is_caption {
+            for ch in extractor.extract_all(&c.text, &ner_config) {
+                if !episode_characters.contains(&ch) {
+                    episode_characters.push(ch.clone());
+                }
+                caps.push((c.start_ms, c.end_ms, ch));
             }
-            caps.push((c.start_ms, c.end_ms, ch));
         }
     }
 
@@ -393,13 +451,27 @@ where
 
     // Stage 2: Register voiceprints for subtitle cues overlapping with caption anchors
     for &(c_st, c_et, ref ch) in &caps {
+        let mut best_cue: Option<(usize, f32)> = None;
         for &(cue_idx, ref vp) in &sub_voiceprints {
             let cue = &cues[cue_idx];
             let overlaps = cue.start_ms < c_et && cue.end_ms > c_st;
-            let close = (cue.start_ms as i64 - c_st as i64).abs() <= 1500;
+            let close = (cue.start_ms as i64 - c_st as i64).abs() <= 1200;
             if (overlaps || close) && vp.pitch > 0.0 {
-                gallery.register(ch, vp);
+                // If multiple captions overlap, avoid registering female screams to male characters
+                let is_likely_female = vp.pitch >= 220.0;
+                let ch_is_female = ch.contains('妃') || ch.contains('女') || ch.contains('妻');
+                if ch_is_female && !is_likely_female {
+                    continue;
+                }
+                let diff = (cue.start_ms as i64 - c_st as i64).abs() as f32;
+                if best_cue.as_ref().is_none_or(|(_, d)| diff < *d) {
+                    best_cue = Some((cue_idx, diff));
+                }
             }
+        }
+        if let Some((idx, _)) = best_cue {
+            let (_, vp) = sub_voiceprints.iter().find(|(i, _)| *i == idx).unwrap();
+            gallery.register(ch, vp);
         }
     }
 
@@ -408,6 +480,7 @@ where
     let mut last_speaker = String::new();
     let mut last_end_ms = 0u64;
     let mut last_pitch = 0.0f32;
+    let mut last_rms = 0.0f32;
 
     let mut vp_map: HashMap<usize, Voiceprint> = sub_voiceprints.into_iter().collect();
 
@@ -423,21 +496,23 @@ where
 
         let speaker = attribute_single_cue(
             clean_txt,
-            vp.pitch,
+            &vp,
             cue.start_ms,
             last_end_ms,
             last_pitch,
+            last_rms,
             &last_speaker,
             &caps,
             gallery,
             &episode_characters,
         );
 
-        // Update gallery dynamically
+        // Update gallery dynamically only when confidence is high
         if !speaker.is_empty()
             && speaker != "系统"
             && speaker != "MANY_PEOPLE"
             && !speaker.starts_with("SPEAKER_")
+            && vp.pitch > 0.0
         {
             gallery.register(&speaker, &vp);
         }
@@ -445,6 +520,7 @@ where
         last_speaker = speaker.clone();
         last_end_ms = cue.end_ms;
         last_pitch = vp.pitch;
+        last_rms = vp.rms_energy;
 
         attributed.push(VttCue {
             start_ms: cue.start_ms,
@@ -474,105 +550,160 @@ pub fn attribute_cues_dynamic(
 #[allow(clippy::too_many_arguments)]
 fn attribute_single_cue(
     txt: &str,
-    pitch: f32,
+    vp: &Voiceprint,
     start_ms: u64,
     last_end_ms: u64,
     last_pitch: f32,
+    _last_rms: f32,
     last_speaker: &str,
     caps: &[(u64, u64, String)],
     gallery: &VoiceprintGallery,
     episode_characters: &[String],
 ) -> String {
-    // 1. Phim có yếu tố hệ thống (tổng quát)
+    let pitch = vp.pitch;
+    let _rms = vp.rms_energy;
+
+    // 1. Phim có yếu tố hệ thống (khái niệm thể loại tổng quát)
     if SYSTEM_TRIGGER_KEYWORDS.iter().any(|&k| txt.contains(k)) || txt.contains("系统") {
         return "系统".to_string();
     }
 
-    // 2. Neo trực tiếp theo Caption nhân vật xuất hiện gần thời điểm câu thoại
-    let is_female = pitch >= 190.0;
-    let near_caps: Vec<&String> = caps
+    // 2. Xác định các nhân vật chính và ứng viên trong tập/phân cảnh hiện tại
+    let main_protagonist = episode_characters
         .iter()
-        .filter(|(c_st, c_et, _)| {
-            let overlaps = start_ms < *c_et && start_ms + 1000 > *c_st;
-            let close = (*c_st as i64 - start_ms as i64).abs() <= 2000;
-            overlaps || close
+        .find(|name| !is_female_name(name) && !name.contains('神') && !name.contains('魔'))
+        .cloned()
+        .or_else(|| {
+            // Check in gallery for the most recurring non-female protagonist
+            gallery
+                .characters
+                .iter()
+                .filter(|(name, _)| !is_female_name(name) && !name.contains('神') && !name.contains('魔'))
+                .max_by_key(|(_, prof)| prof.sample_count)
+                .map(|(name, _)| name.clone())
+        })
+        .unwrap_or_else(|| {
+            episode_characters.first().cloned().unwrap_or_else(|| "SPEAKER_01".to_string())
+        });
+
+    // 3. Direct Caption Anchor matching
+    let is_female_voice = pitch >= 220.0;
+    let matching_caps: Vec<&String> = caps
+        .iter()
+        .filter(|(c_st, c_et, ch)| {
+            let overlaps = start_ms < *c_et && start_ms + 800 > *c_st;
+            let close = (*c_st as i64 - start_ms as i64).abs() <= 1000;
+            if !(overlaps || close) {
+                return false;
+            }
+            // Avoid binding female caption to deep male voice
+            if is_female_name(ch) && pitch > 0.0 && !is_female_voice {
+                return false;
+            }
+            true
         })
         .map(|(_, _, ch)| ch)
         .collect();
 
-    if !near_caps.is_empty() {
-        if near_caps.len() == 1 {
-            return near_caps[0].clone();
+    // 4. Kiểm tra tính liên tục của người nói (Continuity)
+    let gap_ms = start_ms.saturating_sub(last_end_ms);
+    let pitch_jump = pitch > 0.0 && last_pitch > 0.0 && (pitch - last_pitch).abs() >= 45.0;
+
+    // Khoảng cách micro (<= 30ms) hoặc câu nói tiếp (<= 250ms không có bước nhảy F0):
+    if gap_ms <= 250 && !last_speaker.is_empty() && last_speaker != "系统" && !pitch_jump {
+        return last_speaker.to_string();
+    }
+
+    // Nếu có Direct Anchor rõ ràng và không phải trường hợp giọng trầm của nhân vật chính đang nói:
+    if !matching_caps.is_empty() {
+        if matching_caps.len() == 1 {
+            let candidate = matching_caps[0];
+            if candidate != &main_protagonist && pitch > 0.0 && pitch < 170.0 && last_speaker == main_protagonist && gap_ms <= 300 {
+                return main_protagonist;
+            }
+            return candidate.clone();
         } else {
-            // Có >= 2 caption cùng xuất hiện: phân biệt theo gallery profile hoặc pitch nam/nữ
-            for ch in &near_caps {
+            for ch in &matching_caps {
                 if let Some(prof) = gallery.characters.get(*ch) {
-                    let prof_female = prof.pitch_mean >= 190.0;
-                    if pitch > 0.0 && prof_female == is_female {
+                    let prof_female = is_female_name(ch) || prof.pitch_mean >= 220.0;
+                    if pitch > 0.0 && prof_female == is_female_voice {
                         return (*ch).clone();
                     }
                 }
             }
-            return near_caps[0].clone();
+            if is_female_voice {
+                if let Some(ch) = matching_caps.iter().find(|c| is_female_name(c)) {
+                    return (*ch).clone();
+                }
+            } else if let Some(ch) = matching_caps.iter().find(|c| !is_female_name(c)) {
+                return (*ch).clone();
+            }
+            return matching_caps[0].clone();
         }
     }
 
-    // 3. Continuity: Hội thoại liền mạch giữa 2 câu
-    let gap_ms = start_ms.saturating_sub(last_end_ms);
-    if gap_ms <= 800
-        && !last_speaker.is_empty()
-        && last_speaker != "系统"
-        && (pitch == 0.0 || last_pitch == 0.0 || (pitch - last_pitch).abs() < 55.0)
-    {
-        return last_speaker.to_string();
+    // 5. Ngữ dụng học đối thoại (Dialogue Pragmatics / Linguistic Role Indicators):
+    let has_honorific = HONORIFIC_KEYWORDS.iter().any(|&k| txt.contains(k));
+    let has_superior = SUPERIOR_KEYWORDS.iter().any(|&k| txt.contains(k));
+
+    // Tìm đối tác hội thoại trong phân cảnh (nhân vật nam khác xuất hiện gần nhất)
+    let scene_partner = caps
+        .iter()
+        .filter(|(c_st, _, ch)| ch != &main_protagonist && !is_female_name(ch) && (*c_st as i64 - start_ms as i64).abs() <= 60_000)
+        .map(|(_, _, ch)| ch.clone())
+        .next_back()
+        .or_else(|| {
+            episode_characters
+                .iter()
+                .find(|ch| *ch != &main_protagonist && !is_female_name(ch))
+                .cloned()
+        })
+        .or_else(|| {
+            gallery
+                .characters
+                .keys()
+                .find(|ch| *ch != &main_protagonist && !is_female_name(ch))
+                .cloned()
+        });
+
+    if has_honorific && !has_superior {
+        if let Some(ref partner) = scene_partner {
+            return partner.clone();
+        }
+    }
+    if has_superior && !has_honorific {
+        return main_protagonist;
     }
 
-    // 4. Voiceprint Gallery Matching: So khớp với các nhân vật ĐÃ CÓ trong kho của bộ phim
-    let vp = Voiceprint {
-        pitch,
-        rms_energy: 0.0,
-        zcr: 0.0,
-        low_band_ratio: 0.40,
-        mid_band_ratio: 0.40,
-        high_band_ratio: 0.20,
-    };
-    if let Some(matched) = gallery.match_speaker(&vp, is_female) {
+    // 6. Phân cụm âm học (Acoustic Distance Matching):
+    let mut candidate_pool: Vec<String> = Vec::new();
+    for (_, _, ch) in caps.iter().filter(|(c_st, _, _)| (*c_st as i64 - start_ms as i64).abs() <= 60_000) {
+        if !candidate_pool.contains(ch) {
+            candidate_pool.push(ch.clone());
+        }
+    }
+    if !candidate_pool.contains(&main_protagonist) {
+        candidate_pool.push(main_protagonist.clone());
+    }
+    if let Some(ref partner) = scene_partner {
+        if !candidate_pool.contains(partner) {
+            candidate_pool.push(partner.clone());
+        }
+    }
+
+    if let Some(matched) = gallery.match_speaker_in_pool(vp, &candidate_pool, last_speaker) {
         return matched;
     }
 
-    // 5. Fallback tự nhiên theo hồ sơ nhân vật của chính bộ phim đang xử lý
-    if !gallery.characters.is_empty() {
-        let mut best: Option<(&String, f32)> = None;
-        for (name, prof) in &gallery.characters {
-            let prof_female = prof.pitch_mean >= 190.0;
-            if pitch > 0.0 && prof_female != is_female {
-                continue;
-            }
-            let diff = if pitch > 0.0 {
-                (prof.pitch_mean - pitch).abs()
-            } else {
-                0.0
-            };
-            if best.as_ref().is_none_or(|(_, d)| diff < *d) {
-                best = Some((name, diff));
-            }
+    // 7. Fallback đối thoại hai bên (Two-party ping-pong):
+    if let Some(ref partner) = scene_partner {
+        if last_speaker == main_protagonist {
+            partner.clone()
+        } else {
+            main_protagonist
         }
-        if let Some((name, _)) = best {
-            return name.clone();
-        }
-    }
-
-    if !episode_characters.is_empty() {
-        return episode_characters[0].clone();
-    }
-
-    // 6. Trường hợp ngoại lệ: bộ phim hoàn toàn chưa hề có caption nhân vật nào
-    if pitch > 0.0 && pitch < 190.0 {
-        "SPEAKER_MALE".to_string()
-    } else if pitch >= 190.0 {
-        "SPEAKER_FEMALE".to_string()
     } else {
-        "SPEAKER_01".to_string()
+        main_protagonist
     }
 }
 
@@ -680,10 +811,15 @@ pub fn evaluate_vtt_accuracy(attributed_vtt: &Path, ref_vtt: &Path) -> Result<f3
         if c.text.starts_with('《') || c.settings.as_deref().unwrap_or("").contains("line:20%") {
             continue;
         }
-        if let Some(rest) = c.text.strip_prefix('[')
-            && let Some((spk, _)) = rest.split_once("]:")
-        {
-            ref_subs.push((c.start_ms, c.end_ms, spk.trim().to_string()));
+        let spk_opt = if let Some(rest) = c.text.strip_prefix("<v ") {
+            rest.split('>').next().map(|s| s.trim().to_string())
+        } else if let Some(rest) = c.text.strip_prefix('[') {
+            rest.split_once("]:").map(|(s, _)| s.trim().to_string())
+        } else {
+            None
+        };
+        if let Some(spk) = spk_opt {
+            ref_subs.push((c.start_ms, c.end_ms, spk));
         }
     }
 
@@ -752,6 +888,14 @@ mod tests {
         assert_eq!(
             parse_character_from_caption("《临城城主-肖清逸》"),
             Some("肖清逸".to_string())
+        );
+        assert_eq!(
+            parse_character_from_caption("《三位神明境強者》"),
+            Some("三位神".to_string())
+        );
+        assert_eq!(
+            parse_character_from_caption("《黑龙身外化身》"),
+            Some("黑龙".to_string())
         );
         assert_eq!(parse_character_from_caption("《魔域与仙墟交界处》"), None);
         assert_eq!(parse_character_from_caption("《九狱弑仙剑》"), None);
