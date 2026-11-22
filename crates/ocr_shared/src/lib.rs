@@ -4,9 +4,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub mod ferrite_cache;
 pub mod frame_provider;
 pub mod studio_director;
+pub mod vad;
 pub use frame_provider::{
     CancellationToken, FrameProcessingOptions, FrameProgress, FrameProgressPhase, FrameProvider,
     Rgb24Frame, crop_rgb24, roi_bounds, timestamp_range, validate_frame,
+};
+pub use vad::{
+    AudioChunk, SpeechSpan, VadConfig, chunk_cache_id, detect_speech_spans,
+    detect_speech_spans_default, pcm_i16_to_f32, plan_audio_chunks,
 };
 
 pub struct CpuOptimizer;
