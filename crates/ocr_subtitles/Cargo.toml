@@ -8,7 +8,9 @@ license = "MIT OR Apache-2.0"
 ocr_shared = { path = "../ocr_shared" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-ort = "=2.0.0-rc.12"
+# `load-dynamic`: nạp onnxruntime.dll lúc chạy (không tải binary prebuilt lúc build).
+# `default-features = false`: tránh `download-binaries`/`copy-dylibs` và api mặc định.
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "load-dynamic"] }
 pure-onnx-ocr = "0.3.2"
 opencv = { version = "0.101.1", features = ["imgproc", "clang-runtime"] }
 image = "0.25"

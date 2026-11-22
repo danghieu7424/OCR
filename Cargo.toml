@@ -13,7 +13,7 @@ exclude = ["libs/FerriteDB"]
 
 [package]
 name = "ocr-core"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
@@ -55,4 +55,11 @@ serde_json = "1.0"
 cli_gui_form = { path = "./cli_gui_form" }
 ratatui = "0.28"
 image = "0.25"
+
+# ort 2.0.0-rc.12 dính deadlock OnceLock ở nhánh `load-dynamic` (pykeio/ort
+# #560, #579, #604) làm `Session::builder()` treo vĩnh viễn. Bản sửa (17ed727,
+# 8c59e43) chỉ có trên main, chưa phát hành — ghim commit cho tới rc.13.
+[patch.crates-io]
+ort = { git = "https://github.com/pykeio/ort", rev = "8c59e43826c5e24b0798941f832d11abb398142d" }
+ort-sys = { git = "https://github.com/pykeio/ort", rev = "8c59e43826c5e24b0798941f832d11abb398142d" }
 

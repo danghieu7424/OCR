@@ -166,6 +166,7 @@ Các package của workspace được cấp phép theo lựa chọn của bạn:
    - `det.onnx`: DBNet Text Detection.
    - `rec.onnx`: PP-OCRv6 Text Recognition.
    - `keys.txt`: Từ điển ký tự tương ứng.
+5. **ONNX Runtime runtime DLL**: `onnxruntime.dll` (x64) phiên bản **≥ 1.24** phải nằm cạnh binary, hoặc trỏ tới bằng biến môi trường `ORT_DYLIB_PATH`. `ort` được build cho API 24 nên DLL cũ hơn (ví dụ 1.20.1) sẽ báo `BadVersion` khi khởi tạo engine.
 
 ## Kiểm thử và đối chiếu
 

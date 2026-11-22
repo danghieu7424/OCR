@@ -48,8 +48,17 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 - `tools/compare_subs.py`: nhận cả output `.subtitles.zh.vtt` và `.zh.vtt`; báo Conditional Character Accuracy trên cue đã căn và Overall CER có tính ký tự cue thiếu/thừa.
 - `examples/extract_and_merge.rs`: hỗ trợ trích xuất subtitle/caption song song bằng `std::thread::scope`, hiển thị tiến trình riêng và tùy chọn `--sequential`.
 
+- Pipeline trong `examples/extract_and_merge.rs` chỉ trích xuất hai VTT OCR thô rồi merge trực tiếp, không hiệu đính nội dung.
+- Chạy lại đủ 20 tập S01 sau thay đổi OCR và cập nhật `evaluate.md`: Conditional Character Accuracy 99.22%, Overall CER 0.97% (`--norm none`).
+- `examples/merge_subtitles_captions.rs` ưu tiên `.subtitles.zh.vtt` và không còn tự chọn file `.refined.zh.vtt` để merge.
+- `examples/extract_and_merge.rs`: thêm cờ `--caption-evidence` để xuất ảnh bằng chứng và cảnh báo caption; lỗi xử lý video được phản ánh bằng mã thoát khác 0.
+- `readme.md` và `plan.md`: mô tả phạm vi model tiếng Trung, ROI theo profile, pipeline không hiệu đính và cách đánh giá không cam kết điểm số cho mọi video.
+- `readme.md`: Đồng bộ và quy chuẩn toàn bộ phần tài liệu tải mô hình sang chuẩn **PP-OCRv6** (Medium ONNX và từ điển chính thức PaddleOCR), xóa bỏ hoàn toàn các phần tham chiếu cũ PP-OCRv4 và PP-OCRv5.
+- `examples/extract_captions.rs`, `examples/extract_subtitles.rs`, `examples/extract_and_merge.rs`: Bổ sung cơ chế tự động tải trực tiếp bộ mô hình **PP-OCRv6** Medium (`det.onnx`, `rec.onnx`, `keys.txt`) từ HuggingFace PaddlePaddle và PaddleOCR GitHub khi không tìm thấy file local và file nén `ocr.zip`.
 ### Sửa
 
+- `ocr-core`: Ghim `ort`/`ort-sys` về commit `8c59e43` của `pykeio/ort` bằng `[patch.crates-io]` để thoát deadlock `OnceLock` tái nhập ở nhánh `load-dynamic` (pykeio/ort #560, #579, #604 — bản sửa chỉ có trên `main`, chưa phát hành). Triệu chứng cũ: `Session::builder()` treo vĩnh viễn với CPU ~0% và không báo lỗi, cả khi `onnxruntime.dll` đã nằm cạnh binary và `ORT_DYLIB_PATH` trỏ đúng, làm cả luồng trích xuất phụ đề đứng ở bước khởi tạo engine.
+- `ocr_subtitles`: `ort` được build với API 24 nên runtime phải là `onnxruntime.dll` ≥ 1.24; bản 1.20.1 trước đây bị `BadVersion` (nay báo lỗi rõ ràng thay vì treo). Đã kiểm chứng với runtime 1.28.0 (x64): `det.onnx` + `rec.onnx` nạp được và trích xuất đúng cue.
 - `ocr-cli`: Sửa lỗi vô tình chạy lại OCR khi không truyền `--force` và thư mục `.tmp_<stem>` đã có sẵn file `subtitles.zh.vtt` cùng `captions.zh.vtt` hợp lệ. Chỉ kích hoạt chạy lại OCR khi người dùng chỉ định rõ cờ `--force`. Khi file thô đã có sẵn, CLI tự động bỏ qua toàn bộ luồng OCR, không in thanh tiến trình OCR gây hiểu lầm, và chuyển thẳng sang bước re-merge và chạy lại Light-ASD.
 - `ocr-cli`: Khi truyền `--attribute-speakers`, luôn thực hiện re-merge từ hai file VTT thô trong `.tmp` ra file merged sạch để Light-ASD gán nhãn danh tính nhân vật mới nhất mà không bị giữ lại nhãn cũ hoặc lỗi phụ đề.
 - `caption_ner`: Khắc phục hiện tượng treo khi khởi tạo engine ONNX trên Windows do thư viện hệ thống xung đột, mặc định kích hoạt bộ phân tích Heuristic + User Overrides thuần Rust siêu tốc (0.1ms) và chỉ bật ONNX runtime khi có cờ môi trường `GLINER_USE_ONNX=1`.
@@ -59,16 +68,6 @@ Mọi thay đổi đáng chú ý của dự án được ghi lại trong tệp n
 - `ocr_captions`: Chia các cột dọc thành từng thẻ theo khoảng cách ngang và độ chồng lấp Y; xuất cue đồng thời riêng biệt, đồng thời đối chiếu watermark bằng fingerprint chữ và IoU. Track confidence thấp chỉ được cứu khi có quan sát lặp lại, box đủ lớn theo tỷ lệ khung hình và confidence trung bình đạt ngưỡng chung, không dựa trên nội dung ký tự.
 - `ocr_captions`: Crop ảnh evidence riêng theo box của từng thẻ, không gộp các thẻ xuất hiện đồng thời vào một ảnh.
 - `ocr_subtitles`: Tách cụm box cùng dòng theo tính liền mạch và vị trí, mở rộng padding ngang để giữ nét đầu dòng; tổng hợp ký tự bằng căn chỉnh LCS có trọng số confidence và kiểm tra track box/confidence cho cue ngắn.
-
-### Thay đổi
-
-- Pipeline trong `examples/extract_and_merge.rs` chỉ trích xuất hai VTT OCR thô rồi merge trực tiếp, không hiệu đính nội dung.
-- Chạy lại đủ 20 tập S01 sau thay đổi OCR và cập nhật `evaluate.md`: Conditional Character Accuracy 99.22%, Overall CER 0.97% (`--norm none`).
-- `examples/merge_subtitles_captions.rs` ưu tiên `.subtitles.zh.vtt` và không còn tự chọn file `.refined.zh.vtt` để merge.
-- `examples/extract_and_merge.rs`: thêm cờ `--caption-evidence` để xuất ảnh bằng chứng và cảnh báo caption; lỗi xử lý video được phản ánh bằng mã thoát khác 0.
-- `readme.md` và `plan.md`: mô tả phạm vi model tiếng Trung, ROI theo profile, pipeline không hiệu đính và cách đánh giá không cam kết điểm số cho mọi video.
-- `readme.md`: Đồng bộ và quy chuẩn toàn bộ phần tài liệu tải mô hình sang chuẩn **PP-OCRv6** (Medium ONNX và từ điển chính thức PaddleOCR), xóa bỏ hoàn toàn các phần tham chiếu cũ PP-OCRv4 và PP-OCRv5.
-- `examples/extract_captions.rs`, `examples/extract_subtitles.rs`, `examples/extract_and_merge.rs`: Bổ sung cơ chế tự động tải trực tiếp bộ mô hình **PP-OCRv6** Medium (`det.onnx`, `rec.onnx`, `keys.txt`) từ HuggingFace PaddlePaddle và PaddleOCR GitHub khi không tìm thấy file local và file nén `ocr.zip`.
 
 ### Gỡ bỏ
 
